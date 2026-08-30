@@ -1,0 +1,14 @@
+import { errorLogTag } from "../../../shared/errors.js";
+import { CURSOR_MARKETPLACE_REQUEST_TIMEOUT_MS } from "../../../shared/node/marketplace/cursor-marketplace-client.js";
+import { rememberPluginLogoUrl } from "../../../shared/node/marketplace/cursor-marketplace-logo-registry.js";
+
+export interface ManagedSkillsClient { getManagedSkills(request: Record<string, never>, options: { timeoutMs: number }): Promise<{ skills: readonly { id: string; description: string; content: string; enabled?: boolean | null }[] }>; listMarketplacePlugins(request: { excludeCloudAgentPlugins: true }, options: { timeoutMs: number }): Promise<{ plugins: readonly MarketplacePlugin[] }> }
+export interface MarketplacePlugin { id: string | number | bigint; name: string; displayName: string; logoUrl?: string | null; publisher?: { logoUrl?: string | null } | null; skills: readonly { name: string; description?: string | null; sourceUrl?: string | null }[] }
+export interface SkillCatalogEntry { id: string; name: string; description: string; source: "marketplace"; publisher: string; iconUrl?: string; install: { kind: "url"; url: string } }
+export async function fetchSandManagedSkills(options: { client: ManagedSkillsClient }): Promise<Array<{ id: string; description: string; content: string; enabled: boolean }>> { const response = await options.client.getManagedSkills({}, { timeoutMs: CURSOR_MARKETPLACE_REQUEST_TIMEOUT_MS }); return response.skills.map((skill) => ({ id: skill.id, description: skill.description, content: skill.content, enabled: skill.enabled ?? true })); }
+export async function fetchSkillCatalog(client: ManagedSkillsClient, report?: (event: { extension: "managed_setup"; kind: "skills_catalog"; errorClass: string }) => void): Promise<SkillCatalogEntry[]> {
+  const entries: SkillCatalogEntry[] = [], seen = new Set<string>();
+  try { const response = await client.listMarketplacePlugins({ excludeCloudAgentPlugins: true }, { timeoutMs: CURSOR_MARKETPLACE_REQUEST_TIMEOUT_MS }); for (const plugin of response.plugins) { const logoUrl = plugin.publisher?.logoUrl || plugin.logoUrl || undefined; for (const skill of plugin.skills) { const url = skill.sourceUrl; if (!url) continue; const key = skill.name.toLowerCase(); if (seen.has(key)) continue; seen.add(key); if (logoUrl != null) rememberPluginLogoUrl(logoUrl); entries.push({ id: `plugin:${plugin.id.toString()}:${skill.name}`, name: skill.name, description: skill.description ?? "", source: "marketplace", publisher: plugin.displayName.length > 0 ? plugin.displayName : plugin.name, ...(logoUrl == null ? {} : { iconUrl: logoUrl }), install: { kind: "url", url } }); } } }
+  catch (error) { report?.({ extension: "managed_setup", kind: "skills_catalog", errorClass: errorLogTag(error) }); }
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
+}

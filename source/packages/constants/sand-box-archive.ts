@@ -1,0 +1,3 @@
+export const SAND_BOX_PERSIST_ARCHIVE_EXCLUDES = ["home/box/chrome-profile/*/Cache", "home/box/chrome-profile/*/Code Cache", "home/box/chrome-profile/*/GPUCache", "home/box/chrome-profile/*/Service Worker/CacheStorage"] as const;
+export const SAND_WORKSPACE_IGNORE_FILE_NAME = ".sandignore";
+export const SAND_BOX_WORKSPACE_DEFAULT_IGNORE_PATTERNS = ["node_modules/", ".next/", ".nuxt/", ".svelte-kit/", ".turbo/", ".parcel-cache/", ".cache/", "dist/", "build/", "out/", "coverage/", "__pycache__/", "*.pyc", "*.pyo", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", ".tox/", ".ipynb_checkpoints/", "*.egg-info/", ".eggs/", "target/", ".gradle/", "core.[0-9]*", "*.core"] as const;

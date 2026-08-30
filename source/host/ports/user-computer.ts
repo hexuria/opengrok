@@ -1,0 +1,2 @@
+export const DEFAULT_SAND_COMPUTER_ID = "this-computer";
+export function createSingleUserComputer<Box>(args: { box: Box; label?: string; isConnected?: () => boolean }) { const id = DEFAULT_SAND_COMPUTER_ID; const label = args.label ?? "this computer"; const connected = () => args.isConnected?.() ?? true; return { list: () => [{ id, label, connected: connected() }], resolve: (requestedId?: string) => requestedId !== undefined && requestedId !== id || !connected() ? undefined : { id, label, box: args.box } }; }

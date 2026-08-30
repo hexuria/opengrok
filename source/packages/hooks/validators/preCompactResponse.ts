@@ -1,0 +1,3 @@
+import { createValidationResult, isObject, type ValidationResult } from "./base.js";
+import { validateBaseHookResponse } from "./baseHookResponse.js";
+export function validatePreCompactResponse(value: unknown): ValidationResult { const base = validateBaseHookResponse(value); if (!base.isValid) return base; if (!isObject(value) || Object.keys(value).length === 0) return createValidationResult(true); const errors: string[] = []; if (value.user_message !== undefined && typeof value.user_message !== "string") errors.push("user_message must be a string"); return createValidationResult(errors.length === 0, errors); }

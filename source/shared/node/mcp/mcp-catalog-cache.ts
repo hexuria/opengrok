@@ -1,0 +1,3 @@
+export const CATALOG_CACHE_TTL_MS = 30_000;
+export const isLoopbackHostname = (hostname: string): boolean => hostname === "localhost" || hostname === "127.0.0.1";
+export function validateAuthorizationUrl(authUrl: string, serverUrl?: string): string | undefined { let parsed: URL; try { parsed = new URL(authUrl.trim()); } catch { return undefined; } if (parsed.protocol === "https:") return parsed.toString(); if (parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname)) { try { const server = serverUrl == null ? undefined : new URL(serverUrl); if (server != null && isLoopbackHostname(server.hostname)) return parsed.toString(); } catch {} } return undefined; }

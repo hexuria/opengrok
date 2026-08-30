@@ -1,0 +1,151 @@
+/*
+ * Chrome only. The message bubbles are styled by COLLECTION_BUBBLE_CSS from
+ * source/shared/collections/collection-render.ts, which the HTML exporter
+ * inlines verbatim, so a saved file and this window cannot drift apart.
+ */
+
+:root {
+  color-scheme: light dark;
+  --sand-col-bg: #fff;
+  --sand-col-fg: #16161a;
+  --sand-col-side-bg: #f7f7f9;
+  --sand-col-border: rgba(0, 0, 0, .12);
+  --sand-col-hover: rgba(0, 0, 0, .05);
+  --sand-col-active: rgba(29, 155, 240, .14);
+  --sand-col-agent-bg: #f1f1f4;
+  --sand-col-agent-fg: #16161a;
+  --sand-col-user-bg: #1d9bf0;
+  --sand-col-user-fg: #fff;
+  --sand-col-code-bg: rgba(0, 0, 0, .06);
+  --sand-col-chip-border: rgba(0, 0, 0, .22);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sand-col-bg: #161619;
+    --sand-col-fg: #ececf0;
+    --sand-col-side-bg: #1c1c20;
+    --sand-col-border: rgba(255, 255, 255, .12);
+    --sand-col-hover: rgba(255, 255, 255, .06);
+    --sand-col-active: rgba(29, 155, 240, .2);
+    --sand-col-agent-bg: #26262b;
+    --sand-col-agent-fg: #ececf0;
+    --sand-col-user-bg: #1d6fd0;
+    --sand-col-user-fg: #fff;
+    --sand-col-code-bg: rgba(255, 255, 255, .08);
+    --sand-col-chip-border: rgba(255, 255, 255, .24);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--sand-col-bg);
+  color: var(--sand-col-fg);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sand-col-app { display: flex; height: 100vh; }
+
+.sand-col-side {
+  width: 232px;
+  flex: 0 0 232px;
+  background: var(--sand-col-side-bg);
+  border-right: 1px solid var(--sand-col-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sand-col-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 12px 10px;
+}
+
+.sand-col-side-title { font-weight: 700; font-size: 13px; letter-spacing: .01em; }
+
+.sand-col-list { overflow-y: auto; padding: 0 8px 12px; }
+
+.sand-col-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.sand-col-row:hover { background: var(--sand-col-hover); }
+.sand-col-row[aria-current="true"] { background: var(--sand-col-active); font-weight: 600; }
+.sand-col-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sand-col-row-count { font-size: 11px; opacity: .55; font-variant-numeric: tabular-nums; }
+
+.sand-col-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.sand-col-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--sand-col-border);
+}
+
+.sand-col-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  outline: none;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.sand-col-title[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  background: var(--sand-col-hover);
+}
+
+.sand-col-topbar-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+.sand-col-ghost {
+  font: 600 11.5px system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--sand-col-chip-border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  opacity: .82;
+}
+
+.sand-col-ghost:hover { opacity: 1; }
+.sand-col-ghost:disabled { opacity: .32; cursor: default; }
+.sand-col-danger { color: #d34b3e; border-color: #d34b3e; }
+
+.sand-col-status {
+  padding: 8px 18px;
+  font-size: 12px;
+  opacity: .75;
+  border-bottom: 1px solid var(--sand-col-border);
+}
+
+.sand-col-thread { flex: 1; overflow-y: auto; }
+.sand-col-thread .sand-col-bubble { -webkit-user-select: text; user-select: text; }

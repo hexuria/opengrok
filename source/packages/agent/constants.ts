@@ -1,0 +1,15 @@
+export const MAX_AGENT_STEPS = 512;
+export const SEND_SLACK_MESSAGE_V2_TOOL_NAME = "SendSlackMessageV2";
+export const SLACK_AGENT_TOOLS_MCP_SERVER_ID = "Cursor Slack Tools";
+export const SLACK_SEND_MESSAGE_MCP_TOOL_NAME = "send_slack_message";
+export const OFFER_REPOSITORY_SWITCH_TOOL_NAME = "OfferRepositorySwitch";
+export const SLACK_OFFER_REPOSITORY_SWITCH_MCP_TOOL_NAME = "offer_repository_switch";
+export const START_SLACK_STREAMING_TOOL_NAME = "StartSlackStreaming";
+export const SLACK_START_STREAMING_MCP_TOOL_NAME = "start_slack_streaming";
+export const SLACK_SET_STATUS_MCP_TOOL_NAME = "set_slack_status";
+export const AUTOMATION_TOOLS_MCP_SERVER_ID = "Cursor Automation Tools";
+export const NAMED_AGENT_HOME_STORE_PATH = "/cursor/stores/home";
+export const NAMED_AGENT_SELF_MEMORY_FILE = "SELF.md";
+export const NAMED_AGENT_STORE_SELF_PATH = `${NAMED_AGENT_HOME_STORE_PATH}/${NAMED_AGENT_SELF_MEMORY_FILE}`;
+export const NAMED_AGENT_STORE_ACTIVITY_DIR = `${NAMED_AGENT_HOME_STORE_PATH}/activity`;
+export const CURSOR_SUBSCRIPTIONS_MCP_SERVER_NAME = "cursor-subscriptions";

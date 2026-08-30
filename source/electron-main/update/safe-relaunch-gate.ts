@@ -1,0 +1,5 @@
+export interface HostIdleState { readonly kind: string; }
+export function isHostConfirmedIdle(hostIdle: HostIdleState): boolean { return hostIdle.kind === "confirmed-idle"; }
+export function isUserAwayForSafeRelaunch(input: { readonly screenLocked: boolean; readonly screensaverActive: boolean; readonly systemIdleSeconds: number; readonly idleThresholdSeconds: number }): boolean { return (input.screenLocked || input.screensaverActive) && input.systemIdleSeconds >= input.idleThresholdSeconds; }
+export function isSafeToRelaunchForUpdate(input: { readonly optInEnabled: boolean; readonly gateEnabled: boolean; readonly updateStaged: boolean; readonly hostIdle: HostIdleState; readonly screenLocked: boolean; readonly screensaverActive: boolean; readonly systemIdleSeconds: number; readonly idleThresholdSeconds: number }): boolean { return input.optInEnabled && input.gateEnabled && input.updateStaged && isUserAwayForSafeRelaunch(input) && isHostConfirmedIdle(input.hostIdle); }
+export const DEFAULT_AUTO_UPDATE_IDLE_SECONDS = 10 * 60;
