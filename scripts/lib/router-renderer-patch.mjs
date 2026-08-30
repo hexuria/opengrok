@@ -143,19 +143,19 @@ read();const onChange=()=>read();window.addEventListener("sand-box-runtime-chang
 const id=setInterval(read,15e3);return()=>{alive=!1;clearInterval(id);window.removeEventListener("sand-box-runtime-changed",onChange);window.removeEventListener("sand-opengrok-changed",onChange)}},[]);
 return v}
 
-function ROpenGrokServer(){const[s,e]=de.useState({url:"",saved:null,signedIn:!1,email:null,status:null,busy:!1,error:null,dirty:!1});
-const load=()=>window.desktop.agent.getOpenGrokServer().then(r=>{if(r==null)return;e(i=>({...i,saved:r.gatewayUrl??null,url:i.dirty||i.busy?i.url:(r.gatewayUrl??""),signedIn:!!r.signedIn,email:r.email??null,status:r.status??null}))}).catch(()=>{});
+function ROpenGrokServer(){const[s,e]=de.useState({url:"",saved:null,status:null,busy:!1,error:null,dirty:!1});
+const load=()=>window.desktop.agent.getOpenGrokServer().then(r=>{if(r==null)return;e(i=>({...i,saved:r.gatewayUrl??null,url:i.dirty||i.busy?i.url:(r.gatewayUrl??""),status:r.status??null}))}).catch(()=>{});
 de.useEffect(()=>{load();const id=setInterval(load,15e3);return()=>clearInterval(id)},[]);
-const signIn=async()=>{e(i=>({...i,busy:!0,error:null}));try{const r=await window.desktop.agent.signInToOpenGrokServer(s.url.trim());e(i=>({...i,busy:!1,dirty:!1,saved:r.gatewayUrl??null,signedIn:!!r.signedIn,email:r.email??null,status:r.status??null}));window.dispatchEvent(new CustomEvent("sand-opengrok-changed",{detail:{gatewayUrl:r.gatewayUrl??null}}))}catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
-const signOut=async()=>{e(i=>({...i,busy:!0,error:null}));try{await window.desktop.agent.signOutOfOpenGrokServer();e(i=>({...i,busy:!1,url:"",dirty:!1,saved:null,signedIn:!1,email:null}));window.dispatchEvent(new CustomEvent("sand-opengrok-changed",{detail:{gatewayUrl:null}}))}catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+const save=async()=>{e(i=>({...i,busy:!0,error:null}));try{const r=await window.desktop.agent.setOpenGrokServer(s.url.trim());e(i=>({...i,busy:!1,dirty:!1,saved:r.gatewayUrl??null,status:r.status??null}));window.dispatchEvent(new CustomEvent("sand-opengrok-changed",{detail:{gatewayUrl:r.gatewayUrl??null}}))}catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
 const st=s.status,connected=!!(st&&st.ok);
-const detail=s.signedIn?(s.email?"Signed in as "+s.email:"Signed in.")+(connected?" Connected.":""):(s.url.trim().length?"Not signed in yet.":"Enter your server URL, then sign in.");
+const changed=s.dirty&&s.url.trim()!==(s.saved??"");
+const detail=s.saved==null?"Add your server address, then sign in from General.":connected?(st&&st.detail)||"Connected.":"Saved. Sign in from General to use it.";
 return a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-dt5ytf",style:{gap:10},children:[
-a.jsx(ie,{description:"Where your OpenGrok server is reachable, including the scheme and port.",label:"Server URL",variant:"card",children:a.jsx("input",{"aria-label":"OpenGrok server URL",className:RRouterInputClass,disabled:s.busy||s.signedIn,onChange:v=>e(i=>({...i,url:v.currentTarget.value,dirty:!0})),placeholder:"http://192.168.1.10:1447",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:300},type:"text",value:s.url})}),
-a.jsx(ie,{description:s.signedIn?"The server minted this app's access; nothing to paste.":"Signing in asks the server for your account, then for this app's access.",label:"Account",variant:"card",children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4 sand-h8yej3",style:{gap:8,flexWrap:"wrap"},children:[
-a.jsx(oe,{disabled:s.busy||(!s.signedIn&&s.url.trim().length===0),onClick:s.signedIn?signOut:signIn,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?(s.signedIn?"Signing out\u2026":"Signing in\u2026"):(s.signedIn?"Sign out":"Sign in")}),
-a.jsx(se,{as:"span",color:s.signedIn?"primary":"secondary",size:"sm",children:detail})]})}),
-s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{paddingBottom:4},children:s.error}):null]})}
+a.jsx(ie,{description:"Where your OpenGrok server is reachable, including the scheme and port. Your account lives on that server, so signing in happens under General.",label:"Server URL",variant:"card",children:a.jsx("input",{"aria-label":"OpenGrok server URL",className:RRouterInputClass,disabled:s.busy,onChange:v=>e(i=>({...i,url:v.currentTarget.value,dirty:!0})),placeholder:"http://192.168.1.10:1447",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:300},type:"text",value:s.url})}),
+a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4 sand-h8yej3",style:{gap:8,flexWrap:"wrap",paddingBottom:4,marginTop:2},children:[
+a.jsx(oe,{disabled:!changed||s.url.trim().length===0||s.busy,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Saving\u2026":changed?"Save":"Saved"}),
+a.jsx(se,{as:"span",color:connected?"primary":"secondary",size:"sm",children:detail})]}),
+s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 
 function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null});
 const load=()=>window.desktop.agent.listOpenGrokComputers().then(r=>{if(r==null)return;e({computers:r.computers||[],signedIn:!!r.signedIn,error:r.error||null})}).catch(err=>e(i=>({...i,error:String(err&&err.message||err)})));
