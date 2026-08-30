@@ -87,7 +87,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   // reverted. Both seed from the last answer instead.
   assert.match(rendererPatch, /let RRouterLast=null;/);
   assert.match(rendererPatch, /let RBoxLast=null;/);
-  assert.match(rendererPatch, /RRouterLast\?\?\{provider:null/);
+  assert.match(rendererPatch, /RRouterLast\?\?RRouterSeed\(\)\?\?\{provider:null/);
+  assert.match(rendererPatch, /sandRouterSeed\.v1/);
   assert.match(rendererPatch, /RBoxLast\?\?\{mode:null,provider:null/);
   assert.doesNotMatch(rendererPatch, /id:"computer",label:"Computer"/);
   assert.doesNotMatch(rendererPatch, /RComputerPanel/);
@@ -190,7 +191,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /Copy message ID/);
   assert.match(rendererPatch, /Copy message URL/);
   assert.match(rendererPatch, /data-entry-id/);
-  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ LOGIN_PROVIDER_HELPER \+ patched/);
+  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ LOGIN_PROVIDER_HELPER \+ ACCOUNT_CARD_HELPER \+ patched/);
   // A screen reader is told nothing when a reply starts or finishes. The
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.
