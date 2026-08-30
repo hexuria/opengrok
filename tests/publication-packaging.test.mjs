@@ -98,12 +98,10 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /desktop\.agent\.startSubscriptionLogin/);
   assert.match(rendererPatch, /Official Codex\/ChatGPT login on this Mac/);
   assert.match(rendererPatch, /Paste an API key first/);
-  assert.match(rendererPatch, /data-first-run-logins","cursor-claude-codex"/);
   assert.match(rendererPatch, /label:"Claude Code"/);
   assert.match(rendererPatch, /label:"Codex"/);
-  assert.match(rendererPatch, /Choose Other Provider/);
-  assert.match(rendererPatch, /data-login-skip","1"/);
-  assert.match(rendererPatch, /RSkipLoginWall/);
+  // Replaced by the login page's gear and provider sheet.
+  assert.match(rendererPatch, /sand-lp-gear/);
   assert.match(rendererPatch, /patchOriginalMainChrome/);
   assert.match(rendererPatch, /sand-cursor-login-skip/);
   assert.match(rendererPatch, /first-run-login-skip/);
@@ -192,7 +190,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /Copy message ID/);
   assert.match(rendererPatch, /Copy message URL/);
   assert.match(rendererPatch, /data-entry-id/);
-  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ patched/);
+  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ LOGIN_PROVIDER_HELPER \+ patched/);
   // A screen reader is told nothing when a reply starts or finishes. The
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.
@@ -200,6 +198,9 @@ test("Router settings use the trusted backend and display recorded inference usa
   // The login wall may only be bypassed when there is no backend to sign in to.
   // An OpenGrok server is one, so every gate must consult the same rule.
   assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
+  // The login page's provider chooser replaces the old skip button.
+  assert.match(rendererPatch, /const LOGIN_PROVIDER_HELPER =/);
+  assert.match(rendererPatch, /sand-lp-gear/);
   assert.match(rendererPatch, /const MAY_SKIP_LOGIN_WALL =/);
   assert.equal((rendererPatch.match(/\$\{MAY_SKIP_LOGIN_WALL\}/g) || []).length, 4,
     "every login-wall bypass must go through the shared rule");
