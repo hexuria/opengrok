@@ -98,17 +98,15 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /desktop\.agent\.startSubscriptionLogin/);
   assert.match(rendererPatch, /Official Codex\/ChatGPT login on this Mac/);
   assert.match(rendererPatch, /Paste an API key first/);
-  assert.match(rendererPatch, /data-first-run-logins","cursor-claude-codex"/);
   assert.match(rendererPatch, /label:"Claude Code"/);
   assert.match(rendererPatch, /label:"Codex"/);
-  assert.match(rendererPatch, /Choose Other Provider/);
-  assert.match(rendererPatch, /data-login-skip","1"/);
-  assert.match(rendererPatch, /RSkipLoginWall/);
+  // Replaced by the login page's gear and provider sheet.
+  assert.match(rendererPatch, /sand-lp-back/);
   assert.match(rendererPatch, /patchOriginalMainChrome/);
   assert.match(rendererPatch, /sand-cursor-login-skip/);
   assert.match(rendererPatch, /first-run-login-skip/);
   assert.match(rendererPatch, /data-computer-screen-switcher/);
-  assert.match(rendererPatch, /onValueChange:l=>\{if\(l!==null\)void e\(l\)\}/);
+  assert.match(rendererPatch, /a\.setInferenceRouter\(pick\)/);
   assert.match(rendererPatch, /desktop\.secrets\.upsert/);
   assert.doesNotMatch(rendererPatch, /settings\.router-provider\.v1/);
   assert.match(rendererPatch, /id:"dictation",label:"Dictation"/);
@@ -192,11 +190,37 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /Copy message ID/);
   assert.match(rendererPatch, /Copy message URL/);
   assert.match(rendererPatch, /data-entry-id/);
-  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ patched/);
+  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ LOGIN_PROVIDER_HELPER \+ patched/);
   // A screen reader is told nothing when a reply starts or finishes. The
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.
   assert.match(rendererPatch, /const A11Y_ANNOUNCE_HELPER =/);
+  // The login wall may only be bypassed when there is no backend to sign in to.
+  // An OpenGrok server is one, so every gate must consult the same rule.
+  assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
+  // The login page's provider chooser replaces the old skip button.
+  assert.match(rendererPatch, /const LOGIN_PROVIDER_HELPER =/);
+  assert.match(rendererPatch, /sand-lp-back/);
+  assert.match(rendererPatch, /const MAY_SKIP_LOGIN_WALL =/);
+  assert.equal((rendererPatch.match(/\$\{MAY_SKIP_LOGIN_WALL\}/g) || []).length, 4,
+    "every login-wall bypass must go through the shared rule");
+  // The miss that blacked out the app: a helper read the skip key directly, so
+  // the gate showed the sign-in screen and our own code then hid it. Any read of
+  // the key must also consult the mode, wherever it lives.
+  for (const raw of rendererPatch.match(/localStorage\.getItem\("sand-cursor-login-skip"\)[^;]{0,80}/g) || []) {
+    assert.match(raw, /sand-opengrok-mode/, `a raw skip-key read ignores OpenGrok mode: ${raw}`);
+  }
+
+  // OpenGrok server mode: the runtime is offered for every provider, the bearer
+  // never reaches settings.json, and the Router tab stops offering a provider
+  // the server has taken over.
+  assert.match(rendererPatch, /\{value:"opengrok",label:"OpenGrok Server"\}/);
+  assert.match(rendererPatch, /function ROpenGrokServer\(\)/);
+  assert.match(rendererPatch, /function ROpenGrokActive\(\)/);
+  assert.doesNotMatch(rendererPatch, /a\.jsx\(re,\{title:"Routing"/);
+  assert.match(rendererPatch, /label:"Computer",icon:"desktop"/);
+  assert.match(rendererPatch, /sand-box-runtime-changed/);
+  assert.ok(!/setOpenGrokServer\([^)]*token[^)]*\)[^;]*settings\.json/.test(rendererPatch), "the bearer must not be described as living in settings");
   assert.match(rendererPatch, /sand-a11y-announcer/);
   assert.match(rendererPatch, /"aria-live","polite"/);
   assert.match(rendererPatch, /Assistant is replying/);

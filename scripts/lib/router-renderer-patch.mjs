@@ -15,7 +15,7 @@ const REMARK_MATH_JS = readFileSync(path.join(VENDOR_DIR, "remark-math.min.js"),
 const MATH_KIT_JS = readFileSync(path.join(VENDOR_DIR, "sand-math-kit.js"), "utf8");
 
 const REGISTRY_BEFORE = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
-const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"router",label:"Router",icon:"git-branch"},{id:"dictation",label:"Dictation",icon:"mic"},{id:"usage",label:"Usage",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
+const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"router",label:"Computer",icon:"desktop"},{id:"dictation",label:"Dictation",icon:"mic"},{id:"usage",label:"Usage",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
 // The stock registry hides the usage tab unless a Cursor account is signed in;
 // routed providers track usage locally, so the tab must always be visible.
 const USAGE_TAB_FILTER_BEFORE = 'i=wDn.filter(o=>o.id!=="usage"||r)';
@@ -26,10 +26,22 @@ const USAGE_BEFORE = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(Na,{})}):null';
 const USAGE_AFTER = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(RRouterUsage,{})}):null';
 const COMPONENT_ANCHOR = 'function Sa(s){';
 export const CURSOR_LOGIN_WALL_SKIP_KEY = "sand-cursor-login-skip";
+export const OPENGROK_MODE_KEY = "sand-opengrok-mode";
+
+/**
+ * May the login wall be bypassed?
+ *
+ * The skip exists because the app could run with no backend at all - that is
+ * what lets Codex and OpenRouter work without a Cursor account. An OpenGrok
+ * server IS a backend, with real accounts, so bypassing it there would drop a
+ * signed-out person straight into someone's dashboard. In that mode the wall
+ * stands and you sign in for real.
+ */
+const MAY_SKIP_LOGIN_WALL = `(()=>{try{return localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1"&&localStorage.getItem("${OPENGROK_MODE_KEY}")!=="1"}catch{return!1}})()`;
 const LOGIN_WALL_REPLACEMENTS = [
   [
     'if(s!==!0)return{kind:"landed",gate:r?"sign-in":"onboarding",sessionFact:s,provisional:!1}',
-    `if(s!==!0){try{if(localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1")return{kind:"landed",gate:"shell",sessionFact:!0,provisional:!1}}catch{}return{kind:"landed",gate:r?"sign-in":"onboarding",sessionFact:s,provisional:!1}}`,
+    `if(s!==!0){try{if(${MAY_SKIP_LOGIN_WALL})return{kind:"landed",gate:"shell",sessionFact:!0,provisional:!1}}catch{}return{kind:"landed",gate:r?"sign-in":"onboarding",sessionFact:s,provisional:!1}}`,
     "login-wall gate",
   ],
   [
@@ -44,7 +56,7 @@ const LOGIN_WALL_REPLACEMENTS = [
   ],
   [
     'case"signed-out":return Uoe(n,{forced:!1,signedIn:!1,owedShell:{slot:e.accountSlot,provisional:n.provisional}});',
-    `case"signed-out":try{if(localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1")return n}catch{}return Uoe(n,{forced:!1,signedIn:!1,owedShell:{slot:e.accountSlot,provisional:n.provisional}});`,
+    `case"signed-out":try{if(${MAY_SKIP_LOGIN_WALL})return n}catch{}return Uoe(n,{forced:!1,signedIn:!1,owedShell:{slot:e.accountSlot,provisional:n.provisional}});`,
     "shell signed-out",
   ],
   [
@@ -54,7 +66,7 @@ const LOGIN_WALL_REPLACEMENTS = [
   ],
   [
     'Ae=Ne.status.kind==="logged-in"',
-    `Ae=Ne.status.kind==="logged-in"||(()=>{try{return localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1"}catch{return!1}})()`,
+    `Ae=Ne.status.kind==="logged-in"||(()=>{try{return ${MAY_SKIP_LOGIN_WALL}}catch{return!1}})()`,
     "composer signed-in",
   ],
   [
@@ -62,7 +74,7 @@ const LOGIN_WALL_REPLACEMENTS = [
     // Cursor logged-out yields slot:null, so the sidebar stays empty until
     // createAgent posts a complete-roster event. Same local slot as main.
     'function Wzn(n){try{const e=await n();return e.kind==="logged-in"&&dde(e)==null?{kind:"unavailable"}:{kind:"resolved",slot:dde(e)}}catch(e){return yBn(e),{kind:"unavailable"}}}',
-    `function Wzn(n){try{const e=await n();if(e.kind==="logged-in"){const t=dde(e);return t==null?{kind:"unavailable"}:{kind:"resolved",slot:t}}try{if(localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1")return{kind:"resolved",slot:"local-subscription"}}catch{}return{kind:"resolved",slot:null}}catch(e){return yBn(e),{kind:"unavailable"}}}`,
+    `function Wzn(n){try{const e=await n();if(e.kind==="logged-in"){const t=dde(e);return t==null?{kind:"unavailable"}:{kind:"resolved",slot:t}}try{if(${MAY_SKIP_LOGIN_WALL})return{kind:"resolved",slot:"local-subscription"}}catch{}return{kind:"resolved",slot:null}}catch(e){return yBn(e),{kind:"unavailable"}}}`,
     "account slot for skipped login",
   ],
 ];
@@ -137,8 +149,36 @@ function RRouterUsageRows({usage:s}){return a.jsxs("div",{children:[a.jsx(ie,{la
 function RW365Field(s){return a.jsxs("label",{style:{display:"block",marginTop:12,maxWidth:420},children:[a.jsx("span",{style:{display:"block",fontSize:12,fontWeight:600,lineHeight:"16px",color:"var(--cursor-text-primary,#ececec)"},children:s.label}),s.hint?a.jsx("span",{style:{display:"block",marginTop:2,fontSize:11,lineHeight:"14px",color:"var(--cursor-text-secondary,#aaa)"},children:s.hint}):null,a.jsx("input",{"aria-label":s.label,autoComplete:"off",onChange:e=>s.onChange(e.currentTarget.value),placeholder:s.placeholder||"",spellCheck:!1,style:{boxSizing:"border-box",display:"block",width:"100%",maxWidth:420,height:36,marginTop:6,padding:"8px 12px",fontSize:13,lineHeight:"20px",color:"var(--cursor-text-primary,#ececec)",background:"var(--cursor-bg-secondary,#292929)",border:"1px solid var(--cursor-stroke-tertiary,#3a3a3a)",borderRadius:8,outline:"none"},type:s.type||"text",value:s.value})]})}
 function RW365Setup(){const[s,e]=de.useState({sessionBaseUrl:"https://windows365.microsoft.com",poolId:"",tenantId:"",clientId:"",userObjectId:"",tokenScope:"api://W365Agents-Prod/.default",hasClientSecret:!1,configured:!1,secret:"",session:null,busy:!1,notice:null,error:null});de.useEffect(()=>{let t=!0;Promise.all([window.desktop.agent.getWindows365Settings(),window.desktop.agent.getWindows365Session()]).then(n=>{if(!t)return;e(r=>({...r,...n[0],session:n[1],error:null}))}).catch(n=>{t&&e(r=>({...r,error:String(n?.message??n)}))});return()=>{t=!1}},[]);const t=async n=>{e(r=>({...r,busy:!0,error:null,notice:null}));try{await n()}catch(n){e(r=>({...r,error:String(n?.message??n)}))}finally{e(r=>({...r,busy:!1}))}};const n=async()=>{const r=await window.desktop.agent.setWindows365Settings({sessionBaseUrl:s.sessionBaseUrl,poolId:s.poolId,tenantId:s.tenantId,clientId:s.clientId,userObjectId:s.userObjectId,tokenScope:s.tokenScope,reuseSession:!0,...(s.secret.length>0?{clientSecret:s.secret}:{})});e(i=>({...i,...r,secret:""}));return r};return a.jsxs("div",{style:{marginTop:12,padding:"4px 2px 8px",maxWidth:440},children:[a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Windows 365 for Agents needs an Entra app registration and an Intune pool. Values stay on this Mac. One Cloud PC is reused until you check it in."}),a.jsx(RW365Field,{label:"Tenant ID",value:s.tenantId,onChange:r=>e(i=>({...i,tenantId:r}))}),a.jsx(RW365Field,{label:"Application (client) ID",value:s.clientId,onChange:r=>e(i=>({...i,clientId:r}))}),a.jsx(RW365Field,{label:"Client secret",type:"password",hint:s.hasClientSecret?"A secret is already saved. Leave blank to keep it.":"From the Entra app registration.",placeholder:s.hasClientSecret?"••••••••":"",value:s.secret,onChange:r=>e(i=>({...i,secret:r}))}),a.jsx(RW365Field,{label:"Pool ID",hint:"Intune Windows 365 for Agents pool",value:s.poolId,onChange:r=>e(i=>({...i,poolId:r}))}),a.jsx(RW365Field,{label:"Entra user object ID",hint:"The user allowed to check out the Cloud PC",value:s.userObjectId,onChange:r=>e(i=>({...i,userObjectId:r}))}),a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{flexWrap:"wrap",gap:8,marginTop:12},children:[a.jsx(oe,{disabled:s.busy,onClick:()=>t(async()=>{const r=await n();e(i=>({...i,notice:r.configured?"Credentials saved. Click Connect to check out the Cloud PC.":"Saved. Fill tenant, client, secret, pool, and user id."}))}),shape:"rectangular",size:"sm",variant:"primary",children:s.busy?"Working…":"Save"}),a.jsx(oe,{disabled:s.busy,onClick:()=>t(async()=>{await n();const r=await window.desktop.agent.testWindows365();e(i=>({...i,notice:r.ok?r.detail:null,error:r.ok?null:r.detail}))}),shape:"rectangular",size:"sm",variant:"secondary",children:"Test sign-in"}),a.jsx(oe,{disabled:s.busy,onClick:()=>t(async()=>{await n();const r=await window.desktop.agent.checkoutWindows365();e(i=>({...i,session:r,configured:!0,notice:r.detail}));const o=r.seeUrl||r.screenshareUrl;if(o)await window.desktop.openExternal(o)}),shape:"rectangular",size:"sm",variant:"secondary",children:"Connect"}),a.jsx(oe,{disabled:s.busy||!(s.session&&s.session.computerId),onClick:()=>t(async()=>{const r=await window.desktop.agent.checkinWindows365();e(i=>({...i,session:r,notice:r.detail}))}),shape:"rectangular",size:"sm",variant:"secondary",children:"Check in"})]}),s.notice?a.jsx(se,{as:"p",size:"sm",children:s.notice}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null,s.session&&s.session.detail?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:s.session.detail}):null]})}
 let RBoxLast=null;
-function RBoxRuntime(){const all=[{value:"remote",label:"Grok VM"},{value:"local-docker",label:"Local VM"},{value:"windows365",label:"Windows 365"}];const[s,e]=de.useState(()=>RBoxLast??{mode:null,provider:null,status:null,error:null,busy:!1,windows365:null,account:null});de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,mode:i.busy?i.mode:typeof r.mode==="string"?r.mode:i.mode,status:r.status??null,windows365:r.windows365??null,account:r.account??null,error:null};RBoxLast=next;return next})};const load=()=>window.desktop.agent.getBoxRuntime().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r&&r.message||r)}))});window.desktop.agent.getInferenceRouter().then(r=>{if(!t||r==null)return;e(i=>{const next={...i,provider:typeof r.provider==="string"?r.provider:i.provider};RBoxLast=next;return next})}).catch(()=>{});const onProvider=n=>{const p=n&&n.detail&&n.detail.provider;if(typeof p==="string")e(i=>({...i,provider:p}))};window.addEventListener("sand-router-provider-changed",onProvider);load();const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",onProvider)}},[]);const RBoxOptions=s.provider==="cursor"?all:all.filter(n=>n.value!=="remote");const t=async n=>{if(n==null)return;if(n==="remote"&&s.provider!=="cursor")n="local-docker";e(i=>({...i,mode:n,busy:!0,error:null}));try{const r=await window.desktop.agent.setBoxRuntime(n);e(i=>({...i,mode:n,status:r&&r.status||null,windows365:r&&r.windows365||null,account:r&&r.account||null,busy:!1}))}catch(r){e(i=>({...i,mode:n,busy:!1,error:String(r&&r.message||r)}))}};const n=s.mode==="windows365"?"Enter Windows 365 credentials below, then Save and Connect.":s.mode==="remote"?(s.account&&s.account.detail||"Uses the Cursor account already signed into Grok Bot."):(s.status&&s.status.detail||"A Linux desktop in Docker on this Mac.");return a.jsxs("div",{children:[a.jsx(ie,{description:n,label:"Computer for this account",variant:"card",children:a.jsx(ye,{"aria-label":"Computer for this account",onValueChange:t,options:RBoxOptions,placement:"bottom-end",size:"lg",value:s.mode==null?null:RBoxOptions.some(r=>r.value===s.mode)?s.mode:"local-docker",variant:"filled"})}),s.mode==="windows365"?a.jsxs("div",{style:{marginTop:8},children:[a.jsx(se,{as:"p",size:"sm",children:"Windows 365 credentials"}),a.jsx(RW365Setup,{})]}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:String(s.error)}):null]})}
-function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Routing",children:a.jsx(ie,{description:r.description,label:"Provider",variant:"card",children:a.jsx(ye,{"aria-label":"Routing provider",onValueChange:l=>{if(l!==null)void e(l)},options:RRouterOptions,placement:"bottom-end",size:"lg",value:s.provider,variant:"filled"})})}),a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),a.jsx(re,{title:r.kind==="key"?"OpenRouter account":"Account",children:a.jsx(ie,{description:o,label:r.kind==="key"?"API key":"Status",variant:"card",children:a.jsx(RRouterCredential,{provider:r,state:s,keys:t,onSaved:n,onLogin:g})})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
+function ROpenGrokActive(){const[v,setV]=de.useState(()=>(RBoxLast&&RBoxLast.mode)==="opengrok");
+de.useEffect(()=>{let alive=!0;const read=()=>window.desktop.agent.getBoxRuntime().then(r=>{if(alive&&r!=null)setV(r.mode==="opengrok")}).catch(()=>{});
+read();const onChange=()=>read();window.addEventListener("sand-box-runtime-changed",onChange);window.addEventListener("sand-opengrok-changed",onChange);
+const id=setInterval(read,15e3);return()=>{alive=!1;clearInterval(id);window.removeEventListener("sand-box-runtime-changed",onChange);window.removeEventListener("sand-opengrok-changed",onChange)}},[]);
+return v}
+
+function ROpenGrokServer(){const[s,e]=de.useState({url:"",saved:null,status:null,busy:!1,error:null,dirty:!1});
+const load=()=>window.desktop.agent.getOpenGrokServer().then(r=>{if(r==null)return;e(i=>({...i,saved:r.gatewayUrl??null,url:i.dirty||i.busy?i.url:(r.gatewayUrl??""),status:r.status??null}))}).catch(()=>{});
+de.useEffect(()=>{load();const id=setInterval(load,15e3);return()=>clearInterval(id)},[]);
+const save=async()=>{e(i=>({...i,busy:!0,error:null}));try{const r=await window.desktop.agent.setOpenGrokServer(s.url.trim());e(i=>({...i,busy:!1,dirty:!1,saved:r.gatewayUrl??null,status:r.status??null}));window.dispatchEvent(new CustomEvent("sand-opengrok-changed",{detail:{gatewayUrl:r.gatewayUrl??null}}))}catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+const st=s.status,connected=!!(st&&st.ok);
+const changed=s.dirty&&s.url.trim()!==(s.saved??"");
+const detail=s.saved==null?"Add your server address, then sign in from General.":connected?(st&&st.detail)||"Connected.":"Saved. Sign in from General to use it.";
+return a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-dt5ytf",style:{gap:10},children:[
+a.jsx(ie,{description:"Where your OpenGrok server is reachable, including the scheme and port. Your account lives on that server, so signing in happens under General.",label:"Server URL",variant:"card",children:a.jsx("input",{"aria-label":"OpenGrok server URL",className:RRouterInputClass,disabled:s.busy,onChange:v=>e(i=>({...i,url:v.currentTarget.value,dirty:!0})),placeholder:"http://192.168.1.10:1447",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:300},type:"text",value:s.url})}),
+a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4 sand-h8yej3",style:{gap:8,flexWrap:"wrap",paddingBottom:4,marginTop:2},children:[
+a.jsx(oe,{disabled:!changed||s.url.trim().length===0||s.busy,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Saving\u2026":changed?"Save":"Saved"}),
+a.jsx(se,{as:"span",color:connected?"primary":"secondary",size:"sm",children:detail})]}),
+s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
+
+function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null});
+const load=()=>window.desktop.agent.listOpenGrokComputers().then(r=>{if(r==null)return;e({computers:r.computers||[],signedIn:!!r.signedIn,error:r.error||null})}).catch(err=>e(i=>({...i,error:String(err&&err.message||err)})));
+de.useEffect(()=>{load();const onChange=()=>load();window.addEventListener("sand-opengrok-changed",onChange);const id=setInterval(load,3e4);return()=>{clearInterval(id);window.removeEventListener("sand-opengrok-changed",onChange)}},[]);
+if(s.computers==null)return a.jsx(ie,{description:"Asking the server which computers it has.",label:"Computers",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Loading\u2026"})});
+if(s.error)return a.jsx(ie,{description:"The server did not answer. It may be an older build without the computer list.",label:"Computers",variant:"card",children:a.jsx(se,{as:"span",color:"red",size:"sm",children:String(s.error).slice(0,80)})});
+if(s.computers.length===0)return a.jsx(ie,{description:"Your bots run on the server itself until you add one there \u2014 a box, or a Cloud PC.",label:"Computers",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"None registered yet"})});
+return a.jsx("div",{children:s.computers.map((c,i)=>a.jsx(ie,{divided:i>0,description:c.kind?String(c.kind)+(c.state?" \u00b7 "+String(c.state):""):(c.state?String(c.state):"On your OpenGrok server."),label:String(c.label||c.id),variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:String(c.state||"Registered")})},String(c.id)))})}
+
+function RBoxRuntime(){const all=[{value:"remote",label:"Grok VM"},{value:"local-docker",label:"Local VM"},{value:"windows365",label:"Windows 365"},{value:"opengrok",label:"OpenGrok Server"}];const[s,e]=de.useState(()=>RBoxLast??{mode:null,provider:null,status:null,error:null,busy:!1,windows365:null,account:null});de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,mode:i.busy?i.mode:typeof r.mode==="string"?r.mode:i.mode,status:r.status??null,windows365:r.windows365??null,account:r.account??null,error:null};RBoxLast=next;return next})};const load=()=>window.desktop.agent.getBoxRuntime().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r&&r.message||r)}))});window.desktop.agent.getInferenceRouter().then(r=>{if(!t||r==null)return;e(i=>{const next={...i,provider:typeof r.provider==="string"?r.provider:i.provider};RBoxLast=next;return next})}).catch(()=>{});const onProvider=n=>{const p=n&&n.detail&&n.detail.provider;if(typeof p==="string")e(i=>({...i,provider:p}))};window.addEventListener("sand-router-provider-changed",onProvider);load();const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",onProvider)}},[]);const RBoxOptions=s.provider==="cursor"?all:all.filter(n=>n.value!=="remote"||n.value==="opengrok");const t=async n=>{if(n==null)return;if(n==="remote"&&s.provider!=="cursor")n="local-docker";e(i=>({...i,mode:n,busy:!0,error:null}));try{const r=await window.desktop.agent.setBoxRuntime(n);try{if(self.__sandSetOpenGrokMode)self.__sandSetOpenGrokMode(n==="opengrok")}catch(_){}e(i=>({...i,mode:n,status:r&&r.status||null,windows365:r&&r.windows365||null,account:r&&r.account||null,busy:!1}));window.dispatchEvent(new CustomEvent("sand-box-runtime-changed",{detail:{mode:n}}))}catch(r){e(i=>({...i,mode:n,busy:!1,error:String(r&&r.message||r)}))}};const n=s.mode==="opengrok"?"Your OpenGrok server holds the bots and runs their work.":s.mode==="windows365"?"Enter Windows 365 credentials below, then Save and Connect.":s.mode==="remote"?(s.account&&s.account.detail||"Uses the Cursor account already signed into Grok Bot."):(s.status&&s.status.detail||"A Linux desktop in Docker on this Mac.");if(s.mode==="opengrok")return a.jsx(ROpenGrokComputers,{});return a.jsxs("div",{children:[a.jsx(ie,{description:n,label:"Computer for this account",variant:"card",children:a.jsx(ye,{"aria-label":"Computer for this account",onValueChange:t,options:RBoxOptions,placement:"bottom-end",size:"lg",value:s.mode==null?null:RBoxOptions.some(r=>r.value===s.mode)?s.mode:"local-docker",variant:"filled"})}),s.mode==="windows365"?a.jsxs("div",{style:{marginTop:8},children:[a.jsx(se,{as:"p",size:"sm",children:"Windows 365 credentials"}),a.jsx(RW365Setup,{})]}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:String(s.error)}):null]})}
+function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),a.jsx(re,{title:r.kind==="key"?"OpenRouter account":"Account",children:a.jsx(ie,{description:o,label:r.kind==="key"?"API key":"Status",variant:"card",children:a.jsx(RRouterCredential,{provider:r,state:s,keys:t,onSaved:n,onLogin:g})})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
 function RHardwareAcceleration(){
   const[t,n]=de.useState({enabled:!0,restartRequired:!1,changed:!1});
   de.useEffect(()=>{let c=!0;window.desktop.getHardwareAcceleration().then(d=>{if(c&&d)n(h=>({...h,enabled:d.enabled===!0}))}).catch(()=>{});return()=>{c=!1}},[]);
@@ -150,15 +190,15 @@ function RHardwareAcceleration(){
 }
 function RDictationPanel(){const[t,n]=RRouterSecrets();return a.jsx(Te,{children:a.jsx("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:a.jsx(re,{title:"Transcription",children:a.jsx(RTranscribe,{keys:t,onSaved:n})})})})}
 function RRouterUsageSummary({provider:s,usage:e,current:t,divided:n}){const r=[RRouterNumber(e.requests)+" requests",RRouterNumber(e.inputTokens)+" input",RRouterNumber(e.outputTokens)+" output",RRouterNumber(e.cacheReadTokens+e.cacheWriteTokens)+" cached"].join(" · "),i=t?"Current route":e.lastUsedAt?new Date(e.lastUsedAt).toLocaleString():"Not used yet";return a.jsx(ie,{divided:n,description:r,label:s.label,variant:"card",children:a.jsx(se,{as:"span",color:t?"primary":"secondary",size:"sm",children:i})})}
-function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.value===s.provider)??RRouterProviders[0],t=RRouterProviders.filter(n=>n.value===s.provider||(s.usage?.providers?.[n.value]?.requests??0)>0);return a.jsxs("div",{className:k("sand-usage-section","sand-9f619 sand-78zum5 sand-dt5ytf sand-ou54vl"),children:[a.jsx(re,{title:"Current provider",children:a.jsx(ie,{description:e.description,label:e.label,variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Selected"})})}),a.jsx(re,{title:"Tracked activity",children:a.jsx("div",{children:t.map((n,r)=>a.jsx(RRouterUsageSummary,{provider:n,usage:s.usage?.providers?.[n.value]??RRouterEmptyUsage,current:n.value===s.provider,divided:r>0},n.value))})}),s.provider==="cursor"?a.jsx(Na,{}):null]})}
+function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.value===s.provider)??RRouterProviders[0],t=RRouterProviders.filter(n=>n.value===s.provider||(s.usage?.providers?.[n.value]?.requests??0)>0);const og=ROpenGrokActive();if(og)return a.jsxs("div",{className:k("sand-usage-section","sand-9f619 sand-78zum5 sand-dt5ytf sand-ou54vl"),children:[a.jsx(re,{title:"Current provider",children:a.jsx(ie,{description:"Work runs on your OpenGrok server, on each coworker\u2019s own model.",label:"OpenGrok Server",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Selected"})})}),a.jsx(re,{title:"Tracked activity",children:a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Usage is tracked on the OpenGrok server."})})]});return a.jsxs("div",{className:k("sand-usage-section","sand-9f619 sand-78zum5 sand-dt5ytf sand-ou54vl"),children:[a.jsx(re,{title:"Current provider",children:a.jsx(ie,{description:e.description,label:e.label,variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Selected"})})}),a.jsx(re,{title:"Tracked activity",children:a.jsx("div",{children:t.map((n,r)=>a.jsx(RRouterUsageSummary,{provider:n,usage:s.usage?.providers?.[n.value]??RRouterEmptyUsage,current:n.value===s.provider,divided:r>0},n.value))})}),s.provider==="cursor"?a.jsx(Na,{}):null]})}
 `;
 
 export const MAIN_CHROME_SOURCE = String.raw`
-function RLoginWallSkipped(){try{return localStorage.getItem("sand-cursor-login-skip")==="1"}catch{return!1}}
+function RLoginWallSkipped(){try{return localStorage.getItem("sand-cursor-login-skip")==="1"&&localStorage.getItem("sand-opengrok-mode")!=="1"}catch{return!1}}
 function RRememberLoginWallSkip(){try{localStorage.setItem("sand-cursor-login-skip","1")}catch{}}
 function ROpenRouterSettings(){const labeled=n=>(n.getAttribute("aria-label")||n.textContent||"").trim();const click=label=>{const el=[...document.querySelectorAll("button,[role=tab],[role=menuitem]")].find(n=>labeled(n)===label);if(el){el.click();return!0}return!1};const fire=()=>{if(click("Router"))return!0;window.dispatchEvent(new KeyboardEvent("keydown",{key:",",code:"Comma",keyCode:188,which:188,metaKey:!0,ctrlKey:!1,bubbles:!0,cancelable:!0}));click("Settings");return click("Router")};let n=0;const id=setInterval(()=>{if(fire()||++n>50)clearInterval(id)},200)}
 async function RSkipLoginWall(){RRememberLoginWallSkip();try{sessionStorage.setItem("sand-open-router-settings","1")}catch{}const agent=window.desktop&&window.desktop.agent;if(agent&&agent.skipCursorLoginWall)try{await agent.skipCursorLoginWall({})}catch{}window.location.reload()}
-function RInstallFirstRunLogins(){if(RLoginWallSkipped()){try{if(sessionStorage.getItem("sand-open-router-settings")==="1"){sessionStorage.removeItem("sand-open-router-settings");ROpenRouterSettings()}}catch{}}const hide=()=>{if(!RLoginWallSkipped())return;document.querySelectorAll(".sand-onboarding").forEach(n=>n.style.setProperty("display","none","important"))};const styleSkip=i=>{i.style.background="transparent";i.style.border="0";i.style.boxShadow="none";i.style.color="var(--cursor-text-secondary,#6b6b6b)";i.style.cursor="pointer";i.style.font="inherit";i.style.fontSize="14px";i.style.fontWeight="500";i.style.lineHeight="20px";i.style.marginTop="4px";i.style.padding="8px 4px";i.style.textDecoration="none"};const mountBtn=signIn=>{if(!signIn||signIn.parentElement&&signIn.parentElement.querySelector("[data-login-skip]"))return;const i=document.createElement("button");i.type="button";i.textContent="Choose Other Provider";i.setAttribute("data-login-skip","1");i.setAttribute("data-first-run-logins","cursor-claude-codex");styleSkip(i);i.addEventListener("click",()=>{void RSkipLoginWall()});signIn.insertAdjacentElement("afterend",i)};const scan=()=>{hide();if(RLoginWallSkipped())return;document.querySelectorAll("button").forEach(s=>{if(s.getAttribute("data-login-skip"))return;const e=(s.textContent||"").replace(/\s+/g," ").trim();if(/choose other|with claude|with codex/i.test(e))return;if(!(/^Sign in(?:\s*→)?$/i.test(e)||/^Sign In with Cursor$/i.test(e)))return;mountBtn(s)})};scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0})}
+function RInstallFirstRunLogins(){if(RLoginWallSkipped()){try{if(sessionStorage.getItem("sand-open-router-settings")==="1"){sessionStorage.removeItem("sand-open-router-settings");ROpenRouterSettings()}}catch{}}const hide=()=>{if(!RLoginWallSkipped())return;document.querySelectorAll(".sand-onboarding").forEach(n=>n.style.setProperty("display","none","important"))};hide();new MutationObserver(hide).observe(document.documentElement,{childList:!0,subtree:!0})}
 function RInstallScreenSwitcher(){const labels={"local-docker":"Local Docker VM","grok-vm":"Grok VM","windows-365":"Windows 365",box:"box (Linux VM)"};const mount=s=>{if(!s||s.querySelector("[data-computer-screen-switcher]"))return;const e=document.createElement("div");e.className="sand-computer-screen-switcher";e.setAttribute("data-computer-screen-switcher","1");const t=async()=>{try{const n=window.desktop.agent.getProviderComputers?await window.desktop.agent.getProviderComputers():await window.desktop.agent.getInferenceRouter(),r=n.computers??n,i=Array.isArray(r.activated)?r.activated:[],o=r.selectedScreen??i[0]??null;e.replaceChildren();if(i.length<=1){e.style.display="none";if(i[0])s.setAttribute("data-active-computer-screen",i[0]);return}e.style.display="";{const l=document.createElement("div");l.setAttribute("role","tablist");l.setAttribute("aria-label","Computer screen");i.forEach(c=>{const d=document.createElement("button");d.type="button";d.setAttribute("role","tab");d.setAttribute("data-computer-screen",c);d.setAttribute("aria-selected",c===o?"true":"false");d.textContent=labels[c]??c;d.addEventListener("click",()=>{void window.desktop.agent.setComputerScreen(c).then(()=>{window.dispatchEvent(new CustomEvent("sand-computer-screen-changed",{detail:{screen:c}}));void t()})});l.append(d)});e.append(l)}if(o)s.setAttribute("data-active-computer-screen",o)}catch{}};s.prepend(e);void t();window.addEventListener("sand-router-provider-changed",t);window.addEventListener("sand-computer-screen-changed",t)};const scan=()=>{const target=document.querySelector(".sand-computer-preview")??document.querySelector(".sand-info-pane")??document.querySelector("[aria-label='Conversation details']");if(target)mount(target)};scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0})}
 if(typeof document!=="undefined"){const RBootProviderChrome=()=>{RInstallFirstRunLogins();RInstallScreenSwitcher()};if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",RBootProviderChrome);else RBootProviderChrome()}
 `;
@@ -784,6 +824,186 @@ const LOCAL_TOOL_ASK_HELPER = ';(()=>{try{'
 // A streaming assistant row carries data-pending, which is the signal used
 // here. It needs no exact-string anchor at all, so nothing can drift out from
 // under it. Turn boundaries only: announcing tokens would be unusable noise.
+
+// Keeps the renderer's view of "are we on an OpenGrok server" in sync, because
+// the login gate runs long before any React state exists and can only read
+// localStorage synchronously. Written by the app, read by the wall.
+const OPENGROK_MODE_HELPER = ';(()=>{try{'
+  + 'var K="' + "sand-opengrok-mode" + '";'
+  + 'var apply=function(on){try{if(on)localStorage.setItem(K,"1");else localStorage.removeItem(K)}catch(_){}};'
+  + 'self.__sandSetOpenGrokMode=apply;'
+  + 'var read=function(){try{window.desktop.agent.getBoxRuntime().then(function(r){if(r!=null)apply(r.mode==="opengrok")}).catch(function(){})}catch(_){}};'
+  + 'read();setInterval(read,15e3);'
+  + 'window.addEventListener("sand-box-runtime-changed",read);'
+  + 'window.addEventListener("sand-opengrok-changed",read);'
+  + '}catch(_){}})();\n';
+
+// The login page's provider chooser: a gear in the corner opens a sheet where
+// you pick who signs you in, and the page's own chrome follows the choice.
+// Replaces "Choose Other Provider", which skipped the wall rather than letting
+// anyone choose anything.
+//
+// The provider glyphs are our own simple marks, not the official brand assets -
+// enough to tell the options apart, and swappable for real ones later.
+const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
+  + 'var MODE_K="sand-opengrok-mode";'
+  + 'var G=function(d,extra){return \'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\'+(extra||"")+d+"</svg>"};'
+  + 'var P=[' 
+  +   '{id:"cursor",label:"Cursor",title:"Grok Bot",tag:"Sign in with the Cursor account this app was built for.",accent:"#8b8b8b",'
+  +    'svg:G(\'<path d="M12 3 20 7.5v9L12 21 4 16.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/>\')},'
+  +   '{id:"opengrok",label:"OpenGrok Server",title:"Open Grok",tag:"Your own server holds the bots and runs their work.",accent:"#4ec9a5",'
+  +    'svg:G(\'<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a13 13 0 0 1 0 16a13 13 0 0 1 0-16z"/>\')},'
+  +   '{id:"codex",label:"Codex",title:"Codex",tag:"Your ChatGPT subscription, signed in on this Mac.",accent:"#74aa9c",'
+  +    'svg:G(\'<path d="M12 3.2 18.6 7v10L12 20.8 5.4 17V7z"/><path d="M12 12l6.6-3.8M12 12v8.8M12 12 5.4 8.2"/>\')},'
+  +   '{id:"claude-code",label:"Claude",title:"Claude",tag:"Your Claude subscription, signed in on this Mac.",accent:"#d97757",'
+  +    'svg:G(\'<path d="M12 4v16M4.8 7.6l14.4 8.8M19.2 7.6 4.8 16.4"/>\')}'
+  + '];'
+  + 'var byId=function(id){for(var i=0;i<P.length;i++)if(P[i].id===id)return P[i];return P[0]};'
+  + 'var cur=null,busy=!1,ready=!1;'
+  // ---- styles, theme-aware ----
+  + 'var css=".sand-lp-back{position:absolute;top:18px;left:18px;z-index:2147482000;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid var(--sand-border-default,rgba(128,128,128,.28));background:var(--sand-bg-elevated,rgba(128,128,128,.10));color:var(--sand-text-primary,inherit);opacity:.72;transition:opacity .15s,transform .15s}"'
+  + '+".sand-lp-back:hover{opacity:1;transform:translateX(-2px)}"'
+  + '+".sand-lp-back svg{width:18px;height:18px}"'
+  + '+".sand-lp-scrim{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--sand-bg-base,Canvas);animation:sand-lp-fade .16s ease-out}"'
+  + '+"@keyframes sand-lp-fade{from{opacity:0}to{opacity:1}}"'
+  + '+"@keyframes sand-lp-rise{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}"'
+  + '+"@keyframes sand-lp-mark{from{opacity:0;transform:scale(.82) rotate(-8deg)}to{opacity:1;transform:none}}"'
+  + '+".sand-lp-sheet{width:min(520px,100%);max-height:84vh;overflow:auto;border-radius:14px;padding:22px;animation:sand-lp-rise .2s cubic-bezier(.2,.8,.3,1);border:1px solid var(--sand-border-default,rgba(128,128,128,.28));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 24px 70px rgba(0,0,0,.34)}"'
+  + '+".sand-lp-h{font-size:17px;font-weight:600;margin:0 0 3px}"'
+  + '+".sand-lp-sub{font-size:13px;opacity:.7;margin:0 0 16px}"'
+  + '+".sand-lp-opt{display:flex;gap:13px;align-items:flex-start;width:100%;text-align:left;padding:12px 13px;border-radius:10px;cursor:pointer;border:1px solid transparent;background:transparent;color:inherit;font:inherit;transition:background .12s,border-color .12s}"'
+  + '+".sand-lp-opt:hover{background:var(--sand-fill-ghost-hover,rgba(128,128,128,.10))}"'
+  + '+".sand-lp-opt[aria-checked=true]{border-color:var(--a);background:var(--sand-fill-ghost-selected,rgba(128,128,128,.14))}"'
+  + '+".sand-lp-ic{flex:none;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--a);border:1px solid color-mix(in oklch,var(--a) 34%,transparent);background:color-mix(in oklch,var(--a) 12%,transparent)}"'
+  + '+".sand-lp-ic svg{width:19px;height:19px}"'
+  + '+".sand-lp-nm{font-size:14px;font-weight:600}"'
+  + '+".sand-lp-tg{font-size:12.5px;opacity:.68;margin-top:2px;line-height:1.45}"'
+  + '+".sand-lp-extra{margin:10px 0 0 47px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}"'
+  + '+".sand-lp-in{flex:1 1 240px;min-width:0;height:34px;padding:0 10px;font:inherit;font-size:13px;border-radius:8px;border:1px solid var(--sand-border-default,rgba(128,128,128,.32));background:var(--sand-bg-base,transparent);color:inherit}"'
+  + '+".sand-lp-btn{height:32px;padding:0 13px;font:inherit;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;border:1px solid var(--sand-border-default,rgba(128,128,128,.32));background:var(--sand-fill-ghost-hover,rgba(128,128,128,.10));color:inherit}"'
+  + '+".sand-lp-btn:disabled{opacity:.45;cursor:default}"'
+  + '+".sand-lp-msg{font-size:12.5px;opacity:.72;margin:9px 0 0 47px}"'
+  + '+".sand-lp-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}"'
+  + '+".sand-lp-mark{display:inline-flex;align-items:center;justify-content:center;animation:sand-lp-mark .42s cubic-bezier(.2,.8,.3,1)}"'
+  + '+".sand-lp-mark svg{width:1em;height:1em}";'
+  + 'var styled=!1,style=function(){if(styled)return;styled=!0;var t=document.createElement("style");t.setAttribute("data-sand-login-provider","1");t.textContent=css;document.head.appendChild(t)};'
+  // ---- read current provider ----
+  + 'var read=function(){var a=window.desktop&&window.desktop.agent;if(!a)return Promise.resolve(null);'
+  +   'return Promise.all([a.getInferenceRouter().catch(function(){return null}),a.getBoxRuntime().catch(function(){return null})]).then(function(r){'
+  +   'var prov=r[0]&&r[0].provider,box=r[1]&&r[1].mode;return box==="opengrok"?"opengrok":(prov||"cursor")})};'
+  // ---- rewrite the page chrome for the chosen provider ----
+  + 'var chrome=function(p){var root=document.querySelector(".sand-onboarding");if(!root)return;'
+  + 'var h=null,heads=root.querySelectorAll("h1,h2,[class*=title]");'
+  + 'for(var i=0;i<heads.length;i++){var t=(heads[i].textContent||"").trim();if(/^(Grok Bot|Open Grok|Codex|Claude|Cursor)$/i.test(t)){h=heads[i];break}}'
+  + 'if(!h||h.getAttribute("data-lp-title")===p.id)return;'
+  + 'h.setAttribute("data-lp-title",p.id);h.textContent=p.title;'
+  + 'var host=h.parentElement;if(!host)return;'
+  + 'var own=host.querySelector("[data-lp-mark]");'
+  + 'var mascot=null,kids=host.querySelectorAll("svg,img");'
+  + 'for(var j=0;j<kids.length;j++){if(!kids[j].closest("[data-lp-mark]")){mascot=kids[j];break}}'
+  + 'var swap=(p.id==="codex"||p.id==="claude-code");'
+  + 'if(mascot)mascot.style.display=swap?"none":"";'
+  + 'if(!swap){if(own)own.remove();return}'
+  + 'if(!own){own=document.createElement("span");own.setAttribute("data-lp-mark","1");own.className="sand-lp-mark";'
+  + '(mascot&&mascot.parentElement?mascot.parentElement:host).insertBefore(own,mascot||h)}'
+  + 'own.style.color=p.accent;own.style.width="1em";own.style.fontSize=getComputedStyle(h).fontSize;'
+  + 'own.innerHTML=p.svg;own.style.animation="none";void own.offsetWidth;own.style.animation=""};'
+  + 'var close=function(){var s=document.querySelector(".sand-lp-scrim");if(s)s.remove()};'
+  + 'var open=function(){if(document.querySelector(".sand-lp-scrim"))return;style();'
+  +   'var scrim=document.createElement("div");scrim.className="sand-lp-scrim";'
+  +   'scrim.addEventListener("mousedown",function(e){if(e.target===scrim&&picked())close()});'
+  +   'var sheet=document.createElement("div");sheet.className="sand-lp-sheet";sheet.setAttribute("role","dialog");sheet.setAttribute("aria-label","Choose how to sign in");'
+  +   'var h=document.createElement("p");h.className="sand-lp-h";h.textContent="How do you want to sign in?";'
+  +   'var sub=document.createElement("p");sub.className="sand-lp-sub";sub.textContent="This decides who your account belongs to and where the work runs.";'
+  +   'sheet.append(h,sub);'
+  +   'var msg=document.createElement("p");msg.className="sand-lp-msg";msg.textContent="";'
+  +   'var pick=cur;'
+  +   'var rows=[];'
+  +   'P.forEach(function(p){'
+  +     'var b=document.createElement("button");b.type="button";b.className="sand-lp-opt";b.setAttribute("role","radio");b.style.setProperty("--a",p.accent);'
+  +     'b.setAttribute("aria-checked",p.id===pick?"true":"false");'
+  +     'b.innerHTML=\'<span class="sand-lp-ic">\'+p.svg+\'</span><span><span class="sand-lp-nm">\'+p.label+\'</span><span class="sand-lp-tg" style="display:block">\'+p.tag+"</span><span class=\\"sand-lp-tg\\" data-lp-state style=\\"display:none\\"></span></span>";'
+  +     'b.addEventListener("click",function(){pick=p.id;rows.forEach(function(r){r.el.setAttribute("aria-checked",r.id===pick?"true":"false")});draw()});'
+  +     'rows.push({id:p.id,el:b});sheet.appendChild(b);'
+  +   '});'
+  +   'try{window.desktop.agent.getInferenceRouter().then(function(r){var l=(r&&r.local)||{};'
+  +   'rows.forEach(function(row){var c=l[row.id];if(!c)return;'
+  +   'var el=row.el.querySelector("[data-lp-state]");if(!el)return;'
+  +   'var msg=c.authenticated?"\\u2713 Signed in on this Mac":c.installed?"Needs one sign-in in a terminal":"Not installed yet";'
+  +   'el.textContent=msg;el.style.display="block";el.style.opacity=c.authenticated?".9":".6"})}).catch(function(){})}catch(_){}'
+  +   'var extra=document.createElement("div");extra.className="sand-lp-extra";sheet.appendChild(extra);sheet.appendChild(msg);'
+  +   'var foot=document.createElement("div");foot.className="sand-lp-foot";'
+  +   'var cancel=document.createElement("button");cancel.type="button";cancel.className="sand-lp-btn";cancel.textContent="Cancel";cancel.style.display=picked()?"":"none";cancel.addEventListener("click",close);'
+  +   'var use=document.createElement("button");use.type="button";use.className="sand-lp-btn";use.textContent="Use this";'
+  +   'foot.append(cancel,use);sheet.appendChild(foot);'
+  +   'var urlIn=null;'
+  +   'var draw=function(){extra.replaceChildren();urlIn=null;'
+  +     'if(pick!=="opengrok")return;'
+  +     'urlIn=document.createElement("input");urlIn.className="sand-lp-in";urlIn.type="text";urlIn.placeholder="http://192.168.1.10:1447";urlIn.setAttribute("aria-label","OpenGrok server URL");'
+  +     'extra.appendChild(urlIn);'
+  +     'try{window.desktop.agent.getOpenGrokServer().then(function(r){if(r&&r.gatewayUrl&&urlIn)urlIn.value=r.gatewayUrl}).catch(function(){})}catch(_){}'
+  +   '};'
+  +   'use.addEventListener("click",function(){if(busy)return;busy=!0;use.disabled=!0;msg.textContent="Switching\\u2026";'
+  +     'var a=window.desktop.agent;var done=function(){busy=!1;use.disabled=!1;cur=pick;markPicked(!0);chrome(byId(pick));close();mount()};'
+  +     'var fail=function(e){busy=!1;use.disabled=!1;msg.textContent=String(e&&e.message||e)};'
+  +     'if(pick==="opengrok"){var u=(urlIn&&urlIn.value||"").trim();if(!u){fail(new Error("Add your server URL first."));return}'
+  +       'a.setOpenGrokServer(u).then(function(){return a.setBoxRuntime("opengrok")}).then(function(){try{localStorage.setItem(MODE_K,"1")}catch(_){}done()}).catch(fail);return}'
+  +     'try{localStorage.removeItem(MODE_K);localStorage.removeItem("sand-cursor-login-skip")}catch(_){}'
+  +     'a.setBoxRuntime("local-docker").catch(function(){}).then(function(){'
+  +       'return a.setInferenceRouter?a.setInferenceRouter(pick):Promise.resolve()}).then(done).catch(fail);'
+  +   '});'
+  +   'draw();scrim.appendChild(sheet);document.body.appendChild(scrim);'
+  +   'document.addEventListener("keydown",function esc(e){if(e.key==="Escape"){close();document.removeEventListener("keydown",esc)}});'
+  + '};'
+  // ---- mount the gear, keep the chrome in step ----
+  + 'var BACK=G(\'<path d="M15 5l-7 7 7 7"/>\');'
+  + 'var chose=!1;var picked=function(){return chose};'
+  + 'var markPicked=function(on){chose=!!on};'
+  + 'var mount=function(){if(!ready)return;var root=document.querySelector(".sand-onboarding");if(!root)return;'
+  + 'if(getComputedStyle(root).position==="static")root.style.position="relative";'
+  + 'root.querySelectorAll("[data-login-skip]").forEach(function(n){n.remove()});'
+  + 'if(!picked()){open();return}'
+  + 'if(!root.querySelector(".sand-lp-back")){style();'
+  + 'var b=document.createElement("button");b.type="button";b.className="sand-lp-back";'
+  + 'b.title="Choose a different provider";b.setAttribute("aria-label","Choose a different provider");b.innerHTML=BACK;'
+  + 'b.addEventListener("click",function(){open()});root.appendChild(b)}'
+  + 'if(cur)chrome(byId(cur))};'
+  + 'var note=function(msg){try{var root=document.querySelector(".sand-onboarding");if(!root)return;'
+  + 'var n=root.querySelector("[data-lp-note]");'
+  + 'if(!n){n=document.createElement("p");n.setAttribute("data-lp-note","1");'
+  + 'n.style.cssText="position:absolute;left:0;right:0;bottom:26px;margin:0;text-align:center;font-size:13px;opacity:.8";root.appendChild(n)}'
+  + 'n.textContent=msg}catch(_){}};'
+  + 'document.addEventListener("click",function(ev){'
+  + 'var b=ev.target&&ev.target.closest?ev.target.closest("button"):null;if(!b)return;'
+  + 'if(b.classList&&b.classList.contains("sand-lp-back"))return;'
+  + 'if(b.closest&&b.closest(".sand-lp-sheet"))return;'
+  + 'if(!/^Sign in/i.test((b.innerText||"").trim()))return;'
+  + 'if(!cur||cur==="cursor")return;'
+  + 'ev.preventDefault();ev.stopPropagation();'
+  + 'var a=window.desktop&&window.desktop.agent;if(!a)return;'
+  + 'if(cur==="opengrok"){a.getOpenGrokServer().then(function(r){var u=r&&r.gatewayUrl;'
+  + 'if(!u){markPicked(!1);open();return}note("Opening your browser to sign in\\u2026");'
+  + 'return a.signInToOpenGrokServer(u)}).catch(function(e){note(String(e&&e.message||e))});return}'
+  + 'if(!a.startSubscriptionLogin){note("This provider cannot sign in from here yet.");return}'
+  + 'var cliOf=function(r){var l=r&&r.local;return(l&&l[cur])||{}};'
+  + 'var proceed=function(){try{localStorage.setItem("sand-cursor-login-skip","1")}catch(_){}'
+  + 'if(a.skipCursorLoginWall)a.skipCursorLoginWall({provider:cur}).then(function(){location.reload()}).catch(function(){location.reload()});'
+  + 'else location.reload()};'
+  + 'var watch=function(tries){a.getInferenceRouter().then(function(r){var c=cliOf(r);'
+  + 'if(c.authenticated){note("Signed in. Opening\\u2026");proceed();return}'
+  + 'if(tries<=0){note("Still not signed in. Finish in the terminal, then press Sign in again.");return}'
+  + 'setTimeout(function(){watch(tries-1)},2000)}).catch(function(){setTimeout(function(){watch(tries-1)},2000)})};'
+  + 'a.getInferenceRouter().then(function(r){var c=cliOf(r);'
+  + 'if(c.authenticated){note("Already signed in. Opening\\u2026");proceed();return}'
+  + 'note(c.installed?"Opening a terminal to sign in\\u2026":"Opening a terminal to install it\\u2026");'
+  + 'return a.startSubscriptionLogin(cur).then(function(){watch(60)})'
+  + '}).catch(function(e){note(String(e&&e.message||e)+" \\u2014 try another provider.")})'
+  + '},!0);'
+  + 'var boot=function(){read().then(function(id){cur=id||"cursor"}).catch(function(){cur="cursor"}).then(function(){ready=!0;mount()})};'
+  + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
+  + 'new MutationObserver(function(){if(document.querySelector(".sand-onboarding"))mount()}).observe(document.documentElement,{childList:!0,subtree:!0});'
+  + '}catch(_){}})();\n';
+
 const A11Y_ANNOUNCE_HELPER = ';(()=>{try{'
   + 'var live=document.createElement("div");live.className="sand-a11y-announcer";'
   + 'live.setAttribute("role","status");live.setAttribute("aria-live","polite");live.setAttribute("aria-atomic","true");'
@@ -1057,7 +1277,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalGallerySizes(patched);
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
-  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + patched;
+  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + patched;
 }
 
 
