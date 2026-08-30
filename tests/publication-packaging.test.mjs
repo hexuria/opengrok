@@ -89,7 +89,14 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /let RBoxLast=null;/);
   assert.match(rendererPatch, /RRouterLast\?\?RRouterSeed\(\)\?\?\{provider:null/);
   assert.match(rendererPatch, /sandRouterSeed\.v1/);
-  assert.match(rendererPatch, /RBoxLast\?\?\{mode:null,provider:null/);
+  // The in-memory cache is empty until the Computer panel has run once, so
+  // opening Settings straight onto Usage rendered the wrong provider and
+  // corrected itself a moment later. Both panels seed from the mode already on
+  // disk, which costs no round-trip, and only then confirm it with the main
+  // process.
+  assert.match(rendererPatch, /RBoxLast\?\?\{mode:ROpenGrokSeeded\(\)\?"opengrok":null,provider:null/);
+  assert.match(rendererPatch, /function ROpenGrokSeeded\(\)/);
+  assert.match(rendererPatch, /function ROpenGrokActive\(\)\{const\[v,setV\]=de\.useState\(\(\)=>ROpenGrokSeeded\(\)\)/);
   assert.doesNotMatch(rendererPatch, /id:"computer",label:"Computer"/);
   assert.doesNotMatch(rendererPatch, /RComputerPanel/);
   // The live runtime picker replaced the placeholder computer toggles.
@@ -219,8 +226,25 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /function ROpenGrokServer\(\)/);
   assert.match(rendererPatch, /function ROpenGrokActive\(\)/);
   assert.doesNotMatch(rendererPatch, /a\.jsx\(re,\{title:"Routing"/);
-  assert.match(rendererPatch, /label:"Computer",icon:"desktop"/);
+  // Every settings tab icon must name an entry in the renderer's own icon
+  // registry. "desktop" looked plausible and drew nothing, because the registry
+  // calls it "device-desktop"; asserting the literal alone could not tell the
+  // difference, so check the name the tab actually asks for really exists.
+  assert.match(rendererPatch, /label:"Computer",icon:"device-desktop"/);
+  const pinnedRenderer = await readFile(
+    path.join(repoRoot, "src", "app", "dist", "renderer", "assets", "index-UbX-y3il.js"),
+    "utf8",
+  );
+  for (const [, icon] of rendererPatch.matchAll(/\{id:"[a-z]+",label:"[^"]+",icon:"([a-z0-9-]+)"\}/g)) {
+    assert.ok(
+      new RegExp(`[,{]"?${icon}"?:"`).test(pinnedRenderer),
+      `settings tab icon "${icon}" is not a name in the renderer icon registry`,
+    );
+  }
   assert.match(rendererPatch, /sand-box-runtime-changed/);
+  for (const code of ["no_org_key", "invalid_key", "quota_exceeded", "provider_unreachable", "provider_error", "not_supported", "unknown"]) {
+    assert.match(rendererPatch, new RegExp(`${code}:\\[`), `the Computer panel has no copy for the "${code}" failure`);
+  }
   assert.ok(!/setOpenGrokServer\([^)]*token[^)]*\)[^;]*settings\.json/.test(rendererPatch), "the bearer must not be described as living in settings");
   assert.match(rendererPatch, /sand-a11y-announcer/);
   assert.match(rendererPatch, /"aria-live","polite"/);

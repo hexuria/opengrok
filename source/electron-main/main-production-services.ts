@@ -178,6 +178,8 @@ export interface ProductionAccountAuthService {
   login(): Promise<ProductionAccountStatus>;
   cancelLogin(): Promise<ProductionAccountStatus>;
   logout(): Promise<ProductionAccountStatus>;
+  /** Adopt credentials another backend established for this same single account. */
+  adoptExternalCredentials(): Promise<ProductionAccountStatus>;
   updateDisplayName(name: string): Promise<ProductionAccountStatus>;
   /** Shipped startup-only development authentication hook. */
   devLogin?(options: { readonly tier?: string; readonly email?: string }): Promise<ProductionAccountStatus>;
