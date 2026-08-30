@@ -93,8 +93,8 @@ function RRouterState(){
   // panel state a default as though it were the saved choice, so every reopen
   // showed Cursor and Grok VM until the load returned - which read as the
   // setting reverting. The loaded flag keeps the controls quiet until it lands.
-  const[s,e]=de.useState(()=>RRouterLast??{provider:null,usage:null,local:null,computers:null,openRouterModel:null,error:null,loaded:!1});
-  de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,...r,error:null,loaded:!0};RRouterLast=next;return next})};const n=r=>apply(r.detail);window.addEventListener("sand-router-provider-changed",n);const load=()=>window.desktop.agent.getInferenceRouter().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r?.message??r)}))});load();
+  const RRouterSeed=()=>{try{const raw=localStorage.getItem("sandRouterSeed.v1");if(!raw)return null;const d=JSON.parse(raw);if(!d||typeof d.provider!=="string")return null;return{provider:d.provider,usage:null,local:null,computers:null,openRouterModel:typeof d.openRouterModel==="string"?d.openRouterModel:null,error:null,loaded:!1}}catch{return null}};const[s,e]=de.useState(()=>RRouterLast??RRouterSeed()??{provider:null,usage:null,local:null,computers:null,openRouterModel:null,error:null,loaded:!1});
+  de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,...r,error:null,loaded:!0};RRouterLast=next;try{if(typeof next.provider==="string")localStorage.setItem("sandRouterSeed.v1",JSON.stringify({provider:next.provider,openRouterModel:next.openRouterModel??null}))}catch{}return next})};const n=r=>apply(r.detail);window.addEventListener("sand-router-provider-changed",n);const load=()=>window.desktop.agent.getInferenceRouter().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r?.message??r)}))});load();
   // Each refresh shells out to the provider CLIs; polling this every 2s spawned
   // those subprocesses continuously for as long as Settings stayed open.
   const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",n)}},[]);
@@ -983,7 +983,10 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'var a=window.desktop&&window.desktop.agent;if(!a)return;'
   + 'if(cur==="opengrok"){a.getOpenGrokServer().then(function(r){var u=r&&r.gatewayUrl;'
   + 'if(!u){markPicked(!1);open();return}note("Opening your browser to sign in\\u2026");'
-  + 'return a.signInToOpenGrokServer(u)}).catch(function(e){note(String(e&&e.message||e))});return}'
+  + 'return a.signInToOpenGrokServer(u).then(function(res){'
+  + 'note("Signed in"+(res&&res.email?" as "+res.email:"")+". Opening\\u2026");'
+  + 'setTimeout(function(){location.reload()},600)})'
+  + '}).catch(function(e){note(String(e&&e.message||e))});return}'
   + 'if(!a.startSubscriptionLogin){note("This provider cannot sign in from here yet.");return}'
   + 'var cliOf=function(r){var l=r&&r.local;return(l&&l[cur])||{}};'
   + 'var proceed=function(){try{localStorage.setItem("sand-cursor-login-skip","1")}catch(_){}'

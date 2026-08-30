@@ -466,6 +466,8 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const secrets = await import("./secrets/secret-store.js");
       await secrets.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, identity.accessToken);
       await secrets.writeSecret(OPENGROK_GATEWAY_TOKEN_SECRET, mint.gatewayToken);
+      await secrets.writeSecret("cursor-access-token", identity.accessToken);
+      await secrets.writeSecret("cursor-refresh-token", identity.refreshToken ?? identity.accessToken);
       invoke(deps.settingsStore, "setOpenGrokGatewayUrl", mint.gatewayUrl);
       invoke(deps.boxRecovery, "restartCoordinator");
       return {
