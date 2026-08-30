@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isSandAgentModelSelection, resolveComputerUseModelSelection } from "../shared/agents/sand-agent-model.js";
 import { normalizeSandAutoReviewInstructions } from "../shared/sand-auto-review-instructions.js";
 import { isSandLocalToolAction, normalizeSandLocalToolPermission } from "../shared/local-tool-permission.js";
@@ -9,7 +10,7 @@ import { sandWebauthnProxyMirroredEnablement } from "../shared/webauthn-proxy-av
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
 import { isSandInferenceProvider, parseOpenRouterModelId } from "../shared/inference-router.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
-import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
+import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
 import { getOpenGrokServerStatus, noteOpenGrokServerStatus } from "./box/opengrok-server-status.js";
 import { getLocalDockerStatus, startLocalDockerBox } from "./box/local-docker-host-connector.js";
 import { transcribeWithLocalWhisper } from "./account/local-whisper-transcribe.js";
@@ -439,11 +440,50 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     },
     getBoxRuntime: async () => { const mode = invoke(deps.settingsStore, "getBoxRuntime"); invariant(isSandBoxRuntime(mode), "Unknown box runtime."); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
     setBoxRuntime: async (raw) => { const requested = req(raw).mode; invariant(isSandBoxRuntime(requested), "Unknown box runtime."); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const mode = coerceBoxRuntimeForProvider(requested, isSandInferenceProvider(provider) ? provider : "cursor"); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); const previous = invoke(deps.settingsStore, "getBoxRuntime"); invoke(deps.settingsStore, "setBoxRuntime", mode); try { if (mode === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(settingsPath); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", previous); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
+    signInToOpenGrokServer: async (raw) => {
+      const body = req(raw);
+      const requested = typeof body.gatewayUrl === "string" ? body.gatewayUrl : "";
+      const { signInToOpenGrok } = await import("./box/opengrok-signin.js");
+      const secrets = await import("./secrets/secret-store.js");
+      const mint = await signInToOpenGrok(requested, { randomId: () => randomUUID() });
+      // Store what each seam wants: the account token for seam B, the minted
+      // bearer for the gateway. The user never sees or pastes either.
+      await secrets.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, mint.identity.accessToken);
+      await secrets.writeSecret(OPENGROK_GATEWAY_TOKEN_SECRET, mint.gatewayToken);
+      invoke(deps.settingsStore, "setOpenGrokGatewayUrl", mint.gatewayUrl);
+      invoke(deps.boxRecovery, "restartCoordinator");
+      return {
+        gatewayUrl: mint.gatewayUrl,
+        signedIn: true,
+        email: mint.identity.email ?? null,
+        accountId: mint.identity.accountId ?? null,
+        status: getOpenGrokServerStatus(),
+      };
+    },
+    signOutOfOpenGrokServer: async () => {
+      const secrets = await import("./secrets/secret-store.js");
+      for (const key of [OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET]) {
+        try { await secrets.deleteSecret(key); } catch { /* nothing stored */ }
+      }
+      invoke(deps.settingsStore, "setOpenGrokGatewayUrl", undefined);
+      if (invoke(deps.settingsStore, "getBoxRuntime") === "opengrok") invoke(deps.settingsStore, "setBoxRuntime", "local-docker");
+      noteOpenGrokServerStatus({ ok: false, detail: "Signed out.", gatewayUrl: null });
+      invoke(deps.boxRecovery, "restartCoordinator");
+      return { gatewayUrl: null, signedIn: false, email: null, accountId: null, status: getOpenGrokServerStatus() };
+    },
     getOpenGrokServer: async () => {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
       let hasToken = false;
-      try { hasToken = ((await (await import("./secrets/secret-store.js")).readSecret(OPENGROK_GATEWAY_TOKEN_SECRET)) ?? "").length > 0; } catch { hasToken = false; }
-      return { gatewayUrl: typeof gatewayUrl === "string" ? gatewayUrl : null, hasToken, status: getOpenGrokServerStatus() };
+      let signedIn = false;
+      let email: string | null = null;
+      try {
+        const secrets = await import("./secrets/secret-store.js");
+        hasToken = ((await secrets.readSecret(OPENGROK_GATEWAY_TOKEN_SECRET)) ?? "").length > 0;
+        const access = (await secrets.readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) ?? "";
+        signedIn = access.length > 0;
+        if (signedIn) email = (await import("./box/opengrok-signin.js")).readIdentityClaims(access).email ?? null;
+      } catch { hasToken = false; signedIn = false; }
+      return { gatewayUrl: typeof gatewayUrl === "string" ? gatewayUrl : null, hasToken, signedIn, email, status: getOpenGrokServerStatus() };
     },
     setOpenGrokServer: async (raw) => {
       const body = req(raw);

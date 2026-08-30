@@ -296,6 +296,8 @@ export function createDesktopPreloadBridge(options: {
       getBoxRuntime: () => edge("getBoxRuntime"),
       setBoxRuntime: (mode: string) => edge("setBoxRuntime", { mode }),
       getOpenGrokServer: () => edge("getOpenGrokServer"),
+      signInToOpenGrokServer: (gatewayUrl: string) => edge("signInToOpenGrokServer", { gatewayUrl }),
+      signOutOfOpenGrokServer: () => edge("signOutOfOpenGrokServer"),
       setOpenGrokServer: (gatewayUrl: string, token?: string) => edge("setOpenGrokServer", { gatewayUrl, ...(token === undefined ? {} : { token }) }),
       getWindows365Settings: () => edge("getWindows365Settings"),
       setWindows365Settings: (settings: unknown) => edge("setWindows365Settings", settings),

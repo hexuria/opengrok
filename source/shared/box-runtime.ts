@@ -3,6 +3,9 @@ export type SandBoxRuntime = "remote" | "local-docker" | "windows365" | "opengro
 /** Secret key for the OpenGrok server bearer. Never stored in settings.json. */
 export const OPENGROK_GATEWAY_TOKEN_SECRET = "opengrok-gateway-token";
 
+/** Account token from the server sign-in. Separate from the gateway bearer by design. */
+export const OPENGROK_ACCESS_TOKEN_SECRET = "opengrok-access-token";
+
 export const DEFAULT_SAND_BOX_RUNTIME: SandBoxRuntime = "remote";
 
 export const SAND_BOX_RUNTIME_OPTIONS = [
