@@ -192,17 +192,11 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /Copy message ID/);
   assert.match(rendererPatch, /Copy message URL/);
   assert.match(rendererPatch, /data-entry-id/);
-  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ EMOJI_SUGGEST_HELPER \+ patched/);
+  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ patched/);
   // A screen reader is told nothing when a reply starts or finishes. The
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.
   assert.match(rendererPatch, /const A11Y_ANNOUNCE_HELPER =/);
-  // Emoji completion embeds no dataset; it reuses the renderer's own iamcal
-  // alias chunk, so the chunk name and its build guard must stay together.
-  assert.match(rendererPatch, /const EMOJI_SUGGEST_HELPER =/);
-  assert.match(rendererPatch, /const EMOJI_ALIAS_CHUNK = "iamcal-[A-Za-z0-9_-]+\.js"/);
-  assert.match(rendererPatch, /Emoji alias chunk \$\{EMOJI_ALIAS_CHUNK\} is missing/);
-  assert.ok(!/EMOJI_SUGGEST_HELPER[\s\S]{0,4000}?hexcode.{0,40}=\s*\{/.test(rendererPatch), "the emoji helper must not inline an emoji table");
   assert.match(rendererPatch, /sand-a11y-announcer/);
   assert.match(rendererPatch, /"aria-live","polite"/);
   assert.match(rendererPatch, /Assistant is replying/);

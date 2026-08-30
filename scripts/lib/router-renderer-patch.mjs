@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -833,78 +833,6 @@ export function patchOriginalLocalToolAsk(source) {
 // node's opacity to 0 for its first stable layout - then fading in - hides the
 // open-time scroll/height settle. A hard failsafe timeout guarantees the node
 // is never left invisible even if a frame callback is dropped.
-// The app's own emoji alias chunk: iamcal hexcode -> shortcode, already shipped
-// for the reaction picker. Named once so the build guard and the helper cannot
-// drift apart when the pinned renderer is re-bootstrapped.
-const EMOJI_ALIAS_CHUNK = "iamcal-CEyh6ide.js";
-
-// Emoji :shortcode: completion in the composer. The last carried item from the
-// 0.29 plan. It embeds no emoji data: the app already ships iamcal's
-// hexcode -> shortcode map for its reaction picker, so this lazy-imports that
-// same chunk on the first ":" a person types and never loads it otherwise.
-// Sorting by name length puts :smile: above :smiley_cat:, which is what a
-// prefix search should do.
-const EMOJI_SUGGEST_HELPER = ';(()=>{try{'
-  + 'var IDX=null,LOAD=null,box=null,st={open:!1,items:[],sel:0,qlen:0,q:""};'
-  + 'var chars=function(hex){try{return hex.split("-").map(function(h){return String.fromCodePoint(parseInt(h,16))}).join("")}catch(_){return""}};'
-  + 'var load=function(){if(IDX)return Promise.resolve(IDX);if(LOAD)return LOAD;'
-  + 'LOAD=import(new URL("./' + EMOJI_ALIAS_CHUNK + '",import.meta.url).href).then(function(m){'
-  + 'var raw=(m&&m.default)||m||{},out=[],hex,v,names,c,i;'
-  + 'for(hex in raw){v=raw[hex];names=typeof v==="string"?[v]:v;if(!names||!names.length)continue;c=chars(hex);if(!c)continue;'
-  + 'for(i=0;i<names.length;i++)out.push({n:names[i],c:c})}'
-  + 'out.sort(function(a,b){return a.n.length-b.n.length||(a.n<b.n?-1:1)});IDX=out;return IDX'
-  + '}).catch(function(){IDX=[];return IDX});return LOAD};'
-  + 'var ensure=function(){if(box)return box;'
-  + 'var sty=document.createElement("style");sty.textContent=".sand-emoji-suggest{position:fixed;z-index:2147483000;min-width:210px;max-width:320px;padding:4px;border-radius:8px;border:1px solid var(--sand-border-default,rgba(128,128,128,.32));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 8px 26px rgba(0,0,0,.28);font-size:13px;overflow:hidden}'
-  + '.sand-emoji-suggest[hidden]{display:none}'
-  + '.sand-emoji-row{display:flex;align-items:center;gap:9px;padding:5px 9px;border-radius:5px;cursor:pointer;white-space:nowrap}'
-  + '.sand-emoji-row[aria-selected=true]{background:var(--sand-fill-ghost-selected,rgba(128,128,128,.20))}'
-  + '.sand-emoji-row .g{font-size:16px;line-height:1}'
-  + '.sand-emoji-row .n{opacity:.85;overflow:hidden;text-overflow:ellipsis}";'
-  + 'document.head.appendChild(sty);'
-  + 'box=document.createElement("div");box.className="sand-emoji-suggest";box.setAttribute("role","listbox");box.hidden=!0;'
-  + 'box.addEventListener("mousedown",function(ev){ev.preventDefault()});'
-  + 'document.body.appendChild(box);return box};'
-  + 'var close=function(){st.open=!1;st.items=[];if(box)box.hidden=!0};'
-  + 'var paint=function(){var b=ensure(),i,it,row;b.replaceChildren();'
-  + 'for(i=0;i<st.items.length;i++){it=st.items[i];row=document.createElement("div");row.className="sand-emoji-row";'
-  + 'row.setAttribute("role","option");row.setAttribute("aria-selected",i===st.sel?"true":"false");'
-  + 'var g=document.createElement("span");g.className="g";g.textContent=it.c;'
-  + 'var n=document.createElement("span");n.className="n";n.textContent=":"+it.n+":";'
-  + 'row.append(g,n);(function(k){row.addEventListener("click",function(){st.sel=k;accept(st.items[k])})})(i);b.append(row)}'
-  + 'b.hidden=!1;var r=null;try{var sel=window.getSelection();if(sel&&sel.rangeCount)r=sel.getRangeAt(0).getBoundingClientRect()}catch(_){}'
-  + 'var fld=document.querySelector(".sand-prompt-field");'
-  + 'if((!r||(!r.top&&!r.left))&&fld)r=fld.getBoundingClientRect();'
-  + 'if(!r)return;var h=b.offsetHeight||0,top=r.top-h-6;if(top<8)top=r.bottom+6;'
-  + 'var left=r.left;var max=window.innerWidth-(b.offsetWidth||220)-8;if(left>max)left=max;if(left<8)left=8;'
-  + 'b.style.top=Math.round(top)+"px";b.style.left=Math.round(left)+"px"};'
-  + 'var accept=function(it){if(!it)return close();var sel=window.getSelection();if(!sel||!sel.rangeCount)return close();'
-  + 'var r=sel.getRangeAt(0);try{r.setStart(r.startContainer,r.startOffset-st.qlen)}catch(_){return close()}'
-  + 'sel.removeAllRanges();sel.addRange(r);try{document.execCommand("insertText",!1,it.c+" ")}catch(_){}close()};'
-  + 'var scan=function(){var sel=window.getSelection();if(!sel||!sel.rangeCount)return close();'
-  + 'var r=sel.getRangeAt(0);if(!r.collapsed)return close();var node=r.startContainer;if(!node||node.nodeType!==3)return close();'
-  + 'var before=String(node.data||"").slice(0,r.startOffset);'
-  + 'var ex=/(?:^|[\\s(])(:([a-z0-9_+-]{2,}):)$/.exec(before);'
-  + 'if(ex){var eq=ex[2];load().then(function(ix){var hit=null,i;for(i=0;i<ix.length;i++)if(ix[i].n===eq){hit=ix[i];break}'
-  + 'if(hit){st.qlen=ex[1].length;accept(hit)}else close()});return}'
-  + 'var m=/(?:^|[\\s(])(:([a-z0-9_+-]{2,}))$/.exec(before);if(!m)return close();'
-  + 'var q=m[2];st.q=q;st.qlen=m[1].length;'
-  + 'load().then(function(ix){if(st.q!==q)return;var out=[],i;'
-  + 'for(i=0;i<ix.length&&out.length<8;i++)if(ix[i].n.indexOf(q)===0)out.push(ix[i]);'
-  + 'if(!out.length)return close();st.items=out;st.sel=0;st.open=!0;paint()})};'
-  + 'document.addEventListener("input",function(ev){var ed=ev.target&&ev.target.closest?ev.target.closest(".sand-prompt-field"):null;'
-  + 'if(!ed)return close();scan()},!0);'
-  + 'document.addEventListener("keydown",function(ev){if(!st.open)return;'
-  + 'var ed=ev.target&&ev.target.closest?ev.target.closest(".sand-prompt-field"):null;if(!ed)return;var k=ev.key;'
-  + 'if(k==="ArrowDown"||k==="ArrowUp"){ev.preventDefault();ev.stopPropagation();'
-  + 'st.sel=(st.sel+(k==="ArrowDown"?1:st.items.length-1))%st.items.length;paint();return}'
-  + 'if(k==="Enter"||k==="Tab"){ev.preventDefault();ev.stopPropagation();accept(st.items[st.sel]);return}'
-  + 'if(k==="Escape"){ev.preventDefault();ev.stopPropagation();close()}},!0);'
-  + 'document.addEventListener("mousedown",function(ev){if(box&&!box.contains(ev.target))close()},!0);'
-  + 'window.addEventListener("blur",close);'
-  + '}catch(_){}})();\n';
-
-
 const REVEAL_GATE_HELPER = ';(()=>{try{'
   + 'var last=null,scheduled=false;'
   + 'var gate=function(el){try{el.style.opacity="0";var done=false;var reveal=function(){if(done)return;done=true;el.style.transition="opacity .12s ease";el.style.opacity="1"};requestAnimationFrame(function(){requestAnimationFrame(reveal)});setTimeout(reveal,200)}catch(_){try{el.style.opacity="1"}catch(e){}}};'
@@ -1129,7 +1057,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalGallerySizes(patched);
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
-  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + EMOJI_SUGGEST_HELPER + patched;
+  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + patched;
 }
 
 
@@ -1240,11 +1168,6 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   }
   if (registryCandidates.length !== 1 || panelCandidates.length !== 1) {
     throw new Error(`Expected one original Settings registry and panel chunk, found ${registryCandidates.length}/${panelCandidates.length}.`);
-  }
-  // The emoji helper lazy-imports this chunk by name. If a re-pin renames it the
-  // completion would silently never open, so fail the build instead.
-  if (!existsSync(path.join(assetsRoot, EMOJI_ALIAS_CHUNK))) {
-    throw new Error(`Emoji alias chunk ${EMOJI_ALIAS_CHUNK} is missing from the staged renderer assets; update EMOJI_ALIAS_CHUNK.`);
   }
   const indexHtmlPath = path.join(stageRoot, "dist", "renderer", "index.html");
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
