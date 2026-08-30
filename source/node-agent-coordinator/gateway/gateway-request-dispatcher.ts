@@ -17,6 +17,17 @@ export interface GatewayCommandClient {
   dispatchCommand(method: string, args: unknown, options: { signal?: AbortSignal }): Promise<unknown>;
 }
 
+let lastReported = "";
+
+function reportGatewayFailure(method: string, failure: { code: string; message: string }): void {
+  // One line per distinct failure: a refused gateway fails on every poll, and a
+  // log that repeats itself hides the moment things changed.
+  const line = `${method} ${failure.code} ${failure.message}`;
+  if (line === lastReported) return;
+  lastReported = line;
+  try { process.stderr.write(`[sand:gateway] ${line}\n`); } catch { /* nothing to be done */ }
+}
+
 export function createGatewayRequestDispatch(client: GatewayCommandClient, serves: (method: string) => boolean = isCoordinatorMethod) {
   return async (method: string, args: unknown, signal?: AbortSignal): Promise<CoordinatorReplyOutcome> => {
     if (!serves(method)) return { status: "failed", failure: { code: COORDINATOR_UNKNOWN_METHOD, message: `no coordinator method named ${method}` } };
@@ -24,7 +35,9 @@ export function createGatewayRequestDispatch(client: GatewayCommandClient, serve
       const value = validateCoordinatorReply(method, await client.dispatchCommand(method, args, { ...(signal === undefined ? {} : { signal }) }));
       return { status: "ok", value };
     } catch (error) {
-      return { status: "failed", failure: failureFor(error) };
+      const failure = failureFor(error);
+      reportGatewayFailure(method, failure);
+      return { status: "failed", failure };
     }
   };
 }
