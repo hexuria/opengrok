@@ -12,6 +12,8 @@
  * isolation by tests and must not drag either in just to sign in.
  */
 
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+
 export interface OpenGrokIdentity {
   readonly accessToken: string;
   readonly refreshToken?: string;
@@ -27,8 +29,30 @@ export interface OpenGrokMint {
 }
 
 const AUTH_POLL_PATH = "/auth/poll";
+const LOGIN_PATH = "/loginDeepControl";
 const ENSURE_BOX_PATH = "/aiserver.v1.GrokBotService/EnsureSandBox";
 const SIGN_IN_TIMEOUT_MS = 15_000;
+/** How long to wait for the person to finish the browser step. */
+const BROWSER_LOGIN_TIMEOUT_MS = 180_000;
+const POLL_INTERVAL_MS = 1_500;
+
+function base64Url(buffer: Buffer): string {
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * PKCE, as the client already computes it elsewhere: a random verifier, and the
+ * challenge is its sha256. The server registers the challenge against the uuid
+ * when the browser leg runs, then only releases a token to whoever can present
+ * the matching verifier.
+ */
+export function createLoginParams(baseUrl: string, redirectTarget = "sand"): { uuid: string; verifier: string; challenge: string; loginUrl: string } {
+  const verifier = base64Url(randomBytes(32));
+  const challenge = base64Url(createHash("sha256").update(verifier).digest());
+  const uuid = randomUUID();
+  const query = `challenge=${encodeURIComponent(challenge)}&uuid=${encodeURIComponent(uuid)}&mode=login&redirectTarget=${encodeURIComponent(redirectTarget)}`;
+  return { uuid, verifier, challenge, loginUrl: `${baseUrl.replace(/\/+$/, "")}${LOGIN_PATH}?${query}` };
+}
 
 function base64UrlDecode(value: string): string {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (value.length % 4)) % 4);
@@ -112,6 +136,45 @@ export async function signInToOpenGrok(
         ...readIdentityClaims(accessToken),
       },
     };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const LIST_COMPUTERS_PATH = "/aiserver.v1.GrokBotService/ListGrokBotUserComputers";
+
+export interface OpenGrokComputer {
+  readonly id: string;
+  readonly label: string;
+  readonly kind?: string;
+  readonly state?: string;
+}
+
+/**
+ * The computers the SERVER offers, which is the honest source once it owns the
+ * bots: a box, a Cloud PC, whatever has been registered there. An empty list is
+ * a real answer, not a failure - it means none have been added yet.
+ */
+export async function listOpenGrokComputers(baseUrl: string, accessToken: string): Promise<readonly OpenGrokComputer[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SIGN_IN_TIMEOUT_MS);
+  try {
+    const body = await postJson(joinUrl(baseUrl.replace(/\/+$/, ""), LIST_COMPUTERS_PATH), accessToken, controller.signal);
+    const rows = Array.isArray(body.computers) ? body.computers : [];
+    return rows.flatMap((row) => {
+      if (typeof row !== "object" || row == null) return [];
+      const record = row as Record<string, unknown>;
+      const id = typeof record.id === "string" && record.id.length > 0 ? record.id
+        : typeof record.computerId === "string" ? record.computerId : "";
+      if (id.length === 0) return [];
+      const label = typeof record.name === "string" && record.name.length > 0 ? record.name
+        : typeof record.label === "string" && record.label.length > 0 ? record.label : id;
+      return [{
+        id, label,
+        ...(typeof record.kind === "string" ? { kind: record.kind } : {}),
+        ...(typeof record.state === "string" ? { state: record.state } : {}),
+      }];
+    });
   } finally {
     clearTimeout(timer);
   }

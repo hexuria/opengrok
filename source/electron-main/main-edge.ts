@@ -440,6 +440,18 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     },
     getBoxRuntime: async () => { const mode = invoke(deps.settingsStore, "getBoxRuntime"); invariant(isSandBoxRuntime(mode), "Unknown box runtime."); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
     setBoxRuntime: async (raw) => { const requested = req(raw).mode; invariant(isSandBoxRuntime(requested), "Unknown box runtime."); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const mode = coerceBoxRuntimeForProvider(requested, isSandInferenceProvider(provider) ? provider : "cursor"); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); const previous = invoke(deps.settingsStore, "getBoxRuntime"); invoke(deps.settingsStore, "setBoxRuntime", mode); try { if (mode === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(settingsPath); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", previous); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
+    listOpenGrokComputers: async () => {
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { computers: [], signedIn: false };
+      try {
+        const access = (await (await import("./secrets/secret-store.js")).readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) ?? "";
+        if (access.length === 0) return { computers: [], signedIn: false };
+        const { listOpenGrokComputers } = await import("./box/opengrok-signin.js");
+        return { computers: await listOpenGrokComputers(gatewayUrl, access), signedIn: true };
+      } catch (error) {
+        return { computers: [], signedIn: true, error: String(error instanceof Error ? error.message : error) };
+      }
+    },
     signInToOpenGrokServer: async (raw) => {
       const body = req(raw);
       const requested = typeof body.gatewayUrl === "string" ? body.gatewayUrl : "";
