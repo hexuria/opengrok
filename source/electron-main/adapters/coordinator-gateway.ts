@@ -11,6 +11,8 @@ import type {
 import type { ProductionServiceContext } from "../main-production-services.js";
 import type { BoxConnectionInfo } from "../../shared/node/egress-tunnel/box-connection.js";
 import { createSettingsRoutedHostConnector } from "../box/local-docker-host-connector.js";
+import { OPENGROK_GATEWAY_TOKEN_SECRET } from "../../shared/box-runtime.js";
+import { readSecret } from "../secrets/secret-store.js";
 
 function requireFunction(value: unknown, label: string): asserts value is (...args: never[]) => unknown {
   if (typeof value !== "function") {
@@ -51,7 +53,7 @@ export function createProductionCoordinatorGatewayBinding(): Pick<
         context.env,
         context.requireUpdate(),
         descriptorFastPath,
-      ), context.settings.settingsStore) as unknown as {
+      ), context.settings.settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET)) as unknown as {
         connect(): unknown | Promise<unknown>;
         recreate?: (...args: any[]) => unknown;
         forceRecreate?: (...args: any[]) => unknown;

@@ -188,10 +188,15 @@ test("first-run and signed-out UI offer Cursor plus Choose Other Provider", asyn
   assert.match(signIn, /data-login-skip="1"/);
   assert.match(signIn, /onSkip/);
   assert.doesNotMatch(signIn, /Sign in with Claude/);
-  assert.match(MAIN_CHROME_SOURCE, /data-first-run-logins","cursor-claude-codex"/);
-  assert.match(MAIN_CHROME_SOURCE, /Choose Other Provider/);
-  assert.match(MAIN_CHROME_SOURCE, /data-login-skip","1"/);
-  assert.match(MAIN_CHROME_SOURCE, /RSkipLoginWall/);
+  // The shipped page offers the same choice through a gear and a sheet now, so
+  // the guarantee is that all four providers are reachable while signed out -
+  // not that one particular button exists. The gear ships as a prepended helper
+  // rather than in the chrome source, so assert against the patch itself.
+  const patchSource = await readFile(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
+  assert.match(patchSource, /sand-lp-back/);
+  for (const provider of ["cursor", "opengrok", "codex", "claude-code"]) {
+    assert.match(patchSource, new RegExp(`id:"${provider}"`), provider);
+  }
   assert.match(MAIN_CHROME_SOURCE, /RBootProviderChrome/);
   assert.match(COMPONENT_SOURCE, /startSubscriptionLogin/);
   assert.match(COMPONENT_SOURCE, /label:"Claude Code"/);
@@ -505,7 +510,7 @@ test("renderer patch never emits an unquoted codex identifier", async () => {
   assert.equal(containsUnquotedCodexIdentifier(COMPONENT_SOURCE), false);
   assert.equal(containsUnquotedCodexIdentifier(MAIN_CHROME_SOURCE), false);
   const chrome = patchOriginalMainChrome("const wDn=[];");
-  assert.match(chrome, /Choose Other Provider/);
+  assert.match(chrome, /RInstallFirstRunLogins/);
   assert.match(chrome, /RInstallFirstRunLogins/);
   assert.equal(
     containsUnquotedCodexIdentifier(`n==="cursor"?"cursor":n==="claude-code"?"claude-code":codex`),

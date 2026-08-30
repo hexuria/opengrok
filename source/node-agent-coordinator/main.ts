@@ -31,12 +31,24 @@ function readCoordinatorSettings(dataDir: string): SandSettingsStore | null {
   }
 }
 
+/**
+ * The OpenGrok server is the backend when it is the selected computer: it owns the
+ * roster, the transcripts and inference, on each coworker's own model. Routing
+ * locally would answer listAgents from this machine and the server's bots would
+ * never appear - the app would look connected and show the wrong roster.
+ */
+function usesOpenGrokServer(dataDir: string): boolean {
+  return readCoordinatorSettings(dataDir)?.getBoxRuntime() === "opengrok";
+}
+
 function usesLocalInference(dataDir: string): boolean {
+  if (usesOpenGrokServer(dataDir)) return false;
   const provider = readCoordinatorSettings(dataDir)?.getInferenceProvider();
   return provider === "claude-code" || provider === "codex" || provider === "openrouter";
 }
 
 function usesLocalCoordinator(dataDir: string): boolean {
+  if (usesOpenGrokServer(dataDir)) return false;
   const store = readCoordinatorSettings(dataDir);
   if (store?.getCursorLoginWallSkipped() === true) return true;
   return usesLocalInference(dataDir);
@@ -264,7 +276,13 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
       const { clientNonce, traceparent } = args as Record<string, unknown>;
       recorder.beginSend({ accountSlot: HOST_ACCOUNT_SLOT, clientNonce: typeof clientNonce === "string" ? clientNonce : null, traceparent: typeof traceparent === "string" ? traceparent : null });
     }
-    const routed = await inferenceRouter!.dispatch(method, args);
+      // In OpenGrok mode the server is the backend. The local router must not get
+      // first refusal on the renderer's own requests, or it answers listAgents from
+      // this machine and the server's coworkers never appear - the app looks
+      // connected while showing the wrong roster.
+      const routed = usesOpenGrokServer(dataDir)
+        ? { handled: false as const, value: undefined }
+        : await inferenceRouter!.dispatch(method, args);
     return routed.handled ? { status: "ok" as const, value: routed.value } : await gatewayDispatch(method, args, signal);
   };
   server = createRendererPortServer(
@@ -276,7 +294,13 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
         void seedAgentsRosterToMain();
         return;
       }
-      if (!isGatewayStreamLive) server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state: "down" });
+      // Report the state the transport is actually in, not only the bad one.
+        // transport-connected fires when the gateway stream comes up, which can be
+        // before the renderer has claimed its port - a fast server on the LAN makes
+        // that the common case rather than the rare one. Announcing only "down" here
+        // left the renderer believing it was offline, so it never asked for a roster
+        // and the sidebar stayed empty while the gateway was perfectly healthy.
+        server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state: isGatewayStreamLive ? "connected" : "down" });
     } }
   );
   const mainDispatch = createGatewayRequestDispatch(gatewayClient, isCoordinatorMainMethod);
@@ -288,10 +312,10 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
     { post: (frame) => carrier.mainData.post(frame), close: () => carrier.mainData.close() },
     { dispatchRequest: async (method, args, signal) => {
       if (method === "setGatewayPaused" && typeof args === "object" && args != null) applyPause((args as Record<string, unknown>).paused === true);
-      if (method === "clearAgentImageMetadata") {
-        const routed = await inferenceRouter!.dispatch(method, args);
-        if (routed.handled) return { status: "ok" as const, value: routed.value };
-      }
+        if (method === "clearAgentImageMetadata") {
+          const routed = await inferenceRouter!.dispatch(method, args);
+          if (routed.handled) return { status: "ok" as const, value: routed.value };
+        }
       return mainDispatch(method, args, signal);
     } }
   );

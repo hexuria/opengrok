@@ -35,8 +35,28 @@ export function getAccessTokenExpiryMs(token: string): number | null {
   return exp == null || !Number.isFinite(exp) ? null : exp * 1_000;
 }
 
+/**
+ * Which backend answers for the account.
+ *
+ * There is ONE account in this app, and this is what decides who it belongs to.
+ * Pointing it at an OpenGrok server is what makes that server the account
+ * authority - not a second account beside the Cursor one, which is the mistake
+ * this hook exists to avoid. The main process installs a resolver that consults
+ * settings; everything else keeps calling this and is none the wiser.
+ */
+let backendUrlResolver: (() => string | undefined) | null = null;
+
+export function setBackendUrlResolver(resolve: (() => string | undefined) | null): void {
+  backendUrlResolver = resolve;
+}
+
 export function getConfiguredBackendUrl(env: NodeJS.ProcessEnv = process.env): string {
-  return new URL(env.SAND_BACKEND_URL ?? env.CURSOR_API_BASE_URL ?? DEFAULT_CURSOR_BACKEND_URL).toString();
+  let configured: string | undefined;
+  try { configured = backendUrlResolver?.() ?? undefined; } catch { configured = undefined; }
+  const raw = (configured != null && configured.trim().length > 0)
+    ? configured.trim()
+    : env.SAND_BACKEND_URL ?? env.CURSOR_API_BASE_URL ?? DEFAULT_CURSOR_BACKEND_URL;
+  return new URL(raw).toString();
 }
 
 export function getAuthClientId(backendUrl: string, env: NodeJS.ProcessEnv = process.env): string {

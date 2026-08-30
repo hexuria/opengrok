@@ -49,6 +49,9 @@ import { registerElectronProductionVncTrust, type ElectronProductionVncTrustDeps
 import { registerProductionTelemetryIpc } from "./telemetry/production-telemetry-ipc.js";
 import type { SandAuthStatus } from "./account/cursor-auth.js";
 import { shouldPreserveComputersAcrossAccountDeparture } from "./account/preserve-computers.js";
+import { OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
+import { setBackendUrlResolver } from "../shared/node/cursor-token.js";
+import { readSecret } from "./secrets/secret-store.js";
 import type { SecureStorageCodec } from "./secrets/secret-store.js";
 import { recordLocalToolApproval as persistLocalToolApproval, clearLocalToolApprovals as clearPersistedLocalToolApprovals } from "../host/local-exec/local-tool-approvals.js";
 import { fetchSandAvailableModels } from "./models/cursor-model-catalog.js";
@@ -622,7 +625,16 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
           reportBoxRebuildStage(level: "info" | "warn", metadata: Record<string, string | undefined>): void;
         };
       }));
-      const handleBoxVisibilityReport = createBoxVisibilityReportHandler(() => boxVisibilityTracker);
+      // One account, and this decides whose. With an OpenGrok server configured it
+        // becomes the account authority for everything the app already does - sign
+        // in, GetMe, usage - rather than a second identity beside Cursor's.
+        setBackendUrlResolver(() => {
+          try {
+            const store = requireValue(settings, "settings").settingsStore;
+            return store.getBoxRuntime() === "opengrok" ? store.getOpenGrokGatewayUrl() : undefined;
+          } catch { return undefined; }
+        });
+        const handleBoxVisibilityReport = createBoxVisibilityReportHandler(() => boxVisibilityTracker);
       const accountLifecycle: ProductionAccountLifecycle = {
         getAccountScope: () => {
           const store = requireValue(settings, "settings").settingsStore;
@@ -681,7 +693,7 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
           env,
           { noteBackendUpdateRequirement: (required) => requireValue(update, "update").noteBackendUpdateRequirement(required) },
           gatewayFastPath,
-        ), requireValue(settings, "settings").settingsStore);
+        ), requireValue(settings, "settings").settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET));
       const baseRemoteConnector = wrapRemoteHostConnectorWithDevBoxPlane(
         rawRemoteConnector,
         {
