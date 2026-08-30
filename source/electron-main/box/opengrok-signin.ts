@@ -175,6 +175,8 @@ export interface OpenGrokComputer {
   readonly label: string;
   readonly kind?: string;
   readonly state?: string;
+  /** False when the organisation has not set this kind up yet. */
+  readonly configured?: boolean;
 }
 
 /**
@@ -200,6 +202,7 @@ export async function listOpenGrokComputers(baseUrl: string, accessToken: string
         id, label,
         ...(typeof record.kind === "string" ? { kind: record.kind } : {}),
         ...(typeof record.state === "string" ? { state: record.state } : {}),
+        ...(typeof record.configured === "boolean" ? { configured: record.configured } : {}),
       }];
     });
   } finally {

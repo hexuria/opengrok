@@ -108,3 +108,62 @@ test("the account backend follows the configured server, and falls back to env",
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+async function loadSignIn() {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "opengrok-signin-"));
+  const outfile = path.join(temporary, "signin.mjs");
+  await build({
+    entryPoints: [path.join(repoRoot, "source/electron-main/box/opengrok-signin.ts")],
+    outfile,
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    external: ["electron"],
+  });
+  const loaded = await import(pathToFileURL(outfile).href);
+  return { loaded, cleanup: () => rm(temporary, { recursive: true, force: true }) };
+}
+
+// The parser names the fields it keeps, so a field it does not name is dropped
+// in silence. That is how "configured" went missing: the server sent it, the
+// panel never saw it, and a box the organisation had never set up rendered as
+// ready to use. Pin the whole row against the payload the server actually sends.
+test("a computer the organisation has not configured stays marked unconfigured", async () => {
+  const { loaded, cleanup } = await loadSignIn();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    computers: [
+      { id: "local-docker", label: "Local VM (on the server)", kind: "local-docker", state: "available", configured: true },
+      { id: "ascii", label: "box.ascii.dev", kind: "ascii", state: "not-configured", configured: false },
+      { id: "windows365", label: "Windows 365", kind: "windows365", state: "not-configured", configured: false },
+    ],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const rows = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(rows.length, 3);
+    assert.deepEqual(rows.map((row) => row.configured), [true, false, false]);
+    assert.deepEqual(rows.map((row) => row.label), ["Local VM (on the server)", "box.ascii.dev", "Windows 365"]);
+    assert.deepEqual(rows.map((row) => row.kind), ["local-docker", "ascii", "windows365"]);
+  } finally {
+    globalThis.fetch = realFetch;
+    await cleanup();
+  }
+});
+
+// A server that says nothing about configuration is not asserting the computer
+// is unusable, so absence must stay absent rather than becoming false.
+test("a server that omits configured leaves it unset rather than guessing", async () => {
+  const { loaded, cleanup } = await loadSignIn();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    computers: [{ id: "only", label: "Only", kind: "local-docker", state: "available" }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const rows = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(rows.length, 1);
+    assert.ok(!("configured" in rows[0]));
+  } finally {
+    globalThis.fetch = realFetch;
+    await cleanup();
+  }
+});
