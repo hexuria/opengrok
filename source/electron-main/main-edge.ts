@@ -454,21 +454,25 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     },
     signInToOpenGrokServer: async (raw) => {
       const body = req(raw);
-      const requested = typeof body.gatewayUrl === "string" ? body.gatewayUrl : "";
-      const { signInToOpenGrok } = await import("./box/opengrok-signin.js");
+      const signin = await import("./box/opengrok-signin.js");
+      const base = signin.assertUsableServerUrl(typeof body.gatewayUrl === "string" ? body.gatewayUrl : "");
+      const params = signin.createLoginParams(base);
+      // The browser step is what proves a person is here: the server binds the
+      // uuid to the account only when this page is opened, and only then will
+      // poll release a token to the matching verifier.
+      try { void (require("electron") as { shell: { openExternal(url: string): Promise<void> } }).shell.openExternal(params.loginUrl); } catch { /* headless or blocked */ }
+      const identity = await signin.pollForOpenGrokToken(base, params.uuid, params.verifier);
+      const mint = await signin.mintOpenGrokGateway(base, identity.accessToken);
       const secrets = await import("./secrets/secret-store.js");
-      const mint = await signInToOpenGrok(requested, { randomId: () => randomUUID() });
-      // Store what each seam wants: the account token for seam B, the minted
-      // bearer for the gateway. The user never sees or pastes either.
-      await secrets.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, mint.identity.accessToken);
+      await secrets.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, identity.accessToken);
       await secrets.writeSecret(OPENGROK_GATEWAY_TOKEN_SECRET, mint.gatewayToken);
       invoke(deps.settingsStore, "setOpenGrokGatewayUrl", mint.gatewayUrl);
       invoke(deps.boxRecovery, "restartCoordinator");
       return {
         gatewayUrl: mint.gatewayUrl,
         signedIn: true,
-        email: mint.identity.email ?? null,
-        accountId: mint.identity.accountId ?? null,
+        email: identity.email ?? null,
+        accountId: identity.accountId ?? null,
         status: getOpenGrokServerStatus(),
       };
     },

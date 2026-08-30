@@ -99,46 +99,73 @@ async function postJson(url: string, token: string, signal: AbortSignal): Promis
 }
 
 /**
- * Sign in and mint, in one step, because a half-signed-in state helps nobody:
- * without the gateway bearer the app cannot reach the server anyway.
+ * Wait for the person to finish the browser step. The server answers 404 with
+ * "pending" until the challenge has been completed with a matching verifier,
+ * and 200 with the tokens once it has - so a 404 here means keep waiting, not
+ * failure. The token is consumed on success: one challenge, one token, and a
+ * replay is a 404 again.
  */
-export async function signInToOpenGrok(
-  gatewayUrlInput: string,
-  deps: { readonly randomId: () => string } = { randomId: () => Math.random().toString(36).slice(2) },
-): Promise<OpenGrokMint> {
-  const base = gatewayUrlInput.trim().replace(/\/+$/, "");
-  if (base.length === 0) throw new Error("Enter your OpenGrok server URL first.");
-  try { new URL(base); } catch { throw new Error("That is not a valid URL. Include the scheme, for example http://192.168.1.10:1447"); }
+export async function pollForOpenGrokToken(
+  baseUrl: string,
+  uuid: string,
+  verifier: string,
+  options: { readonly timeoutMs?: number; readonly signal?: AbortSignal; readonly sleep?: (ms: number) => Promise<void> } = {},
+): Promise<OpenGrokIdentity> {
+  const base = baseUrl.replace(/\/+$/, "");
+  const deadline = Date.now() + (options.timeoutMs ?? BROWSER_LOGIN_TIMEOUT_MS);
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const url = `${joinUrl(base, AUTH_POLL_PATH)}?uuid=${encodeURIComponent(uuid)}&verifier=${encodeURIComponent(verifier)}`;
+  let lastStatus = 0;
+  while (Date.now() < deadline) {
+    if (options.signal?.aborted === true) throw new Error("Sign-in was cancelled.");
+    let response: Response;
+    try {
+      response = await fetch(url, { headers: { accept: "application/json" }, ...(options.signal == null ? {} : { signal: options.signal }) });
+    } catch {
+      await sleep(POLL_INTERVAL_MS);
+      continue;
+    }
+    lastStatus = response.status;
+    if (response.ok) {
+      const poll = (await response.json()) as Record<string, unknown>;
+      const accessToken = typeof poll.accessToken === "string" ? poll.accessToken : "";
+      if (accessToken.length === 0) throw new Error("The server did not return an access token.");
+      return {
+        accessToken,
+        ...(typeof poll.refreshToken === "string" ? { refreshToken: poll.refreshToken } : {}),
+        ...readIdentityClaims(accessToken),
+      };
+    }
+    // 404 is "not yet"; anything else is the server saying no.
+    if (response.status !== 404) throw new Error(`The server refused the sign-in (${response.status}).`);
+    await sleep(POLL_INTERVAL_MS);
+  }
+  throw new Error(lastStatus === 404
+    ? "Sign-in timed out. Finish the sign-in page in your browser, then try again."
+    : "Sign-in timed out before the server answered.");
+}
 
+/** Exchange the account token for the gateway bearer. Seam B mints what seam A wants. */
+export async function mintOpenGrokGateway(baseUrl: string, accessToken: string): Promise<{ gatewayUrl: string; gatewayToken: string }> {
+  const base = baseUrl.replace(/\/+$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SIGN_IN_TIMEOUT_MS);
   try {
-    const uuid = deps.randomId();
-    const verifier = deps.randomId();
-    const pollUrl = `${joinUrl(base, AUTH_POLL_PATH)}?uuid=${encodeURIComponent(uuid)}&verifier=${encodeURIComponent(verifier)}`;
-    const pollResponse = await fetch(pollUrl, { headers: { accept: "application/json" }, signal: controller.signal });
-    if (!pollResponse.ok) throw new Error(`The server refused the sign-in (${pollResponse.status}). Check the URL.`);
-    const poll = (await pollResponse.json()) as Record<string, unknown>;
-    const accessToken = typeof poll.accessToken === "string" ? poll.accessToken : "";
-    if (accessToken.length === 0) throw new Error("The server did not return an access token.");
-
     const box = await postJson(joinUrl(base, ENSURE_BOX_PATH), accessToken, controller.signal);
     const gatewayUrl = typeof box.gatewayUrl === "string" && box.gatewayUrl.length > 0 ? box.gatewayUrl : base;
     const gatewayToken = typeof box.gatewayToken === "string" ? box.gatewayToken : "";
     if (gatewayToken.length === 0) throw new Error("The server signed you in but minted no gateway token.");
-
-    return {
-      gatewayUrl,
-      gatewayToken,
-      identity: {
-        accessToken,
-        ...(typeof poll.refreshToken === "string" ? { refreshToken: poll.refreshToken } : {}),
-        ...readIdentityClaims(accessToken),
-      },
-    };
+    return { gatewayUrl, gatewayToken };
   } finally {
     clearTimeout(timer);
   }
+}
+
+export function assertUsableServerUrl(gatewayUrlInput: string): string {
+  const base = gatewayUrlInput.trim().replace(/\/+$/, "");
+  if (base.length === 0) throw new Error("Enter your OpenGrok server URL first.");
+  try { new URL(base); } catch { throw new Error("That is not a valid URL. Include the scheme, for example http://192.168.1.10:1447"); }
+  return base;
 }
 
 const LIST_COMPUTERS_PATH = "/aiserver.v1.GrokBotService/ListGrokBotUserComputers";
