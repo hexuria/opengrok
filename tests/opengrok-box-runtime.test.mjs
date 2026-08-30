@@ -139,7 +139,7 @@ test("a computer the organisation has not configured stays marked unconfigured",
     ],
   }), { status: 200, headers: { "content-type": "application/json" } });
   try {
-    const rows = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    const { computers: rows } = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
     assert.equal(rows.length, 3);
     assert.deepEqual(rows.map((row) => row.configured), [true, false, false]);
     assert.deepEqual(rows.map((row) => row.label), ["Local VM (on the server)", "box.ascii.dev", "Windows 365"]);
@@ -159,7 +159,7 @@ test("a server that omits configured leaves it unset rather than guessing", asyn
     computers: [{ id: "only", label: "Only", kind: "local-docker", state: "available" }],
   }), { status: 200, headers: { "content-type": "application/json" } });
   try {
-    const rows = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    const { computers: rows } = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
     assert.equal(rows.length, 1);
     assert.ok(!("configured" in rows[0]));
   } finally {
@@ -204,5 +204,46 @@ test("the cached box runtime still follows a change to settings.json", async () 
     assert.equal(readBoxRuntime(dataDir), "opengrok", "and again, in the other direction");
   } finally {
     await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+// The code is the contract and the message is prose the server may reword, so
+// an unrecognised code must survive verbatim rather than being flattened - a
+// code we do not know yet still carries a message worth showing.
+test("a provisioning failure reaches the client with its code and its words", async () => {
+  const { loaded, cleanup } = await loadSignIn();
+  const realFetch = globalThis.fetch;
+  const reply = (body) => async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    globalThis.fetch = reply({
+      computers: [],
+      computerError: { code: "no_org_key", message: "no computer is configured for your organization" },
+    });
+    const failed = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.deepEqual(failed.computers, []);
+    assert.equal(failed.computerError.code, "no_org_key");
+    assert.match(failed.computerError.message, /no computer is configured/);
+
+    globalThis.fetch = reply({ computers: [{ id: "local-docker", label: "Local VM", kind: "local-docker" }], computerError: null });
+    const fine = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(fine.computerError, null, "a provisioned computer must clear the error to null");
+    assert.equal(fine.computers.length, 1);
+
+    globalThis.fetch = reply({ computers: [], computerError: { code: "a_code_from_a_later_server", message: "something new" } });
+    const future = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(future.computerError.code, "a_code_from_a_later_server", "an unknown code must not be rewritten");
+    assert.equal(future.computerError.message, "something new");
+
+    globalThis.fetch = reply({ computers: [], computerError: { message: "no code at all" } });
+    const codeless = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(codeless.computerError.code, "unknown", "a missing code falls back rather than throwing away the message");
+    assert.equal(codeless.computerError.message, "no code at all");
+
+    globalThis.fetch = reply({ computers: [] });
+    const silent = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(silent.computerError, null, "a server that says nothing has not reported a failure");
+  } finally {
+    globalThis.fetch = realFetch;
+    await cleanup();
   }
 });

@@ -184,13 +184,38 @@ export interface OpenGrokComputer {
  * bots: a box, a Cloud PC, whatever has been registered there. An empty list is
  * a real answer, not a failure - it means none have been added yet.
  */
-export async function listOpenGrokComputers(baseUrl: string, accessToken: string): Promise<readonly OpenGrokComputer[]> {
+/**
+ * Why a computer could not be provisioned for this account. The code is the
+ * contract - the message is prose the server may reword at any time - so an
+ * unrecognised code is kept verbatim rather than flattened to "unknown", and the
+ * message is always shown so nothing the server said is lost.
+ */
+export interface OpenGrokComputerError {
+  readonly code: string;
+  readonly message: string;
+}
+
+export interface OpenGrokComputerList {
+  readonly computers: readonly OpenGrokComputer[];
+  readonly computerError: OpenGrokComputerError | null;
+}
+
+function parseComputerError(value: unknown): OpenGrokComputerError | null {
+  if (typeof value !== "object" || value == null) return null;
+  const record = value as Record<string, unknown>;
+  const code = typeof record.code === "string" && record.code.length > 0 ? record.code : "unknown";
+  const message = typeof record.message === "string" ? record.message : "";
+  return { code, message };
+}
+
+export async function listOpenGrokComputers(baseUrl: string, accessToken: string): Promise<OpenGrokComputerList> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SIGN_IN_TIMEOUT_MS);
   try {
     const body = await postJson(joinUrl(baseUrl.replace(/\/+$/, ""), LIST_COMPUTERS_PATH), accessToken, controller.signal);
     const rows = Array.isArray(body.computers) ? body.computers : [];
-    return rows.flatMap((row) => {
+    const computerError = parseComputerError(body.computerError);
+    const computers = rows.flatMap((row) => {
       if (typeof row !== "object" || row == null) return [];
       const record = row as Record<string, unknown>;
       const id = typeof record.id === "string" && record.id.length > 0 ? record.id
@@ -205,6 +230,7 @@ export async function listOpenGrokComputers(baseUrl: string, accessToken: string
         ...(typeof record.configured === "boolean" ? { configured: record.configured } : {}),
       }];
     });
+    return { computers, computerError };
   } finally {
     clearTimeout(timer);
   }

@@ -242,6 +242,9 @@ test("Router settings use the trusted backend and display recorded inference usa
     );
   }
   assert.match(rendererPatch, /sand-box-runtime-changed/);
+  for (const code of ["no_org_key", "invalid_key", "quota_exceeded", "provider_unreachable", "provider_error", "not_supported", "unknown"]) {
+    assert.match(rendererPatch, new RegExp(`${code}:\\[`), `the Computer panel has no copy for the "${code}" failure`);
+  }
   assert.ok(!/setOpenGrokServer\([^)]*token[^)]*\)[^;]*settings\.json/.test(rendererPatch), "the bearer must not be described as living in settings");
   assert.match(rendererPatch, /sand-a11y-announcer/);
   assert.match(rendererPatch, /"aria-live","polite"/);
