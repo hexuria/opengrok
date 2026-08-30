@@ -15,7 +15,7 @@ const REMARK_MATH_JS = readFileSync(path.join(VENDOR_DIR, "remark-math.min.js"),
 const MATH_KIT_JS = readFileSync(path.join(VENDOR_DIR, "sand-math-kit.js"), "utf8");
 
 const REGISTRY_BEFORE = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
-const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"router",label:"Router",icon:"git-branch"},{id:"dictation",label:"Dictation",icon:"mic"},{id:"usage",label:"Usage",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
+const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"router",label:"Computer",icon:"desktop"},{id:"dictation",label:"Dictation",icon:"mic"},{id:"usage",label:"Usage",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
 // The stock registry hides the usage tab unless a Cursor account is signed in;
 // routed providers track usage locally, so the tab must always be visible.
 const USAGE_TAB_FILTER_BEFORE = 'i=wDn.filter(o=>o.id!=="usage"||r)';
@@ -177,8 +177,8 @@ if(s.error)return a.jsx(ie,{description:"The server did not answer. It may be an
 if(s.computers.length===0)return a.jsx(ie,{description:"Your bots run on the server itself until you add one there \u2014 a box, or a Cloud PC.",label:"Computers",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"None registered yet"})});
 return a.jsx("div",{children:s.computers.map((c,i)=>a.jsx(ie,{divided:i>0,description:c.kind?String(c.kind)+(c.state?" \u00b7 "+String(c.state):""):(c.state?String(c.state):"On your OpenGrok server."),label:String(c.label||c.id),variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:String(c.state||"Registered")})},String(c.id)))})}
 
-function RBoxRuntime(){const all=[{value:"remote",label:"Grok VM"},{value:"local-docker",label:"Local VM"},{value:"windows365",label:"Windows 365"},{value:"opengrok",label:"OpenGrok Server"}];const[s,e]=de.useState(()=>RBoxLast??{mode:null,provider:null,status:null,error:null,busy:!1,windows365:null,account:null});de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,mode:i.busy?i.mode:typeof r.mode==="string"?r.mode:i.mode,status:r.status??null,windows365:r.windows365??null,account:r.account??null,error:null};RBoxLast=next;return next})};const load=()=>window.desktop.agent.getBoxRuntime().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r&&r.message||r)}))});window.desktop.agent.getInferenceRouter().then(r=>{if(!t||r==null)return;e(i=>{const next={...i,provider:typeof r.provider==="string"?r.provider:i.provider};RBoxLast=next;return next})}).catch(()=>{});const onProvider=n=>{const p=n&&n.detail&&n.detail.provider;if(typeof p==="string")e(i=>({...i,provider:p}))};window.addEventListener("sand-router-provider-changed",onProvider);load();const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",onProvider)}},[]);const RBoxOptions=s.provider==="cursor"?all:all.filter(n=>n.value!=="remote"||n.value==="opengrok");const t=async n=>{if(n==null)return;if(n==="remote"&&s.provider!=="cursor")n="local-docker";e(i=>({...i,mode:n,busy:!0,error:null}));try{const r=await window.desktop.agent.setBoxRuntime(n);e(i=>({...i,mode:n,status:r&&r.status||null,windows365:r&&r.windows365||null,account:r&&r.account||null,busy:!1}));window.dispatchEvent(new CustomEvent("sand-box-runtime-changed",{detail:{mode:n}}))}catch(r){e(i=>({...i,mode:n,busy:!1,error:String(r&&r.message||r)}))}};const n=s.mode==="opengrok"?"Your OpenGrok server holds the bots and runs their work.":s.mode==="windows365"?"Enter Windows 365 credentials below, then Save and Connect.":s.mode==="remote"?(s.account&&s.account.detail||"Uses the Cursor account already signed into Grok Bot."):(s.status&&s.status.detail||"A Linux desktop in Docker on this Mac.");if(s.mode==="opengrok")return a.jsx(ROpenGrokComputers,{});return a.jsxs("div",{children:[a.jsx(ie,{description:n,label:"Computer for this account",variant:"card",children:a.jsx(ye,{"aria-label":"Computer for this account",onValueChange:t,options:RBoxOptions,placement:"bottom-end",size:"lg",value:s.mode==null?null:RBoxOptions.some(r=>r.value===s.mode)?s.mode:"local-docker",variant:"filled"})}),s.mode==="windows365"?a.jsxs("div",{style:{marginTop:8},children:[a.jsx(se,{as:"p",size:"sm",children:"Windows 365 credentials"}),a.jsx(RW365Setup,{})]}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:String(s.error)}):null]})}
-function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[ROpenGrokActive()?a.jsx(re,{title:"Routing",children:a.jsx(ie,{description:"Your OpenGrok server runs the work on each coworker\u2019s own model, so the router provider does not apply.",label:"Provider",variant:"card",children:a.jsx(se,{as:"span",color:"primary",size:"sm",children:"OpenGrok Server"})})}):a.jsx(re,{title:"Routing",children:a.jsx(ie,{description:r.description,label:"Provider",variant:"card",children:a.jsx(ye,{"aria-label":"Routing provider",onValueChange:l=>{if(l!==null)void e(l)},options:RRouterOptions,placement:"bottom-end",size:"lg",value:s.provider,variant:"filled"})})}),ROpenGrokActive()?a.jsx(re,{title:"OpenGrok Server",children:a.jsx(ROpenGrokServer,{})}):null,a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),a.jsx(re,{title:r.kind==="key"?"OpenRouter account":"Account",children:a.jsx(ie,{description:o,label:r.kind==="key"?"API key":"Status",variant:"card",children:a.jsx(RRouterCredential,{provider:r,state:s,keys:t,onSaved:n,onLogin:g})})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
+function RBoxRuntime(){const all=[{value:"remote",label:"Grok VM"},{value:"local-docker",label:"Local VM"},{value:"windows365",label:"Windows 365"},{value:"opengrok",label:"OpenGrok Server"}];const[s,e]=de.useState(()=>RBoxLast??{mode:null,provider:null,status:null,error:null,busy:!1,windows365:null,account:null});de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,mode:i.busy?i.mode:typeof r.mode==="string"?r.mode:i.mode,status:r.status??null,windows365:r.windows365??null,account:r.account??null,error:null};RBoxLast=next;return next})};const load=()=>window.desktop.agent.getBoxRuntime().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r&&r.message||r)}))});window.desktop.agent.getInferenceRouter().then(r=>{if(!t||r==null)return;e(i=>{const next={...i,provider:typeof r.provider==="string"?r.provider:i.provider};RBoxLast=next;return next})}).catch(()=>{});const onProvider=n=>{const p=n&&n.detail&&n.detail.provider;if(typeof p==="string")e(i=>({...i,provider:p}))};window.addEventListener("sand-router-provider-changed",onProvider);load();const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",onProvider)}},[]);const RBoxOptions=s.provider==="cursor"?all:all.filter(n=>n.value!=="remote"||n.value==="opengrok");const t=async n=>{if(n==null)return;if(n==="remote"&&s.provider!=="cursor")n="local-docker";e(i=>({...i,mode:n,busy:!0,error:null}));try{const r=await window.desktop.agent.setBoxRuntime(n);try{if(self.__sandSetOpenGrokMode)self.__sandSetOpenGrokMode(n==="opengrok")}catch(_){}e(i=>({...i,mode:n,status:r&&r.status||null,windows365:r&&r.windows365||null,account:r&&r.account||null,busy:!1}));window.dispatchEvent(new CustomEvent("sand-box-runtime-changed",{detail:{mode:n}}))}catch(r){e(i=>({...i,mode:n,busy:!1,error:String(r&&r.message||r)}))}};const n=s.mode==="opengrok"?"Your OpenGrok server holds the bots and runs their work.":s.mode==="windows365"?"Enter Windows 365 credentials below, then Save and Connect.":s.mode==="remote"?(s.account&&s.account.detail||"Uses the Cursor account already signed into Grok Bot."):(s.status&&s.status.detail||"A Linux desktop in Docker on this Mac.");if(s.mode==="opengrok")return a.jsx(ROpenGrokComputers,{});return a.jsxs("div",{children:[a.jsx(ie,{description:n,label:"Computer for this account",variant:"card",children:a.jsx(ye,{"aria-label":"Computer for this account",onValueChange:t,options:RBoxOptions,placement:"bottom-end",size:"lg",value:s.mode==null?null:RBoxOptions.some(r=>r.value===s.mode)?s.mode:"local-docker",variant:"filled"})}),s.mode==="windows365"?a.jsxs("div",{style:{marginTop:8},children:[a.jsx(se,{as:"p",size:"sm",children:"Windows 365 credentials"}),a.jsx(RW365Setup,{})]}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:String(s.error)}):null]})}
+function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),a.jsx(re,{title:r.kind==="key"?"OpenRouter account":"Account",children:a.jsx(ie,{description:o,label:r.kind==="key"?"API key":"Status",variant:"card",children:a.jsx(RRouterCredential,{provider:r,state:s,keys:t,onSaved:n,onLogin:g})})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
 function RHardwareAcceleration(){
   const[t,n]=de.useState({enabled:!0,restartRequired:!1,changed:!1});
   de.useEffect(()=>{let c=!0;window.desktop.getHardwareAcceleration().then(d=>{if(c&&d)n(h=>({...h,enabled:d.enabled===!0}))}).catch(()=>{});return()=>{c=!1}},[]);
@@ -830,9 +830,8 @@ const LOCAL_TOOL_ASK_HELPER = ';(()=>{try{'
 // localStorage synchronously. Written by the app, read by the wall.
 const OPENGROK_MODE_HELPER = ';(()=>{try{'
   + 'var K="' + "sand-opengrok-mode" + '";'
-  + 'var apply=function(on){try{var was=localStorage.getItem(K)==="1";'
-  + 'if(on)localStorage.setItem(K,"1");else localStorage.removeItem(K);'
-  + 'if(was!==!!on&&!window.__sandModeReloaded){window.__sandModeReloaded=!0;location.reload()}}catch(_){}};'
+  + 'var apply=function(on){try{if(on)localStorage.setItem(K,"1");else localStorage.removeItem(K)}catch(_){}};'
+  + 'self.__sandSetOpenGrokMode=apply;'
   + 'var read=function(){try{window.desktop.agent.getBoxRuntime().then(function(r){if(r!=null)apply(r.mode==="opengrok")}).catch(function(){})}catch(_){}};'
   + 'read();setInterval(read,15e3);'
   + 'window.addEventListener("sand-box-runtime-changed",read);'
@@ -860,7 +859,7 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   +    'svg:G(\'<path d="M12 4v16M4.8 7.6l14.4 8.8M19.2 7.6 4.8 16.4"/>\')}'
   + '];'
   + 'var byId=function(id){for(var i=0;i<P.length;i++)if(P[i].id===id)return P[i];return P[0]};'
-  + 'var cur=null,busy=!1;'
+  + 'var cur=null,busy=!1,ready=!1;'
   // ---- styles, theme-aware ----
   + 'var css=".sand-lp-back{position:absolute;top:18px;left:18px;z-index:2147482000;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid var(--sand-border-default,rgba(128,128,128,.28));background:var(--sand-bg-elevated,rgba(128,128,128,.10));color:var(--sand-text-primary,inherit);opacity:.72;transition:opacity .15s,transform .15s}"'
   + '+".sand-lp-back:hover{opacity:1;transform:translateX(-2px)}"'
@@ -944,7 +943,7 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   +     'var fail=function(e){busy=!1;use.disabled=!1;msg.textContent=String(e&&e.message||e)};'
   +     'if(pick==="opengrok"){var u=(urlIn&&urlIn.value||"").trim();if(!u){fail(new Error("Add your server URL first."));return}'
   +       'a.setOpenGrokServer(u).then(function(){return a.setBoxRuntime("opengrok")}).then(function(){try{localStorage.setItem(MODE_K,"1")}catch(_){}done()}).catch(fail);return}'
-  +     'try{localStorage.removeItem(MODE_K)}catch(_){}'
+  +     'try{localStorage.removeItem(MODE_K);localStorage.removeItem("sand-cursor-login-skip")}catch(_){}'
   +     'a.setBoxRuntime("local-docker").catch(function(){}).then(function(){'
   +       'return a.setInferenceRouter?a.setInferenceRouter(pick):Promise.resolve()}).then(done).catch(fail);'
   +   '});'
@@ -955,17 +954,30 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'var BACK=G(\'<path d="M15 5l-7 7 7 7"/>\');'
   + 'var chose=!1;var picked=function(){return chose};'
   + 'var markPicked=function(on){chose=!!on};'
-  + 'var mount=function(){var root=document.querySelector(".sand-onboarding");if(!root)return;'
+  + 'var mount=function(){if(!ready)return;var root=document.querySelector(".sand-onboarding");if(!root)return;'
   + 'if(getComputedStyle(root).position==="static")root.style.position="relative";'
   + 'root.querySelectorAll("[data-login-skip]").forEach(function(n){n.remove()});'
   + 'if(!picked()){open();return}'
-  + 'close();'
   + 'if(!root.querySelector(".sand-lp-back")){style();'
   + 'var b=document.createElement("button");b.type="button";b.className="sand-lp-back";'
   + 'b.title="Choose a different provider";b.setAttribute("aria-label","Choose a different provider");b.innerHTML=BACK;'
-  + 'b.addEventListener("click",function(){markPicked(!1);open()});root.appendChild(b)}'
+  + 'b.addEventListener("click",function(){open()});root.appendChild(b)}'
   + 'if(cur)chrome(byId(cur))};'
-  + 'var boot=function(){read().then(function(id){cur=id||"cursor";mount()}).catch(function(){cur="cursor";mount()})};'
+  + 'document.addEventListener("click",function(ev){'
+  + 'var b=ev.target&&ev.target.closest?ev.target.closest("button"):null;if(!b)return;'
+  + 'if(b.classList&&b.classList.contains("sand-lp-back"))return;'
+  + 'if(b.closest&&b.closest(".sand-lp-sheet"))return;'
+  + 'if(!/^Sign in/i.test((b.innerText||"").trim()))return;'
+  + 'if(!cur||cur==="cursor")return;'
+  + 'ev.preventDefault();ev.stopPropagation();'
+  + 'var a=window.desktop&&window.desktop.agent;if(!a)return;'
+  + 'if(cur==="opengrok"){a.getOpenGrokServer().then(function(r){var u=r&&r.gatewayUrl;'
+  + 'if(!u){markPicked(!1);open();return}return a.signInToOpenGrokServer(u)}).catch(function(){markPicked(!1);open()});return}'
+  + 'if(a.startSubscriptionLogin)a.startSubscriptionLogin(cur).then(function(){'
+  + 'try{localStorage.setItem("sand-cursor-login-skip","1")}catch(_){}'
+  + 'if(a.skipCursorLoginWall)return a.skipCursorLoginWall({provider:cur})}).then(function(){location.reload()}).catch(function(){})'
+  + '},!0);'
+  + 'var boot=function(){read().then(function(id){cur=id||"cursor"}).catch(function(){cur="cursor"}).then(function(){ready=!0;mount()})};'
   + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
   + 'new MutationObserver(function(){if(document.querySelector(".sand-onboarding"))mount()}).observe(document.documentElement,{childList:!0,subtree:!0});'
   + '}catch(_){}})();\n';

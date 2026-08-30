@@ -106,7 +106,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /sand-cursor-login-skip/);
   assert.match(rendererPatch, /first-run-login-skip/);
   assert.match(rendererPatch, /data-computer-screen-switcher/);
-  assert.match(rendererPatch, /onValueChange:l=>\{if\(l!==null\)void e\(l\)\}/);
+  assert.match(rendererPatch, /a\.setInferenceRouter\(pick\)/);
   assert.match(rendererPatch, /desktop\.secrets\.upsert/);
   assert.doesNotMatch(rendererPatch, /settings\.router-provider\.v1/);
   assert.match(rendererPatch, /id:"dictation",label:"Dictation"/);
@@ -217,7 +217,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /\{value:"opengrok",label:"OpenGrok Server"\}/);
   assert.match(rendererPatch, /function ROpenGrokServer\(\)/);
   assert.match(rendererPatch, /function ROpenGrokActive\(\)/);
-  assert.match(rendererPatch, /ROpenGrokActive\(\)\?a\.jsx\(re,\{title:"Routing"/);
+  assert.doesNotMatch(rendererPatch, /a\.jsx\(re,\{title:"Routing"/);
+  assert.match(rendererPatch, /label:"Computer",icon:"desktop"/);
   assert.match(rendererPatch, /sand-box-runtime-changed/);
   assert.ok(!/setOpenGrokServer\([^)]*token[^)]*\)[^;]*settings\.json/.test(rendererPatch), "the bearer must not be described as living in settings");
   assert.match(rendererPatch, /sand-a11y-announcer/);
