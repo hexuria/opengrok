@@ -297,6 +297,24 @@ export class SandCursorAuthService {
     this.reportedLoggedOutStatus = ACCOUNT_REFUSED_STATUS; return { kind: "completed", status: ACCOUNT_REFUSED_STATUS };
   }
   async logout(): Promise<SandAuthStatus> { return await this.revokeCredentials({ emitStatus: true, cause: "user_action" }); }
+
+  /**
+   * Accept credentials established outside this service's own login flow - an
+   * OpenGrok server signing the person in, for instance. Signing out latches
+   * credentialState to "revoked" and getStatus honours that latch over whatever
+   * is in the store, which is right for Cursor because login() is the only way
+   * back. It is wrong once another backend can establish a session for the same
+   * single account: the tokens were written, but the latch kept reporting
+   * logged-out until the process restarted.
+   */
+  async adoptExternalCredentials(): Promise<SandAuthStatus> {
+    this.credentialState = "active";
+    this.reportedLoggedOutStatus = LOGGED_OUT_STATUS;
+    this.profileCache.clear();
+    const status = await this.getStatus();
+    this.emitStatus(status);
+    return status;
+  }
   private async readDepartingSessionToken(): Promise<string | null> { try { const [access, refresh] = await Promise.all([this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY), this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY)]); return access == null || refresh == null ? null : access; } catch (error) { this.reportFailure("session-settlement", error); return null; } }
   private async revokeCredentials(options: { emitStatus: boolean; cause: SessionSignoutCause; loggedOutStatus?: SandAuthStatus }): Promise<SandAuthStatus> {
     const logoutOperationEpoch = this.advanceAuthOperationEpoch(); this.abortActiveLogin(); const startedRetained = this.credentialState === "retained-after-failed-logout"; const status = options.loggedOutStatus ?? LOGGED_OUT_STATUS;

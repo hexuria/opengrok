@@ -21,6 +21,7 @@ export interface AuthServicePort {
   login(): Promise<SandAuthStatus>;
   cancelLogin(): Promise<SandAuthStatus>;
   logout(): Promise<SandAuthStatus>;
+  adoptExternalCredentials(): Promise<SandAuthStatus>;
   updateDisplayName(name: string): Promise<SandAuthStatus>;
   devLogin?(options: { readonly tier?: string; readonly email?: string }): Promise<SandAuthStatus>;
 }
@@ -160,6 +161,13 @@ export function createCursorAccountEdgePort(deps: {
     login: async () => withService(async (service) => { const result = await service.login(); const settled = await deps.getAccountRuntime()?.whenIdle(); await deps.resetMcpManager(); await deps.refreshHostMcp(); return settled ?? result; }),
     cancelLogin: async () => withService(async (service) => { const result = await service.cancelLogin(); return await deps.getAccountRuntime()?.whenIdle() ?? result; }),
     logout: async () => withService(async (service) => { const result = await service.logout(); return await deps.getAccountRuntime()?.whenIdle() ?? result; }),
+    // Used when another backend has established the session for this one account -
+    // the tokens are already stored; the service just has to stop remembering the
+    // last sign-out, which otherwise reports logged-out until the process restarts.
+    adoptExternalCredentials: async () => withService(async (service) => {
+      const result = await service.adoptExternalCredentials();
+      return await deps.getAccountRuntime()?.whenIdle() ?? result;
+    }),
     updateAccountName: async (name: unknown) => {
       if (typeof name !== "string" || name.length > 200) throw new Error("updateCursorAccountName requires a bounded name string.");
       return await withService(async (service) => { const result = await service.updateDisplayName(name); return await deps.getAccountRuntime()?.whenIdle() ?? result; });
