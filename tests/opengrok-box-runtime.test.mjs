@@ -75,3 +75,36 @@ test("the server URL survives a settings round-trip", async () => {
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+test("the account backend follows the configured server, and falls back to env", async () => {
+  // One account, not two. Whoever answers this URL is who the app's account
+  // belongs to - that is what makes an OpenGrok server a drop-in rather than a
+  // second identity sitting beside the Cursor one.
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "opengrok-backend-"));
+  try {
+    const outfile = path.join(temporary, "cursor-token.mjs");
+    await build({
+      entryPoints: [path.join(repoRoot, "source/shared/node/cursor-token.ts")],
+      outfile, bundle: true, format: "esm", platform: "node",
+    });
+    const { getConfiguredBackendUrl, setBackendUrlResolver } = await import(pathToFileURL(outfile).href);
+
+    const env = { SAND_BACKEND_URL: "https://backend.example/" };
+    assert.equal(getConfiguredBackendUrl(env), "https://backend.example/");
+
+    setBackendUrlResolver(() => "http://192.168.1.10:1447");
+    assert.equal(getConfiguredBackendUrl(env), "http://192.168.1.10:1447/");
+
+    // No server configured: the env answer stands.
+    setBackendUrlResolver(() => undefined);
+    assert.equal(getConfiguredBackendUrl(env), "https://backend.example/");
+
+    // A resolver that throws must not take the account down with it.
+    setBackendUrlResolver(() => { throw new Error("settings unreadable"); });
+    assert.equal(getConfiguredBackendUrl(env), "https://backend.example/");
+
+    setBackendUrlResolver(null);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
