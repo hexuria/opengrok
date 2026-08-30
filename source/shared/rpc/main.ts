@@ -76,6 +76,8 @@ export const MAIN_METHOD_TABLE = {
   setComputerScreen: { args: "object" },
   getBoxRuntime: { args: "none" },
   setBoxRuntime: { args: "object" },
+  getOpenGrokServer: { args: "none" },
+  setOpenGrokServer: { args: "object" },
   getWindows365Settings: { args: "none" },
   setWindows365Settings: { args: "object" },
   getWindows365Session: { args: "none" },

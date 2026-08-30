@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import type { SandSettingsStore } from "../../shared/node/settings/sand-settings-store.js";
 import type { RecreateResult } from "./box-recreate-commands.js";
+import { noteOpenGrokServerStatus } from "./opengrok-server-status.js";
 import type { SandRemoteHostConnector } from "./box-host-connector.js";
 import { formatAccountComputerError, noteAccountComputerStatus } from "./account-computer-status.js";
 import { DOCKER_CLI_NOT_FOUND, DOCKER_DESKTOP_APP, classifyDockerUnavailable, dockerCliCandidates, dockerSearchPath } from "./docker-cli.js";
@@ -437,6 +438,7 @@ export async function stopLocalDockerBox(): Promise<void> {
 export function createSettingsRoutedHostConnector(
   remote: SandRemoteHostConnector,
   settings: SandSettingsStore,
+  readOpenGrokToken?: () => Promise<string | null>,
 ): SandRemoteHostConnector {
   const localConnect = (): Promise<GatewayConnection> => {
     if (ensureInFlight == null) ensureInFlight = connectLocalDocker(settings.settingsPath, async () => {
@@ -452,6 +454,25 @@ export function createSettingsRoutedHostConnector(
     connect: async () => {
       const runtime = settings.getBoxRuntime();
       if (runtime === "local-docker") return await localConnect();
+      // The user's own OpenGrok server. Deliberately reached without any
+      // environment variable: SAND_HOST_GATEWAY_URL also switches on the
+      // env-descriptor account binding, which deadlocks before the window
+      // (opengrok-server docs/port-blockers.md, B1). Settings never touches it.
+      if (runtime === "opengrok") {
+        const baseUrl = settings.getOpenGrokGatewayUrl();
+        if (baseUrl == null) {
+          const detail = "No server URL saved. Add one in Settings, Router, Computer.";
+          noteOpenGrokServerStatus({ ok: false, detail, gatewayUrl: null });
+          throw new Error(detail);
+        }
+        let token = "";
+        try { token = (readOpenGrokToken == null ? null : await readOpenGrokToken()) ?? ""; } catch { token = ""; }
+        await noteConnector(settings.settingsPath, `target=opengrok url=${baseUrl}`).catch(() => undefined);
+        noteOpenGrokServerStatus({ ok: true, detail: `Using the OpenGrok server at ${baseUrl}.`, gatewayUrl: baseUrl });
+        // Built inline rather than via buildConnection: importing it drags the
+        // Connect/proto graph into main-edge, which tests load in isolation.
+        return { baseUrl, ...(token.length > 0 ? { token } : {}) };
+      }
       // Leave grok-bot-local-vm running so Local VM can attach to the existing container.
       if (runtime === "windows365") {
         await noteConnector(settings.settingsPath, "target=windows365-via-account-computer").catch(() => undefined);

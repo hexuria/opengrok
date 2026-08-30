@@ -41,6 +41,8 @@ export interface SandStoredSettings {
   hardwareAccelerationEnabled?: boolean;
   geminiTranscribeLanguages?: string[];
   boxRuntime?: SandBoxRuntime;
+  /** Base URL of the user's own OpenGrok server. The bearer lives in the secret store, never here. */
+  openGrokGatewayUrl?: string;
   providerComputers?: ProviderComputerMap;
   mcpCustomInstructionsAccountScope?: string; pinnedAgentIds?: string[]; sidebarSections?: SidebarSection[];
 }
@@ -114,6 +116,7 @@ function parseSettings(value: unknown): SandStoredSettings | null {
   const transcribeLanguages = parseTranscribeLanguageTags(raw.geminiTranscribeLanguages);
   if (transcribeLanguages.length > 0) result.geminiTranscribeLanguages = transcribeLanguages;
   if (isSandBoxRuntime(raw.boxRuntime)) result.boxRuntime = raw.boxRuntime;
+  if (typeof raw.openGrokGatewayUrl === "string" && raw.openGrokGatewayUrl.trim().length > 0) result.openGrokGatewayUrl = raw.openGrokGatewayUrl.trim();
   if (typeof raw.providerComputers === "object" && raw.providerComputers != null && !Array.isArray(raw.providerComputers)) {
     result.providerComputers = parseProviderComputerMap(raw.providerComputers);
   }
@@ -162,6 +165,20 @@ export class SandSettingsStore {
   setDesktopNotificationPreferences(value: SandNotificationPreferences): void { this.update((s) => ({ ...s, desktopNotificationPreferences: normalizeNotificationPreferences(value) })); }
   getBoxRuntime(): SandBoxRuntime { return this.load().boxRuntime ?? DEFAULT_SAND_BOX_RUNTIME; }
   setBoxRuntime(value: SandBoxRuntime): void { this.update((s) => ({ ...s, boxRuntime: value })); }
+  getOpenGrokGatewayUrl(): string | undefined {
+    const raw = this.load().openGrokGatewayUrl;
+    const trimmed = typeof raw === "string" ? raw.trim() : "";
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  setOpenGrokGatewayUrl(value: string | undefined): void {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    this.update((s) => {
+      const next = { ...s };
+      if (trimmed.length === 0) delete next.openGrokGatewayUrl;
+      else next.openGrokGatewayUrl = trimmed;
+      return next;
+    });
+  }
   getProviderComputers(): ProviderComputerMap {
     const settings = this.load();
     return migrateBoxRuntimeIntoProviderComputers(settings.inferenceProvider ?? "cursor", settings.boxRuntime, settings.providerComputers ?? emptyProviderComputerMap());

@@ -197,6 +197,16 @@ test("Router settings use the trusted backend and display recorded inference usa
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.
   assert.match(rendererPatch, /const A11Y_ANNOUNCE_HELPER =/);
+
+  // OpenGrok server mode: the runtime is offered for every provider, the bearer
+  // never reaches settings.json, and the Router tab stops offering a provider
+  // the server has taken over.
+  assert.match(rendererPatch, /\{value:"opengrok",label:"OpenGrok Server"\}/);
+  assert.match(rendererPatch, /function ROpenGrokServer\(\)/);
+  assert.match(rendererPatch, /function ROpenGrokActive\(\)/);
+  assert.match(rendererPatch, /ROpenGrokActive\(\)\?a\.jsx\(re,\{title:"Routing"/);
+  assert.match(rendererPatch, /sand-box-runtime-changed/);
+  assert.ok(!/setOpenGrokServer\([^)]*token[^)]*\)[^;]*settings\.json/.test(rendererPatch), "the bearer must not be described as living in settings");
   assert.match(rendererPatch, /sand-a11y-announcer/);
   assert.match(rendererPatch, /"aria-live","polite"/);
   assert.match(rendererPatch, /Assistant is replying/);

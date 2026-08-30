@@ -31,12 +31,24 @@ function readCoordinatorSettings(dataDir: string): SandSettingsStore | null {
   }
 }
 
+/**
+ * The OpenGrok server is the backend when it is the selected computer: it owns the
+ * roster, the transcripts and inference, on each coworker's own model. Routing
+ * locally would answer listAgents from this machine and the server's bots would
+ * never appear - the app would look connected and show the wrong roster.
+ */
+function usesOpenGrokServer(dataDir: string): boolean {
+  return readCoordinatorSettings(dataDir)?.getBoxRuntime() === "opengrok";
+}
+
 function usesLocalInference(dataDir: string): boolean {
+  if (usesOpenGrokServer(dataDir)) return false;
   const provider = readCoordinatorSettings(dataDir)?.getInferenceProvider();
   return provider === "claude-code" || provider === "codex" || provider === "openrouter";
 }
 
 function usesLocalCoordinator(dataDir: string): boolean {
+  if (usesOpenGrokServer(dataDir)) return false;
   const store = readCoordinatorSettings(dataDir);
   if (store?.getCursorLoginWallSkipped() === true) return true;
   return usesLocalInference(dataDir);
@@ -289,7 +301,13 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
     { dispatchRequest: async (method, args, signal) => {
       if (method === "setGatewayPaused" && typeof args === "object" && args != null) applyPause((args as Record<string, unknown>).paused === true);
       if (method === "clearAgentImageMetadata") {
-        const routed = await inferenceRouter!.dispatch(method, args);
+        // In OpenGrok mode the server is the backend. The local router must not get
+      // first refusal, or it answers listAgents and transcripts from this machine
+      // and the server's coworkers never appear - the app looks connected while
+      // showing the wrong roster.
+      const routed = usesOpenGrokServer(dataDir)
+        ? { handled: false as const, value: undefined }
+        : await inferenceRouter!.dispatch(method, args);
         if (routed.handled) return { status: "ok" as const, value: routed.value };
       }
       return mainDispatch(method, args, signal);
