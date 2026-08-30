@@ -101,7 +101,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /label:"Claude Code"/);
   assert.match(rendererPatch, /label:"Codex"/);
   // Replaced by the login page's gear and provider sheet.
-  assert.match(rendererPatch, /sand-lp-gear/);
+  assert.match(rendererPatch, /sand-lp-back/);
   assert.match(rendererPatch, /patchOriginalMainChrome/);
   assert.match(rendererPatch, /sand-cursor-login-skip/);
   assert.match(rendererPatch, /first-run-login-skip/);
@@ -200,7 +200,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
   // The login page's provider chooser replaces the old skip button.
   assert.match(rendererPatch, /const LOGIN_PROVIDER_HELPER =/);
-  assert.match(rendererPatch, /sand-lp-gear/);
+  assert.match(rendererPatch, /sand-lp-back/);
   assert.match(rendererPatch, /const MAY_SKIP_LOGIN_WALL =/);
   assert.equal((rendererPatch.match(/\$\{MAY_SKIP_LOGIN_WALL\}/g) || []).length, 4,
     "every login-wall bypass must go through the shared rule");

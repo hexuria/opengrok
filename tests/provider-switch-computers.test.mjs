@@ -193,7 +193,7 @@ test("first-run and signed-out UI offer Cursor plus Choose Other Provider", asyn
   // not that one particular button exists. The gear ships as a prepended helper
   // rather than in the chrome source, so assert against the patch itself.
   const patchSource = await readFile(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
-  assert.match(patchSource, /sand-lp-gear/);
+  assert.match(patchSource, /sand-lp-back/);
   for (const provider of ["cursor", "opengrok", "codex", "claude-code"]) {
     assert.match(patchSource, new RegExp(`id:"${provider}"`), provider);
   }
