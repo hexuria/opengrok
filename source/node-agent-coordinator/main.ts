@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -37,8 +38,25 @@ function readCoordinatorSettings(dataDir: string): SandSettingsStore | null {
  * locally would answer listAgents from this machine and the server's bots would
  * never appear - the app would look connected and show the wrong roster.
  */
+let boxRuntimeCache: { path: string; stamp: string; value: string | null } | null = null;
+
+export function readBoxRuntime(dataDir: string): string | null {
+  const settingsPath = join(dataDir, "settings.json");
+  let stamp: string;
+  try {
+    const stats = statSync(settingsPath);
+    stamp = `${stats.mtimeMs}:${stats.size}`;
+  } catch {
+    return readCoordinatorSettings(dataDir)?.getBoxRuntime() ?? null;
+  }
+  if (boxRuntimeCache?.path === settingsPath && boxRuntimeCache.stamp === stamp) return boxRuntimeCache.value;
+  const value = readCoordinatorSettings(dataDir)?.getBoxRuntime() ?? null;
+  boxRuntimeCache = { path: settingsPath, stamp, value };
+  return value;
+}
+
 function usesOpenGrokServer(dataDir: string): boolean {
-  return readCoordinatorSettings(dataDir)?.getBoxRuntime() === "opengrok";
+  return readBoxRuntime(dataDir) === "opengrok";
 }
 
 function usesLocalInference(dataDir: string): boolean {

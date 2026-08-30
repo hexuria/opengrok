@@ -167,3 +167,42 @@ test("a server that omits configured leaves it unset rather than guessing", asyn
     await cleanup();
   }
 });
+
+// The coordinator asks which backend owns the session on every renderer request,
+// and the answer used to cost a read, a parse and a migration pass each time.
+// It is cached now, which is only safe if a change to the file still lands: a
+// stale answer here routes the roster to the wrong backend and the app looks
+// connected while showing someone else's bots.
+test("the cached box runtime still follows a change to settings.json", async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "opengrok-runtime-cache-"));
+  try {
+    const bundle = async (entry, name) => {
+      const outfile = path.join(temporary, name);
+      await build({
+        entryPoints: [path.join(repoRoot, entry)],
+        outfile, bundle: true, format: "esm", platform: "node",
+        external: ["electron"], logLevel: "silent",
+      });
+      return await import(pathToFileURL(outfile).href);
+    };
+    const { readBoxRuntime } = await bundle("source/node-agent-coordinator/main.ts", "coordinator.mjs");
+    // Written through the store rather than by hand, so the test cannot drift
+    // from the on-disk schema the way a literal would.
+    const { SandSettingsStore } = await bundle("source/shared/node/settings/sand-settings-store.ts", "store.mjs");
+
+    const dataDir = path.join(temporary, "data");
+    const store = new SandSettingsStore(path.join(dataDir, "settings.json"));
+
+    store.setBoxRuntime("opengrok");
+    assert.equal(readBoxRuntime(dataDir), "opengrok");
+    assert.equal(readBoxRuntime(dataDir), "opengrok", "an unchanged file must keep answering the same way");
+
+    store.setBoxRuntime("local-docker");
+    assert.equal(readBoxRuntime(dataDir), "local-docker", "a rewritten file must invalidate the cached answer");
+
+    store.setBoxRuntime("opengrok");
+    assert.equal(readBoxRuntime(dataDir), "opengrok", "and again, in the other direction");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
