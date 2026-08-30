@@ -19,14 +19,33 @@ test("packaged verification authority is the selected app bundle", () => {
   assert.throws(() => resolvePackagedAppArtifacts(path.join(repoRoot, ".build", "app.asar")), /\.app bundle/);
 });
 
-test("publication ignore rules retain reconstructed frontend source", async () => {
+// Reversed deliberately on 30 Aug 2026. This used to assert that the frontend
+// reconstruction stayed addable; the material recovered from the upstream
+// binary now lives only in the private hexuria/opengrok-stow archive, so the
+// guard is that it can never be committed here again. See CLAUDE.md.
+test("publication ignore rules keep the recovered material out of this repository", async () => {
   const ignoreRules = await readFile(path.join(repoRoot, ".gitignore"), "utf8");
   assert.match(ignoreRules, /^\/recovered\/$/m);
   assert.doesNotMatch(ignoreRules, /^recovered\/$/m);
-  const retained = "frontend/src/recovered/ui/sand-form-primitives.css";
   const matcher = createIgnore().add(ignoreRules);
-  assert.equal(matcher.ignores(retained), false, `${retained} must remain addable in a fresh repository`);
+  for (const excluded of [
+    "frontend/src/recovered/ui/sand-form-primitives.css",
+    "source/packages/proto/generated/aiserver/v1/grok_bot_pb.ts",
+    "source/packages/redacted-protos/generated/agent/v1/agent_redacted.ts",
+    "manifests/reconstruction/evidence/anything.js",
+    "patches/@connectrpc__connect@1.6.1.patch",
+    "research-archives/original/0.18.0/SHA256SUMS",
+    "PROVENANCE.md",
+    "docs/research/versions/rpc-methods-0.30.txt",
+    "docs/gap-analysis-0.30.md",
+  ]) {
+    assert.equal(matcher.ignores(excluded), true, `${excluded} must stay out of this repository`);
+  }
   assert.equal(matcher.ignores("recovered/generated-output.txt"), true, "root recovery output must remain ignored");
+  // Our own work must stay committable.
+  for (const kept of ["scripts/lib/router-renderer-patch.mjs", "source/host/gateway-server.ts", "docs/ARCHITECTURE.md"]) {
+    assert.equal(matcher.ignores(kept), false, `${kept} must remain addable`);
+  }
 });
 
 test("default packaging keeps the polished checksum-pinned renderer", async () => {
