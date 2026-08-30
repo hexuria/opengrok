@@ -15,7 +15,7 @@ const REMARK_MATH_JS = readFileSync(path.join(VENDOR_DIR, "remark-math.min.js"),
 const MATH_KIT_JS = readFileSync(path.join(VENDOR_DIR, "sand-math-kit.js"), "utf8");
 
 const REGISTRY_BEFORE = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
-const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"router",label:"Computer",icon:"desktop"},{id:"dictation",label:"Dictation",icon:"mic"},{id:"usage",label:"Usage",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
+const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"router",label:"Computer",icon:"device-desktop"},{id:"dictation",label:"Dictation",icon:"mic"},{id:"usage",label:"Usage",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
 // The stock registry hides the usage tab unless a Cursor account is signed in;
 // routed providers track usage locally, so the tab must always be visible.
 const USAGE_TAB_FILTER_BEFORE = 'i=wDn.filter(o=>o.id!=="usage"||r)';
@@ -190,7 +190,7 @@ function RHardwareAcceleration(){
 }
 function RDictationPanel(){const[t,n]=RRouterSecrets();return a.jsx(Te,{children:a.jsx("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:a.jsx(re,{title:"Transcription",children:a.jsx(RTranscribe,{keys:t,onSaved:n})})})})}
 function RRouterUsageSummary({provider:s,usage:e,current:t,divided:n}){const r=[RRouterNumber(e.requests)+" requests",RRouterNumber(e.inputTokens)+" input",RRouterNumber(e.outputTokens)+" output",RRouterNumber(e.cacheReadTokens+e.cacheWriteTokens)+" cached"].join(" · "),i=t?"Current route":e.lastUsedAt?new Date(e.lastUsedAt).toLocaleString():"Not used yet";return a.jsx(ie,{divided:n,description:r,label:s.label,variant:"card",children:a.jsx(se,{as:"span",color:t?"primary":"secondary",size:"sm",children:i})})}
-function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.value===s.provider)??RRouterProviders[0],t=RRouterProviders.filter(n=>n.value===s.provider||(s.usage?.providers?.[n.value]?.requests??0)>0);const og=ROpenGrokActive();if(og)return a.jsxs("div",{className:k("sand-usage-section","sand-9f619 sand-78zum5 sand-dt5ytf sand-ou54vl"),children:[a.jsx(re,{title:"Current provider",children:a.jsx(ie,{description:"Work runs on your OpenGrok server, on each coworker\u2019s own model.",label:"OpenGrok Server",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Selected"})})}),a.jsx(re,{title:"Tracked activity",children:a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Usage is tracked on the OpenGrok server."})})]});return a.jsxs("div",{className:k("sand-usage-section","sand-9f619 sand-78zum5 sand-dt5ytf sand-ou54vl"),children:[a.jsx(re,{title:"Current provider",children:a.jsx(ie,{description:e.description,label:e.label,variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Selected"})})}),a.jsx(re,{title:"Tracked activity",children:a.jsx("div",{children:t.map((n,r)=>a.jsx(RRouterUsageSummary,{provider:n,usage:s.usage?.providers?.[n.value]??RRouterEmptyUsage,current:n.value===s.provider,divided:r>0},n.value))})}),s.provider==="cursor"?a.jsx(Na,{}):null]})}
+function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.value===s.provider)??RRouterProviders[0],t=RRouterProviders.filter(n=>n.value===s.provider||(s.usage?.providers?.[n.value]?.requests??0)>0);const og=ROpenGrokActive();if(og)return a.jsxs("div",{className:k("sand-usage-section","sand-9f619 sand-78zum5 sand-dt5ytf sand-ou54vl"),children:[a.jsx(re,{title:"Current provider",children:a.jsx(ie,{description:"Work runs on your OpenGrok server, on each coworker\u2019s own model.",label:"OpenGrok Server",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Selected"})})})]});return a.jsxs("div",{className:k("sand-usage-section","sand-9f619 sand-78zum5 sand-dt5ytf sand-ou54vl"),children:[a.jsx(re,{title:"Current provider",children:a.jsx(ie,{description:e.description,label:e.label,variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Selected"})})}),a.jsx(re,{title:"Tracked activity",children:a.jsx("div",{children:t.map((n,r)=>a.jsx(RRouterUsageSummary,{provider:n,usage:s.usage?.providers?.[n.value]??RRouterEmptyUsage,current:n.value===s.provider,divided:r>0},n.value))})}),s.provider==="cursor"?a.jsx(Na,{}):null]})}
 `;
 
 export const MAIN_CHROME_SOURCE = String.raw`
@@ -1108,7 +1108,7 @@ export function patchOriginalLocalToolAsk(source) {
 const ACCOUNT_CARD_HELPER = ';(()=>{try{'
   + 'var t=document.createElement("style");t.textContent=".sand-agents-empty{display:none!important}";'
   + '(document.head||document.documentElement).appendChild(t);'
-  + 'var LBL={codex:"Codex",\'claude-code\':"Claude",cursor:"Cursor",opengrok:"OpenGrok Server"};'
+  + 'var LBL={codex:"Codex",\'claude-code\':"Claude",cursor:"Cursor",opengrok:"Open Grok"};'
   + 'var last=null;'
   + 'var paint=function(card,who){'
   +   'if(!card||card.getAttribute("data-lp-account")===who.key)return;'
@@ -1133,7 +1133,7 @@ const ACCOUNT_CARD_HELPER = ';(()=>{try{'
   +     'a.getBoxRuntime().catch(function(){return null})]).then(function(r){'
   +     'var st=r[0]||{},box=r[1]||{};'
   +     'var prov=box.mode==="opengrok"?"opengrok":(st.provider||"cursor");'
-  +     'if(prov==="cursor"||prov==="opengrok")return;'   // those have a real account card already
+  +     'if(prov==="opengrok"){if(card.getAttribute("data-lp-account")!=="opengrok"){card.setAttribute("data-lp-account","opengrok");var ns=card.querySelectorAll("p,span,div");for(var q=0;q<ns.length;q++){var e2=ns[q];if(e2.children.length)continue;var v=(e2.textContent||"").trim();if(v==="Cursor"||v==="Not signed in"||v==="Signing in"){e2.textContent="Open Grok";continue}if(v==="C")e2.textContent="O"}}return}if(prov==="cursor")return;'   // those have a real account card already
   +     'var cli=(st.local&&st.local[prov])||{};'
   +     'if(!cli.authenticated)return;'
   +     'paint(card,{key:prov,title:LBL[prov]||prov,sub:cli.prompt||("Signed in on this Mac")})'

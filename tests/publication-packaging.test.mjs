@@ -219,7 +219,21 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /function ROpenGrokServer\(\)/);
   assert.match(rendererPatch, /function ROpenGrokActive\(\)/);
   assert.doesNotMatch(rendererPatch, /a\.jsx\(re,\{title:"Routing"/);
-  assert.match(rendererPatch, /label:"Computer",icon:"desktop"/);
+  // Every settings tab icon must name an entry in the renderer's own icon
+  // registry. "desktop" looked plausible and drew nothing, because the registry
+  // calls it "device-desktop"; asserting the literal alone could not tell the
+  // difference, so check the name the tab actually asks for really exists.
+  assert.match(rendererPatch, /label:"Computer",icon:"device-desktop"/);
+  const pinnedRenderer = await readFile(
+    path.join(repoRoot, "src", "app", "dist", "renderer", "assets", "index-UbX-y3il.js"),
+    "utf8",
+  );
+  for (const [, icon] of rendererPatch.matchAll(/\{id:"[a-z]+",label:"[^"]+",icon:"([a-z0-9-]+)"\}/g)) {
+    assert.ok(
+      new RegExp(`[,{]"?${icon}"?:"`).test(pinnedRenderer),
+      `settings tab icon "${icon}" is not a name in the renderer icon registry`,
+    );
+  }
   assert.match(rendererPatch, /sand-box-runtime-changed/);
   assert.ok(!/setOpenGrokServer\([^)]*token[^)]*\)[^;]*settings\.json/.test(rendererPatch), "the bearer must not be described as living in settings");
   assert.match(rendererPatch, /sand-a11y-announcer/);
