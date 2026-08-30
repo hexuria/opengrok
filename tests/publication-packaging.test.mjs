@@ -89,7 +89,14 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /let RBoxLast=null;/);
   assert.match(rendererPatch, /RRouterLast\?\?RRouterSeed\(\)\?\?\{provider:null/);
   assert.match(rendererPatch, /sandRouterSeed\.v1/);
-  assert.match(rendererPatch, /RBoxLast\?\?\{mode:null,provider:null/);
+  // The in-memory cache is empty until the Computer panel has run once, so
+  // opening Settings straight onto Usage rendered the wrong provider and
+  // corrected itself a moment later. Both panels seed from the mode already on
+  // disk, which costs no round-trip, and only then confirm it with the main
+  // process.
+  assert.match(rendererPatch, /RBoxLast\?\?\{mode:ROpenGrokSeeded\(\)\?"opengrok":null,provider:null/);
+  assert.match(rendererPatch, /function ROpenGrokSeeded\(\)/);
+  assert.match(rendererPatch, /function ROpenGrokActive\(\)\{const\[v,setV\]=de\.useState\(\(\)=>ROpenGrokSeeded\(\)\)/);
   assert.doesNotMatch(rendererPatch, /id:"computer",label:"Computer"/);
   assert.doesNotMatch(rendererPatch, /RComputerPanel/);
   // The live runtime picker replaced the placeholder computer toggles.

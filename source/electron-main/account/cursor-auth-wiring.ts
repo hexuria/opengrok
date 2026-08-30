@@ -168,6 +168,8 @@ export function createCursorAccountEdgePort(deps: {
       const result = await service.adoptExternalCredentials();
       return await deps.getAccountRuntime()?.whenIdle() ?? result;
     }),
+    getValidAccessToken: async (options?: { readonly backendUrl?: string }) =>
+      await (await deps.ensureCursorAuthService()).getValidAccessToken(options),
     updateAccountName: async (name: unknown) => {
       if (typeof name !== "string" || name.length > 200) throw new Error("updateCursorAccountName requires a bounded name string.");
       return await withService(async (service) => { const result = await service.updateDisplayName(name); return await deps.getAccountRuntime()?.whenIdle() ?? result; });

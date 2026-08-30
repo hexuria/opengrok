@@ -444,8 +444,15 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
       if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { computers: [], signedIn: false };
       try {
-        const access = (await (await import("./secrets/secret-store.js")).readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) ?? "";
-        if (access.length === 0) return { computers: [], signedIn: false };
+        const secretStore = await import("./secrets/secret-store.js");
+        const stored = (await secretStore.readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) ?? "";
+        if (stored.length === 0) return { computers: [], signedIn: false };
+        let access = stored;
+        try {
+          const fresh = await Promise.resolve(invoke(deps.cursorAccount, "getValidAccessToken", { backendUrl: gatewayUrl }));
+          if (typeof fresh === "string" && fresh.length > 0) access = fresh;
+        } catch { /* refusing to refresh is not a reason to skip the call */ }
+        if (access !== stored) await secretStore.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, access);
         const { listOpenGrokComputers } = await import("./box/opengrok-signin.js");
         return { computers: await listOpenGrokComputers(gatewayUrl, access), signedIn: true };
       } catch (error) {
@@ -574,7 +581,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     resizeWindowWidth: (raw) => { const delta = req(raw).deltaWidth; return typeof delta === "number" && Number.isFinite(delta) && delta !== 0 ? invoke(deps.windowChrome, "resizeWidth", delta) : 0; },
     pickAvatarSource: () => invoke(deps.avatarImages, "pickSource"), pickAvatarFile: () => invoke(deps.avatarImages, "pickFile"), generateAgentAvatarImage: (raw) => invoke(deps.avatarImages, "generateImage", req(raw).description),
     resolveAttachmentMedia: (raw) => invoke(deps.attachments, "resolveMedia", req(raw).source), readAttachmentText: (raw) => invoke(deps.attachments, "readText", req(raw).path), readAttachmentBytes: (raw) => invoke(deps.attachments, "readBytes", req(raw).path, req(raw).maxBytes), stageAttachmentBytes: (raw) => invoke(deps.attachments, "stageBytes", req(raw)), downloadAttachment: (raw) => invoke(deps.attachments, "download", req(raw).path, req(raw).suggestedName), commitStagedAttachments: (raw) => invoke(deps.attachments, "commitStaged", req(raw).paths, req(raw).filenames), discardStagedAttachment: (raw) => invoke(deps.attachments, "discardStaged", req(raw).path), getLinkMetadata: (raw) => invoke(deps.attachments, "getLinkMetadata", req(raw).url),
-    getCursorAuthStatus: () => invoke(deps.cursorAccount, "getAuthStatus"), loginCursor: () => invoke(deps.cursorAccount, "login"), cancelCursorLogin: () => invoke(deps.cursorAccount, "cancelLogin"), logoutCursor: () => invoke(deps.cursorAccount, "logout"), adoptExternalCredentials: () => invoke(deps.cursorAccount, "adoptExternalCredentials"), updateCursorAccountName: (raw) => invoke(deps.cursorAccount, "updateAccountName", req(raw).name), getCursorAvatar: () => invoke(deps.cursorAccount, "getAvatar"), getCursorWeeklyUsage: () => invoke(deps.cursorAccount, "getWeeklyUsage"), getCursorUsageSummary: () => invoke(deps.cursorAccount, "getUsageSummary"), getCursorPrReviewPreferences: () => invoke(deps.cursorAccount, "getPrReviewPreferences"), getCursorPrivacyModeEnabled: () => invoke(deps.cursorAccount, "getPrivacyModeEnabled"), getSandAccess: () => invoke(deps.cursorAccount, "getSandAccess"), getSandAccessFresh: () => invoke(deps.cursorAccount, "getSandAccessFresh"), invokeCursorDashboardAction: (raw) => invoke(deps.cursorAccount, "invokeDashboardAction", raw), cancelCursorSandTrial: () => invoke(deps.cursorAccount, "cancelTrial"),
+    getCursorAuthStatus: () => invoke(deps.cursorAccount, "getAuthStatus"), loginCursor: () => invoke(deps.cursorAccount, "login"), cancelCursorLogin: () => invoke(deps.cursorAccount, "cancelLogin"), logoutCursor: () => invoke(deps.cursorAccount, "logout"), updateCursorAccountName: (raw) => invoke(deps.cursorAccount, "updateAccountName", req(raw).name), getCursorAvatar: () => invoke(deps.cursorAccount, "getAvatar"), getCursorWeeklyUsage: () => invoke(deps.cursorAccount, "getWeeklyUsage"), getCursorUsageSummary: () => invoke(deps.cursorAccount, "getUsageSummary"), getCursorPrReviewPreferences: () => invoke(deps.cursorAccount, "getPrReviewPreferences"), getCursorPrivacyModeEnabled: () => invoke(deps.cursorAccount, "getPrivacyModeEnabled"), getSandAccess: () => invoke(deps.cursorAccount, "getSandAccess"), getSandAccessFresh: () => invoke(deps.cursorAccount, "getSandAccessFresh"), invokeCursorDashboardAction: (raw) => invoke(deps.cursorAccount, "invokeDashboardAction", raw), cancelCursorSandTrial: () => invoke(deps.cursorAccount, "cancelTrial"),
     transcribeAudio: async (raw) => {
       const request = req(raw);
       // The 0.18 renderer hands audio across the contextBridge, which can
