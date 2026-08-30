@@ -203,6 +203,12 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /const MAY_SKIP_LOGIN_WALL =/);
   assert.equal((rendererPatch.match(/\$\{MAY_SKIP_LOGIN_WALL\}/g) || []).length, 4,
     "every login-wall bypass must go through the shared rule");
+  // The miss that blacked out the app: a helper read the skip key directly, so
+  // the gate showed the sign-in screen and our own code then hid it. Any read of
+  // the key must also consult the mode, wherever it lives.
+  for (const raw of rendererPatch.match(/localStorage\.getItem\("sand-cursor-login-skip"\)[^;]{0,80}/g) || []) {
+    assert.match(raw, /sand-opengrok-mode/, `a raw skip-key read ignores OpenGrok mode: ${raw}`);
+  }
 
   // OpenGrok server mode: the runtime is offered for every provider, the bearer
   // never reaches settings.json, and the Router tab stops offering a provider
