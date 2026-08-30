@@ -192,11 +192,17 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /Copy message ID/);
   assert.match(rendererPatch, /Copy message URL/);
   assert.match(rendererPatch, /data-entry-id/);
-  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ patched/);
+  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ patched/);
   // A screen reader is told nothing when a reply starts or finishes. The
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.
   assert.match(rendererPatch, /const A11Y_ANNOUNCE_HELPER =/);
+  // The login wall may only be bypassed when there is no backend to sign in to.
+  // An OpenGrok server is one, so every gate must consult the same rule.
+  assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
+  assert.match(rendererPatch, /const MAY_SKIP_LOGIN_WALL =/);
+  assert.equal((rendererPatch.match(/\$\{MAY_SKIP_LOGIN_WALL\}/g) || []).length, 4,
+    "every login-wall bypass must go through the shared rule");
 
   // OpenGrok server mode: the runtime is offered for every provider, the bearer
   // never reaches settings.json, and the Router tab stops offering a provider

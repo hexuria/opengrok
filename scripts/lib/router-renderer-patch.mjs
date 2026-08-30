@@ -26,10 +26,22 @@ const USAGE_BEFORE = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(Na,{})}):null';
 const USAGE_AFTER = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(RRouterUsage,{})}):null';
 const COMPONENT_ANCHOR = 'function Sa(s){';
 export const CURSOR_LOGIN_WALL_SKIP_KEY = "sand-cursor-login-skip";
+export const OPENGROK_MODE_KEY = "sand-opengrok-mode";
+
+/**
+ * May the login wall be bypassed?
+ *
+ * The skip exists because the app could run with no backend at all - that is
+ * what lets Codex and OpenRouter work without a Cursor account. An OpenGrok
+ * server IS a backend, with real accounts, so bypassing it there would drop a
+ * signed-out person straight into someone's dashboard. In that mode the wall
+ * stands and you sign in for real.
+ */
+const MAY_SKIP_LOGIN_WALL = `(()=>{try{return localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1"&&localStorage.getItem("${OPENGROK_MODE_KEY}")!=="1"}catch{return!1}})()`;
 const LOGIN_WALL_REPLACEMENTS = [
   [
     'if(s!==!0)return{kind:"landed",gate:r?"sign-in":"onboarding",sessionFact:s,provisional:!1}',
-    `if(s!==!0){try{if(localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1")return{kind:"landed",gate:"shell",sessionFact:!0,provisional:!1}}catch{}return{kind:"landed",gate:r?"sign-in":"onboarding",sessionFact:s,provisional:!1}}`,
+    `if(s!==!0){try{if(${MAY_SKIP_LOGIN_WALL})return{kind:"landed",gate:"shell",sessionFact:!0,provisional:!1}}catch{}return{kind:"landed",gate:r?"sign-in":"onboarding",sessionFact:s,provisional:!1}}`,
     "login-wall gate",
   ],
   [
@@ -44,7 +56,7 @@ const LOGIN_WALL_REPLACEMENTS = [
   ],
   [
     'case"signed-out":return Uoe(n,{forced:!1,signedIn:!1,owedShell:{slot:e.accountSlot,provisional:n.provisional}});',
-    `case"signed-out":try{if(localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1")return n}catch{}return Uoe(n,{forced:!1,signedIn:!1,owedShell:{slot:e.accountSlot,provisional:n.provisional}});`,
+    `case"signed-out":try{if(${MAY_SKIP_LOGIN_WALL})return n}catch{}return Uoe(n,{forced:!1,signedIn:!1,owedShell:{slot:e.accountSlot,provisional:n.provisional}});`,
     "shell signed-out",
   ],
   [
@@ -54,7 +66,7 @@ const LOGIN_WALL_REPLACEMENTS = [
   ],
   [
     'Ae=Ne.status.kind==="logged-in"',
-    `Ae=Ne.status.kind==="logged-in"||(()=>{try{return localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1"}catch{return!1}})()`,
+    `Ae=Ne.status.kind==="logged-in"||(()=>{try{return ${MAY_SKIP_LOGIN_WALL}}catch{return!1}})()`,
     "composer signed-in",
   ],
   [
@@ -62,7 +74,7 @@ const LOGIN_WALL_REPLACEMENTS = [
     // Cursor logged-out yields slot:null, so the sidebar stays empty until
     // createAgent posts a complete-roster event. Same local slot as main.
     'function Wzn(n){try{const e=await n();return e.kind==="logged-in"&&dde(e)==null?{kind:"unavailable"}:{kind:"resolved",slot:dde(e)}}catch(e){return yBn(e),{kind:"unavailable"}}}',
-    `function Wzn(n){try{const e=await n();if(e.kind==="logged-in"){const t=dde(e);return t==null?{kind:"unavailable"}:{kind:"resolved",slot:t}}try{if(localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1")return{kind:"resolved",slot:"local-subscription"}}catch{}return{kind:"resolved",slot:null}}catch(e){return yBn(e),{kind:"unavailable"}}}`,
+    `function Wzn(n){try{const e=await n();if(e.kind==="logged-in"){const t=dde(e);return t==null?{kind:"unavailable"}:{kind:"resolved",slot:t}}try{if(${MAY_SKIP_LOGIN_WALL})return{kind:"resolved",slot:"local-subscription"}}catch{}return{kind:"resolved",slot:null}}catch(e){return yBn(e),{kind:"unavailable"}}}`,
     "account slot for skipped login",
   ],
 ];
@@ -812,6 +824,19 @@ const LOCAL_TOOL_ASK_HELPER = ';(()=>{try{'
 // A streaming assistant row carries data-pending, which is the signal used
 // here. It needs no exact-string anchor at all, so nothing can drift out from
 // under it. Turn boundaries only: announcing tokens would be unusable noise.
+
+// Keeps the renderer's view of "are we on an OpenGrok server" in sync, because
+// the login gate runs long before any React state exists and can only read
+// localStorage synchronously. Written by the app, read by the wall.
+const OPENGROK_MODE_HELPER = ';(()=>{try{'
+  + 'var K="' + "sand-opengrok-mode" + '";'
+  + 'var apply=function(on){try{if(on)localStorage.setItem(K,"1");else localStorage.removeItem(K)}catch(_){}};'
+  + 'var read=function(){try{window.desktop.agent.getBoxRuntime().then(function(r){if(r!=null)apply(r.mode==="opengrok")}).catch(function(){})}catch(_){}};'
+  + 'read();setInterval(read,15e3);'
+  + 'window.addEventListener("sand-box-runtime-changed",read);'
+  + 'window.addEventListener("sand-opengrok-changed",read);'
+  + '}catch(_){}})();\n';
+
 const A11Y_ANNOUNCE_HELPER = ';(()=>{try{'
   + 'var live=document.createElement("div");live.className="sand-a11y-announcer";'
   + 'live.setAttribute("role","status");live.setAttribute("aria-live","polite");live.setAttribute("aria-atomic","true");'
@@ -1085,7 +1110,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalGallerySizes(patched);
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
-  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + patched;
+  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + patched;
 }
 
 
