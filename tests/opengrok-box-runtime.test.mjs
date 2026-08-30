@@ -247,3 +247,48 @@ test("a provisioning failure reaches the client with its code and its words", as
     await cleanup();
   }
 });
+
+// The gateway bearer says which gateway may be talked to; it is shared, so on
+// its own the server can only guess whose account a call is for. The account
+// header names the caller. It must reach our own server and nowhere else: a
+// Cursor gateway has no use for it and must never be handed an account token it
+// did not ask for.
+test("the account header is sent to our own server and to no one else", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-account-header-"));
+  try {
+    // One entry re-exporting both, so the resolver the test sets is the very one
+    // the connector reads — two separate bundles would each carry their own.
+    const entry = path.join(temporary, "entry.ts");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(entry, [
+      `export * from ${JSON.stringify(path.join(repoRoot, "source/electron-main/box/box-host-connector.ts"))};`,
+      `export { setBackendUrlResolver } from ${JSON.stringify(path.join(repoRoot, "source/shared/node/cursor-token.ts"))};`,
+    ].join("\n"), "utf8");
+
+    const outfile = path.join(temporary, "connector.mjs");
+    await build({ entryPoints: [entry], outfile, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent" });
+    const mod = await import(pathToFileURL(outfile).href);
+
+    assert.equal(mod.OPENGROK_ACCOUNT_HEADER, "x-opengrok-account");
+    const client = { ensureSandBox: async () => ({ gatewayUrl: "http://server.test:1447", gatewayToken: "gw", networkToken: "", vncUrl: "", forkVncBaseUrl: "" }) };
+    const deps = { getAccessToken: async () => "account-jwt" };
+
+    mod.setBackendUrlResolver(() => "http://server.test:1447");
+    const mine = await new mod.BrokeredHostConnector(deps, client).connect();
+    assert.equal(mine.headers?.[mod.OPENGROK_ACCOUNT_HEADER], "account-jwt");
+
+    mod.setBackendUrlResolver(() => "https://api2.cursor.sh");
+    const theirs = await new mod.BrokeredHostConnector(deps, client).connect();
+    assert.equal(theirs.headers?.[mod.OPENGROK_ACCOUNT_HEADER], undefined,
+      "an account token must never be sent to a gateway that is not ours");
+
+    // A token we cannot get is not a reason to refuse the call: without the
+    // header the server falls back, which is how it behaved before this existed.
+    mod.setBackendUrlResolver(() => "http://server.test:1447");
+    const noToken = await new mod.BrokeredHostConnector({ getAccessToken: async () => { throw new Error("no token"); } }, client).connect();
+    assert.equal(noToken.headers?.[mod.OPENGROK_ACCOUNT_HEADER], undefined);
+    assert.equal(noToken.baseUrl, "http://server.test:1447", "the connection still stands without the header");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
