@@ -276,7 +276,13 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
       const { clientNonce, traceparent } = args as Record<string, unknown>;
       recorder.beginSend({ accountSlot: HOST_ACCOUNT_SLOT, clientNonce: typeof clientNonce === "string" ? clientNonce : null, traceparent: typeof traceparent === "string" ? traceparent : null });
     }
-    const routed = await inferenceRouter!.dispatch(method, args);
+      // In OpenGrok mode the server is the backend. The local router must not get
+      // first refusal on the renderer's own requests, or it answers listAgents from
+      // this machine and the server's coworkers never appear - the app looks
+      // connected while showing the wrong roster.
+      const routed = usesOpenGrokServer(dataDir)
+        ? { handled: false as const, value: undefined }
+        : await inferenceRouter!.dispatch(method, args);
     return routed.handled ? { status: "ok" as const, value: routed.value } : await gatewayDispatch(method, args, signal);
   };
   server = createRendererPortServer(
@@ -306,16 +312,10 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
     { post: (frame) => carrier.mainData.post(frame), close: () => carrier.mainData.close() },
     { dispatchRequest: async (method, args, signal) => {
       if (method === "setGatewayPaused" && typeof args === "object" && args != null) applyPause((args as Record<string, unknown>).paused === true);
-      if (method === "clearAgentImageMetadata") {
-        // In OpenGrok mode the server is the backend. The local router must not get
-      // first refusal, or it answers listAgents and transcripts from this machine
-      // and the server's coworkers never appear - the app looks connected while
-      // showing the wrong roster.
-      const routed = usesOpenGrokServer(dataDir)
-        ? { handled: false as const, value: undefined }
-        : await inferenceRouter!.dispatch(method, args);
-        if (routed.handled) return { status: "ok" as const, value: routed.value };
-      }
+        if (method === "clearAgentImageMetadata") {
+          const routed = await inferenceRouter!.dispatch(method, args);
+          if (routed.handled) return { status: "ok" as const, value: routed.value };
+        }
       return mainDispatch(method, args, signal);
     } }
   );
