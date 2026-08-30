@@ -288,7 +288,13 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
         void seedAgentsRosterToMain();
         return;
       }
-      if (!isGatewayStreamLive) server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state: "down" });
+      // Report the state the transport is actually in, not only the bad one.
+        // transport-connected fires when the gateway stream comes up, which can be
+        // before the renderer has claimed its port - a fast server on the LAN makes
+        // that the common case rather than the rare one. Announcing only "down" here
+        // left the renderer believing it was offline, so it never asked for a roster
+        // and the sidebar stayed empty while the gateway was perfectly healthy.
+        server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state: isGatewayStreamLive ? "connected" : "down" });
     } }
   );
   const mainDispatch = createGatewayRequestDispatch(gatewayClient, isCoordinatorMainMethod);
