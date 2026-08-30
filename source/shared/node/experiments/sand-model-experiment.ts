@@ -1,0 +1,6 @@
+import type { SandAgentModelSelection } from "../../agents/sand-agent-model.js";
+export const SAND_MODEL_EXPERIMENT_NAME = "sand_model_selection";
+export const SAND_MODEL_EXPERIMENT_OPUS_MEDIUM_SELECTION: SandAgentModelSelection = { modelId: "claude-opus-4-8", maxMode: true, parameters: [{ id: "thinking", value: "true" }, { id: "context", value: "1m" }, { id: "effort", value: "medium" }, { id: "fast", value: "false" }] };
+export type SandModelExperimentState = { readonly active: true; readonly arm: "control" | "treatment" };
+export function readSandModelExperimentEnvOverride(env: NodeJS.ProcessEnv = process.env): SandModelExperimentState | undefined { const raw = env.SAND_MODEL_EXPERIMENT_OVERRIDE?.trim().toLowerCase(); if (raw === "control") return { active: true, arm: "control" }; if (raw === "treatment" || raw === "test") return { active: true, arm: "treatment" }; return undefined; }
+export function resolveSandModelExperimentState(inputs: { envOverride?: SandModelExperimentState; groupName: string | null; enabled: boolean }): SandModelExperimentState | undefined { if (inputs.envOverride != null) return inputs.envOverride; return inputs.groupName == null ? undefined : { active: true, arm: inputs.enabled ? "treatment" : "control" }; }

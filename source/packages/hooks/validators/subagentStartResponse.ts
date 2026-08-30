@@ -1,0 +1,3 @@
+import { createValidationResult, isObject, isString, type ValidationResult } from "./base.js";
+import { validateBaseHookResponse } from "./baseHookResponse.js";
+export function validateSubagentStartResponse(value: unknown): ValidationResult { const base = validateBaseHookResponse(value); if (!base.isValid || !isObject(value)) return base; const errors: string[] = []; if (value.permission !== undefined && !["allow", "deny", "ask"].includes(String(value.permission))) errors.push("Invalid permission value. Expected one of: allow, deny, ask, or undefined"); if (value.user_message !== undefined && !isString(value.user_message)) errors.push("user_message must be a string if provided"); return createValidationResult(errors.length === 0, errors); }

@@ -1,0 +1,29 @@
+name: repository checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Install the locked dependency graph
+        run: npm ci --no-audit --no-fund
+      - name: Run source and publication checks
+        run: npm run check
+      - name: Build the editable frontend
+        run: npm run frontend:build
+      - name: Verify a fresh clean-history export is lossless
+        run: npm run publication:check

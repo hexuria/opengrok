@@ -1,0 +1,2 @@
+export const SAND_DEV_CAPABILITY_ENV = "SAND_DEV_CAPABILITY"; export const SAND_DEV_PRELOAD_FILENAME = "preload-sand-dev.cjs"; export const SAND_PRIMARY_PRELOAD_FILENAME = "preload.cjs";
+export function resolveSandMainWindowPreload({ isPackaged, env = process.env }: { readonly isPackaged: boolean; readonly env?: NodeJS.ProcessEnv }): string { return !isPackaged && env[SAND_DEV_CAPABILITY_ENV] === "1" ? SAND_DEV_PRELOAD_FILENAME : SAND_PRIMARY_PRELOAD_FILENAME; }

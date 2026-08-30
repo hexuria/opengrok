@@ -1,0 +1,9 @@
+export interface TurnUsage{readonly inputTokens:number;readonly outputTokens:number;readonly cacheReadTokens:number;readonly cacheWriteTokens:number;readonly reasoningTokens?:number}
+export interface TurnEndedUsage{readonly inputTokens?:bigint;readonly outputTokens?:bigint;readonly cacheReadTokens?:bigint;readonly cacheWriteTokens?:bigint;readonly reasoningTokens?:bigint}
+const ZERO=0n,MAX=BigInt(Number.MAX_SAFE_INTEGER);
+export function toSafeTokenCount(value:bigint):number{return value<=ZERO?0:value>=MAX?Number.MAX_SAFE_INTEGER:Number(value)}
+export function turnUsageFromTurnEnded(f:TurnEndedUsage):TurnUsage|undefined{if(f.inputTokens==null&&f.outputTokens==null&&f.cacheReadTokens==null&&f.cacheWriteTokens==null&&f.reasoningTokens==null)return;return{inputTokens:toSafeTokenCount(f.inputTokens??ZERO),outputTokens:toSafeTokenCount(f.outputTokens??ZERO),cacheReadTokens:toSafeTokenCount(f.cacheReadTokens??ZERO),cacheWriteTokens:toSafeTokenCount(f.cacheWriteTokens??ZERO),...(f.reasoningTokens==null?{}:{reasoningTokens:toSafeTokenCount(f.reasoningTokens)})}}
+export const totalInputTokens=(usage:TurnUsage):number=>usage.inputTokens;
+export const addTokenCounts=(a:number,b:number):number=>Math.min(Number.MAX_SAFE_INTEGER,a+b);
+export function mergeTurnUsage(a:TurnUsage|undefined,b:TurnUsage|undefined):TurnUsage|undefined{if(a==null)return b;if(b==null)return a;const reasoning=a.reasoningTokens==null&&b.reasoningTokens==null?undefined:addTokenCounts(a.reasoningTokens??0,b.reasoningTokens??0);return{inputTokens:addTokenCounts(a.inputTokens,b.inputTokens),outputTokens:addTokenCounts(a.outputTokens,b.outputTokens),cacheReadTokens:addTokenCounts(a.cacheReadTokens,b.cacheReadTokens),cacheWriteTokens:addTokenCounts(a.cacheWriteTokens,b.cacheWriteTokens),...(reasoning===undefined?{}:{reasoningTokens:reasoning})}}
+

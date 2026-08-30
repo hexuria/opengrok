@@ -1,0 +1,5 @@
+import { isAbsolute, resolve } from "node:path";
+import { isPathWithin, realpathNearestExisting } from "../../shared/node/paths.js";
+export class SandProtectedPathError extends Error { constructor(message: string, options?: ErrorOptions) { super(message, options); this.name = "SandProtectedPathError"; } }
+export function refusalMessage(path: string): string { return `Path is inside a protected host-only store and was refused: ${path}`; }
+export async function assertPathOutsideProtectedRoots(protectedRoots: readonly string[], candidatePath: string, baseDir: string): Promise<void> { if (protectedRoots.length === 0) return; const resolved = isAbsolute(candidatePath) ? resolve(candidatePath) : resolve(baseDir, candidatePath); for (const root of protectedRoots) if (isPathWithin(root, resolved, { isInclusive: true })) throw new SandProtectedPathError(refusalMessage(candidatePath)); const realResolved = await realpathNearestExisting(resolved); for (const root of protectedRoots) { const realRoot = await realpathNearestExisting(root); if (isPathWithin(realRoot, realResolved, { isInclusive: true })) throw new SandProtectedPathError(refusalMessage(candidatePath)); } }

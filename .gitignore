@@ -1,0 +1,73 @@
+node_modules/
+/.cache/
+/.build/
+/dist/
+/src/app/dist/
+/recovered/
+/recovery/
+/reports/
+/work/
+.DS_Store
+*.log
+
+# Machine-local harness and inspection scratch.
+/.tmp*/
+/.grok-*/
+/.playwright-cli/
+/.tmp-*.mjs
+/frontend/.tmp-*/
+/.http-probe.*/
+/.mcp-bridge.*/
+/.openrouter-probe.*/
+/.router-*/
+
+# One-off extracted bundle copies at the repository root. Canonical payloads
+# live under src/app/dist and recovered/frontend.
+/host-main.cjs
+/main.cjs
+/index-*.js
+/katex-*.js
+/mermaid.core-*.js
+/xlsx-*.js
+/index.html
+
+# Local scratch screenshots from packaging/debug runs.
+.tmp-*.png
+
+# Stow directory (managed separately)
+.stow/
+
+# Vendor release archive: the manifests stay here as documentation, the
+# binaries live in the private .stow repo (see research-archives/README.md)
+research-archives/**/*.dmg
+research-archives/**/*.exe
+research-archives/**/*.asar
+
+# Agent worktrees and local design scratch. Both are working state that is
+# recreated on demand; neither belongs in history.
+.claude/
+.design/
+
+# ---------------------------------------------------------------------------
+# Private research. Tracked in the .stow archive (hexuria/opengrok-stow) and
+# deliberately absent from this repository. See CLAUDE.md.
+#
+# Recovered from, or derived from, the upstream binary. Publishing them is the
+# rights risk this split exists to avoid.
+# ---------------------------------------------------------------------------
+source/packages/proto/generated/
+source/packages/redacted-protos/
+frontend/
+manifests/
+patches/
+research-archives/
+PROVENANCE.md
+docs/research/
+docs/0.27-*.md
+docs/grok-0.27-*.md
+docs/gap-analysis-0.29.md
+docs/gap-analysis-0.30.md
+docs/parity-log.md
+docs/chat-performance-0.29-notes.md
+docs/queued-plugins-cursor-signin.md
+docs/todo-usage-limits.md

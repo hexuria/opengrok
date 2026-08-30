@@ -1,0 +1,25 @@
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { RetryPolicy } from "../../../internal/scheduling.js";
+import { isSqliteBusyError } from "../../storage/sqlite-busy.js";
+import { classifySqliteSnapshotFailure, copyLockedSqliteDb, sqliteVacuumInto, type SqliteSnapshotFailure } from "./sqlite-snapshot.js";
+
+export const CHROME_SESSION_CATEGORY_NAME = "chrome-session";
+export const CHROME_SESSION_DB_DIR = "/home/box/chrome-profile/Default";
+export const CHROME_SESSION_DB_REL_DIR = "home/box/chrome-profile/Default";
+export const CHROME_SESSION_DB_NAMES = ["Cookies", "Login Data", "Login Data For Account", "Web Data"] as const;
+export const CHROME_AUTH_STATE_REL_DIRS = ["Local Storage", "Session Storage", "IndexedDB", "Service Worker"] as const;
+export const CHROME_AUTH_STATE_CACHE_EXCLUDE_NAMES = ["CacheStorage", "ScriptCache"] as const;
+export const CHROME_SESSION_STAGE_MAX_ATTEMPTS = 1;
+export const CHROME_SESSION_STAGE_RETRY_DELAY_MS = 150;
+export const CHROME_SESSION_STAGE_VACUUM_BUSY_TIMEOUT_MS = 100;
+export interface StagedChromeFile { relPath: string; absPath: string; mode: number }
+export interface ChromeStageReport { staged: number; skipped: number; skippedDbNames: string[]; errorClass: string | null; failure?: { db: string; phase: string } & SqliteSnapshotFailure }
+
+export async function vacuumIntoWithRetry(src: string, dest: string, deps: { retry: RetryPolicy; vacuum?: (src: string, dest: string) => void; log?: (message: string) => void }): Promise<void> { const vacuum = deps.vacuum ?? sqliteVacuumInto, log = deps.log ?? ((message) => console.log(`[chrome-session-stage] ${message}`)); await deps.retry.runWithRetry(async (attempt) => { if (attempt > 1) await rm(dest, { force: true }).catch((error) => log(`retry pre-clean failed: ${error instanceof Error ? error.message : String(error)}`)); vacuum(src, dest); }); }
+export function isChromeSessionStageRetryable(error: unknown): boolean { return /busy|locked/i.test(String(error)); }
+export async function stageBoxChromeSession(deps: { retry: RetryPolicy; sessionDbDir?: string; sessionDbRelDir?: string; sessionDbNames?: readonly string[]; fileExists?: (path: string) => boolean; vacuum?: (src: string, dest: string) => void; copyLockedDb?: typeof copyLockedSqliteDb; log?: (message: string) => void; report?(report: ChromeStageReport): void }): Promise<{ files: StagedChromeFile[]; skipped: number; cleanup(): Promise<void> }> { const sessionDbDir = deps.sessionDbDir ?? CHROME_SESSION_DB_DIR, relDir = deps.sessionDbRelDir ?? CHROME_SESSION_DB_REL_DIR, names = deps.sessionDbNames ?? CHROME_SESSION_DB_NAMES, fileExists = deps.fileExists ?? existsSync, vacuum = deps.vacuum ?? ((src, dest) => sqliteVacuumInto(src, dest, CHROME_SESSION_STAGE_VACUUM_BUSY_TIMEOUT_MS)), copyLocked = deps.copyLockedDb ?? copyLockedSqliteDb, log = deps.log ?? ((message) => console.log(`[chrome-session-stage] ${message}`)), dir = await mkdtemp(join(tmpdir(), "sand-chrome-session-")), files: StagedChromeFile[] = [], skippedDbNames: string[] = [], copiedDbNames: string[] = []; let lastErrorClass: string | null = null, lastFailure: ChromeStageReport["failure"];
+  for (const name of names) { const src = join(sessionDbDir, name); if (!fileExists(src)) continue; const dest = join(dir, name); let mode: number; try { mode = (await stat(src)).mode & 0o777; } catch (error) { skippedDbNames.push(name); lastErrorClass = classifySqliteSnapshotFailure(error, "read_source_main", "source_main").errorClass; log(`stage skipped ${name} because its mode could not be read: ${String(error)}`); continue; } try { await vacuumIntoWithRetry(src, dest, { retry: deps.retry, vacuum, log }); files.push({ relPath: `${relDir}/${name}`, absPath: dest, mode }); } catch (error) { let failure: NonNullable<ChromeStageReport["failure"]> = { db: name, phase: "vacuum", ...classifySqliteSnapshotFailure(error, "vacuum_into", "source_or_staged_main") }; if (isSqliteBusyError(error)) { let rawFailure: SqliteSnapshotFailure | undefined; const copied = copyLocked({ srcPath: src, destPath: dest, onFailure: (value) => { rawFailure = value; } }); if (copied) { files.push({ relPath: `${relDir}/${name}`, absPath: dest, mode }); copiedDbNames.push(name); continue; } if (rawFailure != null) failure = { db: name, phase: "raw_copy", ...rawFailure }; } skippedDbNames.push(name); lastErrorClass = failure.errorClass; lastFailure = failure; log(`stage skipped ${name} after retries: ${String(error)}`); } }
+  if (copiedDbNames.length) log(`staged ${copiedDbNames.length} exclusively-locked db(s) via raw-copy fallback: ${copiedDbNames.join(", ")}`); if (deps.report != null && (files.length || skippedDbNames.length)) deps.report({ staged: files.length, skipped: skippedDbNames.length, skippedDbNames, errorClass: lastErrorClass, ...(lastFailure == null ? {} : { failure: lastFailure }) }); return { files, skipped: skippedDbNames.length, cleanup: async () => rm(dir, { recursive: true, force: true }) }; }

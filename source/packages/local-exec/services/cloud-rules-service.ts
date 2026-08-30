@@ -1,0 +1,2 @@
+export const CLOUD_SPECIFIC_INSTRUCTIONS_HEADER = "## Cursor Cloud specific instructions";
+export const CLOUD_SPECIFIC_INSTRUCTIONS_SEPARATOR = `\n\n${CLOUD_SPECIFIC_INSTRUCTIONS_HEADER}\n`;

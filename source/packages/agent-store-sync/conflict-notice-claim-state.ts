@@ -1,0 +1,2 @@
+export const MAX_ANNOUNCED_EVENT_IDS = 65_536;
+export const ANNOUNCED_EVICTION_BATCH = Math.max(1, Math.floor(MAX_ANNOUNCED_EVENT_IDS / 8));

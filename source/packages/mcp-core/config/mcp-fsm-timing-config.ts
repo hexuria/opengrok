@@ -1,0 +1,1 @@
+export const DEFAULT_KEEPALIVE_PROBE_DELAY_MS = 5 * 60_000;

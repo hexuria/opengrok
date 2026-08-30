@@ -1,0 +1,9 @@
+export interface SandInvariantReport { readonly name: string; readonly frame: string | null; }
+export class SandInvariantViolation extends Error { constructor(message: string) { super(message); this.name = "SandInvariantViolation"; } }
+export const STRIPPED_INVARIANT_MESSAGE = "Invariant violation (message stripped in packaged builds; the stack identifies the site)";
+const FRAME_LINE = /^at /; const OWN_FRAME = /^at (?:new SandInvariantViolation\b|invariant\b|installInvariantReporter\b)/; let installedReporter: ((report: SandInvariantReport) => void) | null = null;
+export function installInvariantReporter(reporter: (report: SandInvariantReport) => void): () => void { invariant(installedReporter === null, "installInvariantReporter: a reporter is already installed"); installedReporter = reporter; return () => { if (installedReporter === reporter) installedReporter = null; }; }
+export function invariantMessagesStripped(): boolean { return true; }
+function headerOf(violation: SandInvariantViolation): string { return violation.message === "" ? violation.name : `${violation.name}: ${violation.message}`; }
+export function topApplicationFrame(violation: SandInvariantViolation): string | null { const stack = violation.stack; const header = headerOf(violation); if (stack == null || !stack.startsWith(header)) return null; for (const raw of stack.slice(header.length).split("\n")) { const frame = raw.trim(); if (!FRAME_LINE.test(frame) || OWN_FRAME.test(frame)) continue; return frame; } return null; }
+export function invariant(condition: unknown, message?: string | (() => string)): asserts condition { if (condition) return; const violationMessage = invariantMessagesStripped() ? STRIPPED_INVARIANT_MESSAGE : typeof message === "function" ? message() : message ?? ""; const violation = new SandInvariantViolation(violationMessage); installedReporter?.({ name: violation.name, frame: topApplicationFrame(violation) }); throw violation; }

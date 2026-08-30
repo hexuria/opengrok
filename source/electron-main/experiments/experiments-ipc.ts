@@ -1,0 +1,2 @@
+interface SyncIpc { on(channel: string, listener: (event: { returnValue: unknown }) => void): void }
+export function registerExperimentsIpc(deps: { readonly ipcMain: SyncIpc; readonly getExperimentService: () => { getSnapshot(): unknown } | undefined | null }): void { deps.ipcMain.on("sand:experiments-snapshot-sync", (event) => { event.returnValue = deps.getExperimentService()?.getSnapshot() ?? null; }); }
