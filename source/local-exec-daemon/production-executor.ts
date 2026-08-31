@@ -11,6 +11,7 @@ import type {
   LocalExecExecutorOutput,
 } from "../host/local-exec/local-exec-provider.js";
 import { backgroundShellExecutorResource } from "../packages/agent-exec/background-shell.js";
+import { askpassShellEnv } from "./askpass-shell-env.js";
 import { SimpleControlledExecManager } from "../packages/agent-exec/controlled.js";
 import {
   ExecClientControlMessage,
@@ -255,7 +256,7 @@ export function createDefaultProductionLocalExecExecutor(options: {
       const terminalExecutor = createDefaultTerminalExecutor({
         env: { CURSOR_AGENT: "1", SAND_AGENT: "1" },
       }).clone(root);
-      const shellCoreExecutor = new BaseShellCoreExecutor(terminalExecutor, root, root);
+      const shellCoreExecutor = new BaseShellCoreExecutor(terminalExecutor, root, root, undefined, () => askpassShellEnv());
       const backgroundShellExecutor = new LocalBackgroundShellExecutor(
         permissionsService,
         shellCoreExecutor,

@@ -1399,6 +1399,55 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'new MutationObserver(function(){if(document.querySelector(".sand-onboarding"))mount()}).observe(document.documentElement,{childList:!0,subtree:!0});'
   + '}catch(_){}})();\n';
 
+// The sudo password card. `sudo -A` on the user's machine reaches the app
+// through the askpass service; electron-main pushes a "sand:askpass-prompt"
+// IPC event, this renders a masked-input overlay, and the answer (or a deny)
+// goes straight back over window.desktop.askpass.respond — the password never
+// enters the transcript, localStorage, or any log. Event-driven only: no
+// MutationObserver touches it, so it cannot re-enter the way the login sheet
+// once did.
+const ASKPASS_CARD_HELPER = ';(()=>{try{'
+  + 'var api=self.desktop&&self.desktop.askpass;if(!api)return;'
+  + 'var css=".sand-ap-scrim{position:fixed;inset:0;z-index:2147483400;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.42);animation:sand-ap-fade .14s ease-out}"'
+  + '+"@keyframes sand-ap-fade{from{opacity:0}to{opacity:1}}"'
+  + '+".sand-ap-sheet{width:min(420px,100%);border-radius:14px;padding:20px;border:1px solid var(--sand-border-default,rgba(128,128,128,.28));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 24px 70px rgba(0,0,0,.34)}"'
+  + '+".sand-ap-h{font-size:16px;font-weight:600;margin:0 0 3px;display:flex;align-items:center;gap:8px}"'
+  + '+".sand-ap-sub{font-size:13px;opacity:.7;margin:0 0 14px;line-height:1.5}"'
+  + '+".sand-ap-prompt{font-size:12.5px;opacity:.6;margin:0 0 6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}"'
+  + '+".sand-ap-in{width:100%;box-sizing:border-box;height:36px;padding:0 11px;font:inherit;font-size:14px;border-radius:9px;border:1px solid var(--sand-border-default,rgba(128,128,128,.34));background:var(--sand-bg-base,transparent);color:inherit}"'
+  + '+".sand-ap-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}"'
+  + '+".sand-ap-btn{height:32px;padding:0 14px;font:inherit;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;border:1px solid var(--sand-border-default,rgba(128,128,128,.32));background:var(--sand-fill-ghost-hover,rgba(128,128,128,.10));color:inherit}"'
+  + '+".sand-ap-btn.p{background:var(--sand-accent,#d97757);border-color:transparent;color:#fff}";'
+  + 'var styled=!1,style=function(){if(styled)return;styled=!0;var t=document.createElement("style");t.setAttribute("data-sand-askpass","1");t.textContent=css;document.head.appendChild(t)};'
+  + 'var current=null;'
+  + 'var close=function(){var s=document.querySelector(".sand-ap-scrim");if(s)s.remove();current=null};'
+  + 'var answer=function(id,password){if(!id)return;try{api.respond(id,password)}catch(_){}};'
+  + 'var render=function(p){if(!p||!p.id)return;'
+  // A newer prompt supersedes an older card; deny the one being replaced.
+  + 'if(current&&current!==p.id)answer(current,null);'
+  + 'close();current=p.id;style();'
+  + 'var scrim=document.createElement("div");scrim.className="sand-ap-scrim";scrim.setAttribute("role","dialog");scrim.setAttribute("aria-modal","true");scrim.setAttribute("aria-label","Administrator password needed");'
+  + 'var sheet=document.createElement("div");sheet.className="sand-ap-sheet";'
+  + 'var h=document.createElement("p");h.className="sand-ap-h";h.textContent="\\uD83D\\uDD12 Administrator password needed";'
+  + 'var sub=document.createElement("p");sub.className="sand-ap-sub";sub.textContent="A command an agent is running on this computer needs your macOS password to continue. It is sent only to sudo on this machine \\u2014 never to the chat or the cloud.";'
+  + 'var pr=document.createElement("p");pr.className="sand-ap-prompt";pr.textContent=p.prompt||"Password:";'
+  + 'var input=document.createElement("input");input.className="sand-ap-in";input.type="password";input.autocomplete="off";input.setAttribute("aria-label","Password");'
+  + 'var foot=document.createElement("div");foot.className="sand-ap-foot";'
+  + 'var deny=document.createElement("button");deny.type="button";deny.className="sand-ap-btn";deny.textContent="Deny";'
+  + 'var ok=document.createElement("button");ok.type="button";ok.className="sand-ap-btn p";ok.textContent="Authorize";'
+  + 'var id=p.id;'
+  + 'var submit=function(){var v=input.value;input.value="";answer(id,v);v=null;if(current===id)current=null;close()};'
+  + 'var cancel=function(){input.value="";answer(id,null);if(current===id)current=null;close()};'
+  + 'deny.addEventListener("click",cancel);ok.addEventListener("click",submit);'
+  + 'input.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();submit()}else if(e.key==="Escape"){e.preventDefault();cancel()}});'
+  + 'scrim.addEventListener("mousedown",function(e){if(e.target===scrim)cancel()});'
+  + 'foot.append(deny,ok);sheet.append(h,sub,pr,input,foot);scrim.appendChild(sheet);document.body.appendChild(scrim);'
+  + 'setTimeout(function(){try{input.focus()}catch(_){}} ,30)};'
+  + 'try{api.onPrompt(function(p){render(p)})}catch(_){}'
+  // A prompt raised before this window mounted is read back once on boot.
+  + 'try{Promise.resolve(api.pending()).then(function(p){if(p&&p.id&&!current)render(p)}).catch(function(){})}catch(_){}'
+  + '}catch(_){}})();\n';
+
 const A11Y_ANNOUNCE_HELPER = ';(()=>{try{'
   + 'var live=document.createElement("div");live.className="sand-a11y-announcer";'
   + 'live.setAttribute("role","status");live.setAttribute("aria-live","polite");live.setAttribute("aria-atomic","true");'
@@ -1782,7 +1831,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
   patched = patchOriginalCardLocalFlip(patched);
-  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ACCOUNT_CARD_HELPER + AGENT_AUTOREVIEW_HELPER + patched;
+  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ASKPASS_CARD_HELPER + ACCOUNT_CARD_HELPER + AGENT_AUTOREVIEW_HELPER + patched;
 }
 
 

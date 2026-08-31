@@ -204,7 +204,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /Copy message ID/);
   assert.match(rendererPatch, /Copy message URL/);
   assert.match(rendererPatch, /data-entry-id/);
-  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ LOGIN_PROVIDER_HELPER \+ ACCOUNT_CARD_HELPER \+ AGENT_AUTOREVIEW_HELPER \+ patched/);
+  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ LOGIN_PROVIDER_HELPER \+ ASKPASS_CARD_HELPER \+ ACCOUNT_CARD_HELPER \+ AGENT_AUTOREVIEW_HELPER \+ patched/);
   // A screen reader is told nothing when a reply starts or finishes. The
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.

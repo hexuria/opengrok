@@ -32,6 +32,7 @@ import { COORDINATOR_SERVICE_NAME } from "./coordinator/coordinator-launcher.js"
 import { localSubscriptionSlotFromStore } from "./coordinator/coordinator-account-runtime.js";
 import { createWindowChromeEdgePort, type WindowChromeBrowserWindow } from "./window-chrome.js";
 import { createProductionWindowBroadcaster } from "./window-broadcast.js";
+import { configureAskpassRuntime } from "./askpass/askpass-runtime.js";
 import type { SandUpdateService } from "./update/sand-update-service.js";
 import { createWindowStatePersistence, type WindowStatePersistenceScreen } from "./window-state-persistence.js";
 import { submitFeedbackReport } from "./feedback/feedback-report.js";
@@ -603,6 +604,7 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
         getMachineId: async () => machineId,
       });
       const broadcast = createProductionWindowBroadcaster(bindings.native.BrowserWindow);
+      configureAskpassRuntime({ userDataPath: () => bindings.native.app.getPath("userData"), broadcast });
       const getTrustedContents = (): MainBrowserWindow["webContents"] | undefined => runtime?.getMainWindow()?.webContents;
       desktopMetricsRuntime = createDesktopMetricsRuntime({
         ensureCursorAuthService: async () => await requireValue(account, "account").getAuthService(),
