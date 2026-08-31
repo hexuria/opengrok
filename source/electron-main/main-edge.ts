@@ -142,6 +142,34 @@ function openGrokAccountSecrets(deps: MainEdgeDeps, gatewayUrl: string): { readS
   };
 }
 
+/**
+ * Mirror an auto-review tier to the OpenGrok server. The server enforces the
+ * rules on our route; the local store still feeds the Cursor route's box. On
+ * the Cursor route (no gateway) this is a no-op. The server field is one text
+ * blob per direction - the client's rule rows joined with newlines - so the
+ * judge reads each line as one instruction; the global tier always sends
+ * concrete values, so a cleared list is "" (stop inheriting), never null.
+ */
+async function putOpenGrokAutoReviewPolicy(
+  deps: MainEdgeDeps,
+  scopeKind: "global" | "coworker",
+  scopeId: string,
+  instructions: { readonly isEnabled: boolean; readonly allowInstructions: readonly string[]; readonly blockInstructions: readonly string[] },
+): Promise<void> {
+  const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+  if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return;
+  const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+  await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+    path: "/auto-review/policy", method: "PUT",
+    body: {
+      scopeKind, scopeId,
+      enabled: instructions.isEnabled,
+      allowInstructions: instructions.allowInstructions.join("\n"),
+      blockInstructions: instructions.blockInstructions.join("\n"),
+    },
+  });
+}
+
 function subscriptionAuthOf(deps: MainEdgeDeps): SubscriptionCliAuthPort {
   return deps.subscriptionAuth ?? createSubscriptionCliAuthWiring().port;
 }
@@ -337,7 +365,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     getTimeZone: () => ({ detectedTimeZone: (deps.detectTimeZone ?? detectTimeZone)() ?? null, overrideTimeZone: invoke(deps.settingsStore, "getUserTimeZoneOverride") ?? null }),
     setTimeZoneOverride: (raw) => { const { timeZone } = req(raw); if (timeZone === null) invoke(deps.settingsStore, "setUserTimeZoneOverride", undefined); else if (typeof timeZone === "string" && isValidIanaTimeZone(timeZone)) invoke(deps.settingsStore, "setUserTimeZoneOverride", timeZone); const detected = (deps.detectTimeZone ?? detectTimeZone)(); void deps.syncHostSettingsToBox({ ...(detected == null ? {} : { userTimeZone: detected }), userTimeZoneOverride: invoke(deps.settingsStore, "getUserTimeZoneOverride") ?? "" }); return { detectedTimeZone: (deps.detectTimeZone ?? detectTimeZone)() ?? null, overrideTimeZone: invoke(deps.settingsStore, "getUserTimeZoneOverride") ?? null }; },
     getAutoReviewInstructions: () => invoke(deps.settingsStore, "getAutoReviewInstructions"),
-    setAutoReviewInstructions: async (raw) => { const value = req(raw).instructions; const instructions = typeof value === "object" && value != null && !Array.isArray(value) ? value as { isEnabled?: unknown; allowInstructions?: unknown; blockInstructions?: unknown } : undefined; const normalized = normalizeSandAutoReviewInstructions(instructions); invoke(deps.settingsStore, "setAutoReviewInstructions", normalized); try { await deps.syncHostSettingsToBox({ autoReviewInstructions: normalized }); } catch (error) { reportDesktopEdgeFailure("host-settings", "auto-review", error); } return invoke(deps.settingsStore, "getAutoReviewInstructions"); },
+    setAutoReviewInstructions: async (raw) => { const value = req(raw).instructions; const instructions = typeof value === "object" && value != null && !Array.isArray(value) ? value as { isEnabled?: unknown; allowInstructions?: unknown; blockInstructions?: unknown } : undefined; const normalized = normalizeSandAutoReviewInstructions(instructions); invoke(deps.settingsStore, "setAutoReviewInstructions", normalized); try { await deps.syncHostSettingsToBox({ autoReviewInstructions: normalized }); } catch (error) { reportDesktopEdgeFailure("host-settings", "auto-review", error); } await putOpenGrokAutoReviewPolicy(deps, "global", "", normalized).catch((error) => reportDesktopEdgeFailure("host-settings", "auto-review-global", error)); return invoke(deps.settingsStore, "getAutoReviewInstructions"); },
     getLocalComputer: async () => {
       const { hostname } = await import("node:os");
       let machine = "";
