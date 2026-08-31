@@ -199,6 +199,18 @@ function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.val
 `;
 
 export const MAIN_CHROME_SOURCE = String.raw`
+function RBoxEmptyMessage(view){
+  try{
+    if(view==null||view.isStatusUnavailable)return void 0;
+    if(!view.isStatusKnown)return void 0;
+    const state=view.status&&typeof view.status.state==="string"?view.status.state:null;
+    if(state==null)return void 0;
+    if(state==="running")return "This computer has no screen. It runs commands and files for this bot.";
+    if(state==="stopped")return "This computer is asleep. Send a message and it wakes up.";
+    if(state==="absent")return "This bot has no computer yet.";
+    return "This computer is "+state+".";
+  }catch{return void 0}
+}
 function RLoginWallSkipped(){try{return localStorage.getItem("sand-cursor-login-skip")==="1"&&localStorage.getItem("sand-opengrok-mode")!=="1"}catch{return!1}}
 function RRememberLoginWallSkip(){try{localStorage.setItem("sand-cursor-login-skip","1")}catch{}}
 function ROpenRouterSettings(){const labeled=n=>(n.getAttribute("aria-label")||n.textContent||"").trim();const click=label=>{const el=[...document.querySelectorAll("button,[role=tab],[role=menuitem]")].find(n=>labeled(n)===label);if(el){el.click();return!0}return!1};const fire=()=>{if(click("Router"))return!0;window.dispatchEvent(new KeyboardEvent("keydown",{key:",",code:"Comma",keyCode:188,which:188,metaKey:!0,ctrlKey:!1,bubbles:!0,cancelable:!0}));click("Settings");return click("Router")};let n=0;const id=setInterval(()=>{if(fire()||++n>50)clearInterval(id)},200)}
@@ -1456,6 +1468,22 @@ export function patchOriginalViewFallback(source) {
   return replaceExactlyOnce(source, VIEW_LOAD_FALLBACK_BEFORE, VIEW_LOAD_FALLBACK_AFTER, "lazy-view error toast");
 }
 
+/**
+ * The placeholder shown where a computer's screen would be.
+ *
+ * It falls through to "Booting up the computer" for every state it has no
+ * better word for, including a box that is up and simply has no screen. The
+ * view already holds the box status, so the message can be chosen from it.
+ */
+export function patchOriginalComputerPlaceholder(source) {
+  return replaceExactlyOnce(
+    source,
+    "emptyMessage:void 0,isEmptyLoading:A,pullPercent:e.pullPercent",
+    "emptyMessage:RBoxEmptyMessage(e),isEmptyLoading:A,pullPercent:e.pullPercent",
+    "computer placeholder message",
+  );
+}
+
 export function patchOriginalMainChrome(source) {
   if (source.includes("function RInstallFirstRunLogins()")) {
     throw new Error("Original renderer main chrome is already patched.");
@@ -1494,7 +1522,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
-    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source)))))))))))))],
+    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalComputerPlaceholder(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))],
     ["panel", panelCandidates[0], patchOriginalSettingsPanel],
   ]) {
     const patched = transform(candidate.source);

@@ -423,3 +423,34 @@ test("losing a rotation race is not a reason to sign anybody out", async () => {
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+// One spinner used to stand for every state a computer could be in: coming up,
+// asleep, never created, and killed by the host. Worst of all, a box that was
+// running perfectly but headless — the normal case for a server-side box doing
+// shell and file work — said "Booting up the computer" forever, because the
+// placeholder exists to fill the space where a screen would be and had nothing
+// to draw.
+test("the computer placeholder says what is actually true of the box", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  const RBoxEmptyMessage = new Function(`${chrome}\nreturn RBoxEmptyMessage;`)();
+
+  const known = (state) => RBoxEmptyMessage({ isStatusKnown: true, isStatusUnavailable: false, status: { state } });
+
+  // Running with no screen is the case that used to lie outright.
+  assert.match(known("running"), /no screen/i);
+  // Asleep is recoverable, and the way to recover it is worth saying.
+  assert.match(known("stopped"), /asleep/i);
+  assert.match(known("stopped"), /message/i);
+  assert.match(known("absent"), /no computer/i);
+  // A provider word we have never seen is still reported rather than swallowed.
+  assert.match(known("exited"), /exited/);
+
+  // Only a genuinely unknown status keeps the original wording, because there
+  // the app really is still finding out.
+  assert.equal(RBoxEmptyMessage({ isStatusKnown: false, isStatusUnavailable: false, status: null }), undefined);
+  // An unreachable status has its own message and its own retry; leave it alone.
+  assert.equal(RBoxEmptyMessage({ isStatusKnown: true, isStatusUnavailable: true, status: { state: "running" } }), undefined);
+  assert.equal(RBoxEmptyMessage(null), undefined);
+  assert.equal(RBoxEmptyMessage({ isStatusKnown: true, isStatusUnavailable: false, status: {} }), undefined);
+});
