@@ -53,6 +53,17 @@ through `/oauth/token`; see "Done" below.
   no computer via `computerError`.
 - **Gateway failures leave a trace.** They were handed to the renderer, which
   drops them, so a refused gateway produced a silent dead app.
+- **Account identity on every gateway call**, so the server knows whose bots to
+  return. Sent only to our own server, never to a Cursor gateway.
+- **Sign-out no longer happens because a server restarted.** Any non-2xx used to
+  revoke the session, so a 502 during a restart signed the person out; only a
+  stated rejection does now, and a lost token-rotation race is tolerated.
+- **The computer is described honestly**: the one in use is named, a box without
+  a screen says what it is for rather than spinning "booting" forever, and the
+  machine the person is sitting at is named too, with its execution permission
+  beside it.
+- **A send that cannot be delivered says so** instead of vanishing.
+- **A closing window no longer crashes the main process.**
 - One settings read per change instead of three per renderer request.
 
 ## Done — server (reported by the peer session)
@@ -66,33 +77,41 @@ through `/oauth/token`; see "Done" below.
 - `OG_HOSTED=1` drops `local-docker` from the advertised kinds.
 - Request tracing (`OG_TRACE_REQUESTS=1`).
 
-## The blocker: a bot cannot be created or spoken to
+## It works end to end
 
-First end-to-end attempt from the desktop, 31 Aug 2026. Signed in, gateway
-healthy, and pressing Send does **nothing** — no request, no error, composer
-never clears, roster stays empty.
+31 Aug 2026. Signing in, creating a bot, sending it a message and reading a
+real answer all work from the desktop. Proven with questions an echo could not
+fake — a current head of state, and arithmetic whose answer is nowhere in the
+prompt.
 
-Established by observation, not inference:
+The first end-to-end attempt failed, and the causes are worth keeping because
+none of them were where either side first looked:
 
-- The transport is **healthy**. The server's trace shows the coordinator's
-  bearer matching, `origin=false`, and `listAgents` returning **200**. Neither
-  token theory survived: the gateway bearer never expires, and the account token
-  now refreshes.
-- `createAgent` **never reaches the gateway.** The coordinator's own failure log
-  is empty apart from one unimplemented method.
-- The send path runs and declines. Calling the Send button's React `onClick`
-  directly, and `form.requestSubmit()`, both complete cleanly and do nothing.
-- The shell is mounted and the account is signed in; the roster is empty because
-  the account genuinely has no coworkers on that database.
+- **The gateway served one fixed account.** `OG_GATEWAY_EMAIL` decided whose
+  bots a caller saw, so `listAgents` returned nothing for everybody and
+  `createAgent` failed. Fixed by resolving the caller from an
+  `X-OpenGrok-Account` header the client now sends on every gateway call.
+- **`/health` was behind the auth gate**, and the client's reachability probe
+  cannot authenticate — it is upstream code that sends no bearer. So every
+  probe 401'd and the client declared a healthy server unreachable. The server
+  exempted `/health`.
+- **The transcript verbs resolved the agent by a different field** than the
+  ones that worked, so a reply existed and could not be read back.
+- **Two token theories were wrong.** The gateway bearer never expires; the
+  account token does but now refreshes. Both were disproven by asking rather
+  than by building on them.
 
-Two candidate causes, both cheap to test and both needing the server:
+## Still wrong, and whose
 
-1. **`WatchSandBoxMigration` returns 400** and is the client's most frequent
-   call (22 per boot). If boot or roster hydration gates on it succeeding, that
-   loop explains an app that authenticates, gets a clean 200, and still renders
-   nothing. The peer offered to stub it to a benign 200.
-2. **No coworker exists** for the account, so there may be nothing to create a
-   bot from and nothing to address.
+- **A bot can wedge showing "working" with nothing behind it.** The server has
+  no record of any turn for it — no run, no transcript row, no accepted nonce.
+  The flag is set client-side without a confirmed accept. While it is set,
+  sends are silently swallowed; that swallow is fixed, the optimistic flag is
+  not.
+- **There is no stop control anywhere.** A turn that will never finish cannot
+  be abandoned.
+- **A server-run bot cannot act on the user's machine.** `/local-exec/*` 404s.
+  This is the reverse exec channel, now wanted deliberately — see below.
 
 ## What the server must implement, in the order we need it
 
