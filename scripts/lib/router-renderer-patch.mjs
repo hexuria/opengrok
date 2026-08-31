@@ -432,12 +432,30 @@ function RBoxOpenPlaceholder(view,localMessage){
       else waking=now-started<40000;
     }catch{}
   }
+  const running=view!=null&&view.isStatusKnown&&view.status&&view.status.state==="running";
+  const screenExpected=running&&!RBoxHasNoScreen(view)&&view.vncUrl==null;
+  if(screenExpected&&view&&typeof view.retryStatus==="function"){
+    try{
+      const key=((view.status&&view.status.agentId)||"one")+":screen";
+      const now=Date.now(),first=RBoxWaking.get(key)||0;
+      if(first===0)RBoxWaking.set(key,now);
+      else if(now-first<90000&&now-(RBoxWaking.get(key+":at")||0)>2500){
+        RBoxWaking.set(key+":at",now);view.retryStatus();
+      }
+    }catch{}
+  }else if(view&&view.status&&view.status.agentId){
+    try{RBoxWaking.delete(view.status.agentId+":screen");RBoxWaking.delete(view.status.agentId+":screen:at")}catch{}
+  }
   const stated=RBoxEmptyMessage(view)??(view&&view.phase==="local"?localMessage:void 0);
   const stalled=off&&!waking&&RBoxWaking.size>0;
   const message=waking?"Waking this computer up\u2026"
+    :screenExpected?"Starting the desktop\u2026"
     :stalled?"This computer did not come up. The bot can still be asked to use it, which wakes it too."
     :stated;
-  return{emptyMessage:message,isEmptyLoading:waking};
+  return{emptyMessage:message,isEmptyLoading:waking||screenExpected};
+}
+function RBoxHasNoScreen(view){
+  try{return view!=null&&view.phase==="local"}catch{return!1}
 }
 function RBoxEmptyMessage(view){
   try{
@@ -445,7 +463,10 @@ function RBoxEmptyMessage(view){
     if(!view.isStatusKnown)return void 0;
     const state=view.status&&typeof view.status.state==="string"?view.status.state:null;
     if(state==null)return void 0;
-    if(state==="running")return "This computer has no screen. It runs commands and files for this bot.";
+    if(state==="running"){
+      if(RBoxHasNoScreen(view))return "This computer has no screen. It runs commands and files for this bot.";
+      return void 0;
+    }
     if(state==="stopped")return "This computer is asleep. Send a message and it wakes up.";
     if(state==="absent")return "This bot has no computer yet.";
     return "This computer is "+state+".";

@@ -439,8 +439,9 @@ test("the computer placeholder says what is actually true of the box", async () 
 
   const known = (state) => RBoxEmptyMessage({ isStatusKnown: true, isStatusUnavailable: false, status: { state } });
 
-  // Running with no screen is the case that used to lie outright.
-  assert.match(known("running"), /no screen/i);
+  // A running REMOTE box says nothing here: its screen is still arriving, and
+  // claiming it has none is the lie this whole surface exists to avoid.
+  assert.equal(known("running"), undefined);
   // Asleep is recoverable, and the way to recover it is worth saying.
   assert.match(known("stopped"), /asleep/i);
   assert.match(known("stopped"), /message/i);
@@ -591,8 +592,9 @@ test("opening a stopped computer wakes it, once, and only from the opened view",
   const running = { isStatusKnown: true, isStatusUnavailable: false, phase: "remote", status: { state: "running", agentId: "cw_run" }, ensure: () => { ranEnsure += 1; } };
   const up = RBoxOpenPlaceholder(running, "local copy");
   assert.equal(ranEnsure, 0, "a running computer must not be woken");
-  assert.match(up.emptyMessage, /no screen/i);
-  assert.equal(up.isEmptyLoading, false, "a computer that is up is not still loading");
+  // Its screen has not arrived, so it says the screen is starting — not that
+  // there is none. It only claims none for a computer that genuinely has none.
+  assert.match(up.emptyMessage, /Starting the desktop/i);
 
   // An unknown status is not a stopped one: do not wake what we cannot see.
   let blind = 0;
@@ -680,4 +682,48 @@ test("remote control is off by default and says what it is", async () => {
   const revoke = mainEdge.slice(mainEdge.indexOf("revokeRemoteControl:"));
   assert.ok(revoke.indexOf("deleteSecret(OPENGROK_DAEMON_TOKEN_SECRET)") < revoke.indexOf("/local-exec/daemon/"),
     "the local credential must be destroyed before the server is told, not after");
+});
+
+// A remote box's desktop is provisioned a moment AFTER the box itself is up, so
+// a running box with no screen yet is not a screenless computer — it is one
+// whose screen is still coming. Saying "no screen" there was a flat lie told at
+// exactly the moment somebody was waiting for the screen to appear.
+test("a screen that is still arriving is not reported as absent", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  const place = new Function(`${chrome}\nreturn RBoxOpenPlaceholder;`)();
+
+  let asked = 0;
+  const remote = {
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote", vncUrl: null,
+    status: { state: "running", agentId: "cw_remote" }, retryStatus: () => { asked += 1; }, ensure: () => {},
+  };
+  const coming = place(remote, "local copy");
+  assert.match(coming.emptyMessage, /Starting the desktop/i, "a screen on its way must say so");
+  assert.doesNotMatch(coming.emptyMessage, /no screen/i, "and must not claim there is none");
+  assert.equal(coming.isEmptyLoading, true, "it is still working, so it should look like it");
+
+  // A computer on the user's own machine genuinely has no desktop, ever.
+  const local = place({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "local", vncUrl: null,
+    status: { state: "running", agentId: "cw_local" }, retryStatus: () => {}, ensure: () => {},
+  }, "local copy");
+  assert.match(local.emptyMessage, /no screen/i);
+  assert.equal(local.isEmptyLoading, false);
+
+  // The status only refreshes on window focus, so a screen arriving while the
+  // view is open is never noticed unless we ask again.
+  assert.match(chrome, /view\.retryStatus\(\)/);
+  const before = asked;
+  await new Promise((r) => setTimeout(r, 2700));
+  place(remote, "local copy");
+  assert.ok(asked > before, "a screen that has not arrived must be asked for again");
+
+  // A box with a screen says nothing and stops asking.
+  const up = place({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote", vncUrl: "https://box/vnc.html",
+    status: { state: "running", agentId: "cw_up" }, retryStatus: () => { throw new Error("must not re-ask once the screen is here"); }, ensure: () => {},
+  }, "local copy");
+  assert.equal(up.emptyMessage, undefined);
+  assert.equal(up.isEmptyLoading, false);
 });
