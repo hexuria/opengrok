@@ -427,7 +427,10 @@ export function createProductionNotificationsBinding(
       if (created) throw new Error("Electron production notifications service was created more than once.");
       created = true;
       const osNotifications = new SandOsNotificationManager({
-        getWindow: () => context.getMainWindow() ?? null,
+        getWindow: () => {
+          const window = context.getMainWindow() ?? null;
+          return window == null || window.isDestroyed() ? null : window;
+        },
         isSupported: () => ports.Notification.isSupported(),
         createNotification: (options) => new ports.Notification(options),
         openAgent: (agentId) => context.requireMainEdge().emit("focus-agent", { id: agentId }),
