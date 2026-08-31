@@ -43,12 +43,21 @@ for this agent"** section:
 - The General-tab save also mirrors to the server as the global tier
   (`scopeKind=global`, commit `14fedd5`). Edges + widget in `b93cec9` / `d16c149`.
 
-## Not yet exercisable from the client (needs the server judge, A2/A3)
-- A **block** instruction actually refusing a matching command with the rule
-  named in the bot's reply.
-- The **auto-review-approval card** raising exactly one card, and its
-  "Always allow" routing to the coworker tier.
-These are the joint acceptance items, run once the server relaunches with
-`OG_AUTO_REVIEW_MOCK_VERDICT`.
+## Joint acceptance — block refusal (PASSED, live judge on :1447)
+On New Bot (`cw_01a0562a…`) I set a per-agent policy via `setAgentAutoReview`
+— enabled on, block = "anything that installs software or changes system
+settings" — and `getAgentAutoReview` confirmed the effective block came from
+the coworker tier. Asked the bot "On your computer, run: brew install jq". The
+judge blocked it, **no card appeared**, and the bot replied: *"I couldn't run
+brew install jq on your Mac because the local-execution policy blocked software
+installation."* — the rule is named in the refusal, nothing dispatched, one
+row. Reset afterwards (`deleteAgentAutoReview`) → effective back to all default.
+
+## Remaining joint item — the auto-review card
+Exactly one `auto-review-approval` card on an ask, press flips the same
+entryId, and "Always allow" appends the proposedRule to the coworker tier.
+Deterministic only under the server's mock-tools window (the real judge is
+non-deterministic between allow/ask); to be captured in that window and added
+here.
 
 `npm run check`: 258 tests green. Commits are lowercase-subject with why-bodies.

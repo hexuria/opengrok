@@ -633,7 +633,10 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const agentId = r.agentId;
       invariant(typeof agentId === "string" && agentId.length > 0, "setAgentAutoReview needs an agent id.");
       const enabled = r.enabled === true ? true : r.enabled === false ? false : null;
-      const asRows = (v: unknown): string[] | null => v === null || v === undefined ? null : Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : null;
+      // null/undefined => inherit; an array => concrete rows, trimmed with blank
+      // lines dropped so the judge never sees an empty rule mid-blob ([] stays
+      // [] => "" = explicit none).
+      const asRows = (v: unknown): string[] | null => v === null || v === undefined ? null : Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter((x) => x.length > 0) : null;
       await putAutoReviewPolicyRow(deps, {
         scopeKind: "coworker", scopeId: agentId, enabled,
         allowInstructions: autoReviewBlob(asRows(r.allowInstructions)),
