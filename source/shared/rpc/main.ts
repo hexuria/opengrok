@@ -90,6 +90,7 @@ export const MAIN_METHOD_TABLE = {
   enrolRemoteControl: { args: "object" },
   revokeRemoteControl: { args: "none" },
   setRemoteControlMode: { args: "object" },
+  deleteRemoteControlRule: { args: "object" },
   getWindows365Settings: { args: "none" },
   setWindows365Settings: { args: "object" },
   getWindows365Session: { args: "none" },
