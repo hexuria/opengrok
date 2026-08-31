@@ -1,30 +1,55 @@
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { posix, win32 } from "node:path";
 
 export const DOCKER_CLI_NOT_FOUND = "Docker CLI not found. Grok Bot is a GUI app, so it cannot see a shell-only PATH. Install Docker Desktop or set DOCKER_BIN to the docker executable.";
 
-export function dockerCliCandidates(env: NodeJS.ProcessEnv = process.env, homeDir = homedir()): string[] {
+// Candidates are built for a *stated* platform (defaulting to the current
+// one) with that platform's own separators, so tests can pin any OS and the
+// results are identical no matter which OS runs them.
+function pathToolkit(platform: NodeJS.Platform): { join: (...parts: string[]) => string; dirname: (target: string) => string; envSeparator: string } {
+  const api = platform === "win32" ? win32 : posix;
+  return { join: api.join, dirname: api.dirname, envSeparator: platform === "win32" ? ";" : ":" };
+}
+
+function dockerExecutableName(platform: NodeJS.Platform): string {
+  return platform === "win32" ? "docker.exe" : "docker";
+}
+
+/** GUI-app-safe install locations, per platform, before any PATH scan. */
+function dockerDirectories(env: NodeJS.ProcessEnv, homeDir: string, platform: NodeJS.Platform): string[] {
+  const { join } = pathToolkit(platform);
+  if (platform === "win32") {
+    const programFiles = env.ProgramFiles ?? "C:\\Program Files";
+    return [join(programFiles, "Docker", "Docker", "resources", "bin"), join(homeDir, ".docker", "bin")];
+  }
+  if (platform === "darwin") {
+    return ["/usr/local/bin", "/opt/homebrew/bin", "/Applications/Docker.app/Contents/Resources/bin", join(homeDir, ".docker", "bin")];
+  }
+  // Linux: apt/dnf put docker in /usr/bin, snap in /snap/bin.
+  return ["/usr/bin", "/usr/local/bin", "/snap/bin", join(homeDir, ".docker", "bin")];
+}
+
+export function dockerCliCandidates(env: NodeJS.ProcessEnv = process.env, homeDir = homedir(), platform: NodeJS.Platform = process.platform): string[] {
   const configured = env.DOCKER_BIN?.trim();
+  const { join, envSeparator } = pathToolkit(platform);
+  const name = dockerExecutableName(platform);
+  const pathDirectories = (env.PATH ?? "").split(envSeparator).filter(Boolean);
   return [
     ...(configured != null && configured.length > 0 ? [configured] : []),
-    "/usr/local/bin/docker",
-    "/opt/homebrew/bin/docker",
-    "/Applications/Docker.app/Contents/Resources/bin/docker",
-    join(homeDir, ".docker", "bin", "docker"),
+    ...dockerDirectories(env, homeDir, platform).map((directory) => join(directory, name)),
+    ...pathDirectories.map((directory) => join(directory, name)),
   ];
 }
 
-export function dockerSearchPath(env: NodeJS.ProcessEnv = process.env, homeDir = homedir()): string {
+export function dockerSearchPath(env: NodeJS.ProcessEnv = process.env, homeDir = homedir(), platform: NodeJS.Platform = process.platform): string {
   const configured = env.DOCKER_BIN?.trim();
+  const { dirname, envSeparator } = pathToolkit(platform);
   const directories = [
     ...(configured != null && configured.length > 0 ? [dirname(configured)] : []),
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-    "/Applications/Docker.app/Contents/Resources/bin",
-    join(homeDir, ".docker", "bin"),
+    ...dockerDirectories(env, homeDir, platform),
     env.PATH ?? "",
   ].filter((directory) => directory.length > 0);
-  return [...new Set(directories)].join(":");
+  return [...new Set(directories)].join(envSeparator);
 }
 
 /**

@@ -175,19 +175,64 @@ export function subscriptionAuthPrompt(status: Pick<SubscriptionCliAuthStatus, "
     : `Claude is not signed in. Run \`${command}\` and complete the official Claude Pro/Max login.`;
 }
 
+/**
+ * Terminal-emulator launch attempts for an interactive CLI login, in
+ * preference order. macOS is handled separately (osascript + Terminal.app).
+ */
+export function terminalLaunchCommands(platform: NodeJS.Platform, file: string, args: readonly string[]): ReadonlyArray<{ readonly file: string; readonly args: readonly string[] }> {
+  if (platform === "win32") {
+    // `start` consumes a quoted first argument as the window title, so an
+    // explicit empty title keeps a quoted executable path from vanishing.
+    return [{ file: "cmd.exe", args: ["/c", "start", "", file, ...args] }];
+  }
+  if (platform === "linux") {
+    return [
+      { file: "x-terminal-emulator", args: ["-e", file, ...args] },
+      { file: "gnome-terminal", args: ["--", file, ...args] },
+      { file: "konsole", args: ["-e", file, ...args] },
+      { file: "xfce4-terminal", args: ["-x", file, ...args] },
+      { file: "xterm", args: ["-e", file, ...args] },
+    ];
+  }
+  return [];
+}
+
+/** True once the process actually spawned; false when the binary is absent. */
+function spawnDetachedSurvives(file: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<boolean> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(file, [...args], { detached: true, stdio: "ignore", env, cwd: homedir() });
+    } catch {
+      resolve(false);
+      return;
+    }
+    child.once("error", () => resolve(false));
+    child.once("spawn", () => { child.unref(); resolve(true); });
+  });
+}
+
+/** Windows npm shims are batch files, and Node refuses to exec those without a shell. */
+function windowsBatchInvocation(file: string): { readonly file: string; readonly shell: boolean } {
+  const viaShell = /\.(cmd|bat)$/i.test(file);
+  return { file: viaShell ? `"${file}"` : file, shell: viaShell };
+}
+
 export function defaultSubscriptionCliRunner(
   file: string,
   args: readonly string[],
   options: SubscriptionCliRunnerOptions,
 ): Promise<SubscriptionCliRunResult> {
   return new Promise((resolve) => {
+    const invocation = windowsBatchInvocation(file);
     // cwd is the home dir so a version-manager shim (nodenv/asdf) resolves the
     // user's global toolchain instead of whatever directory the app started in.
-    execFile(file, [...args], {
+    execFile(invocation.file, [...args], {
       timeout: options.timeoutMs,
       env: options.env,
       cwd: homedir(),
       windowsHide: true,
+      shell: invocation.shell,
       maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
       resolve({
@@ -208,22 +253,29 @@ export async function defaultSubscriptionCliLoginStarter(
   // so it launches silently in the background; `claude /login` is an interactive
   // TUI and still needs a real terminal.
   const openInTerminal = async (): Promise<boolean> => {
-    if (options.platform !== "darwin") return false;
-    const command = [file, ...args].map(shellSingleQuote).join(" ");
-    const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`;
-    const opened = await defaultSubscriptionCliRunner("/usr/bin/osascript", ["-e", script], {
-      timeoutMs: SUBSCRIPTION_CLI_STATUS_TIMEOUT_MS,
-      env: options.env,
-    });
-    return opened.ok;
+    if (options.platform === "darwin") {
+      const command = [file, ...args].map(shellSingleQuote).join(" ");
+      const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`;
+      const opened = await defaultSubscriptionCliRunner("/usr/bin/osascript", ["-e", script], {
+        timeoutMs: SUBSCRIPTION_CLI_STATUS_TIMEOUT_MS,
+        env: options.env,
+      });
+      return opened.ok;
+    }
+    for (const attempt of terminalLaunchCommands(options.platform, file, args)) {
+      if (await spawnDetachedSurvives(attempt.file, attempt.args, options.env)) return true;
+    }
+    return false;
   };
   if (options.mode !== "background" && await openInTerminal()) return { started: true };
   try {
-    const child = spawn(file, [...args], {
+    const invocation = windowsBatchInvocation(file);
+    const child = spawn(invocation.file, [...args], {
       detached: true,
       stdio: "ignore",
       env: options.env,
       cwd: homedir(),
+      shell: invocation.shell,
     });
     // A login that dies within the grace window never opened its browser (bad
     // PATH, version-manager shim on the wrong runtime, missing binary). Its
