@@ -194,6 +194,55 @@ function ROpenGrokReset({mode,onDone}){
     s.note?a.jsx(se,{as:"p",color:"secondary",size:"sm",style:{marginTop:8},children:s.note}):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]})}
 function ROpenGrokRows(list,activeKind){return a.jsx("div",{children:list.map((c,i)=>{const kindName=ROpenGrokKind[c.kind]||(c.kind?String(c.kind):""),ready=c.configured!==!1,mine=c.active===!0||(activeKind!=null&&c.kind===activeKind),detail=[kindName,c.state?String(c.state):null].filter(Boolean).join(" \u00b7 ")||"On your OpenGrok server.",right=mine?"Your computer":ready?"Available to your org":"Set up by your org admin";return a.jsx(ie,{divided:i>0,description:detail,label:String(c.label||c.name||kindName||c.id),variant:"card",children:a.jsx(se,{as:"span",color:mine?"green":"secondary",size:"sm",children:right})},String(c.id))})})}
+const RRemoteModes=[
+  {value:"never",label:"Never"},
+  {value:"ask",label:"Ask every time"},
+  {value:"bypass",label:"Always allow"}];
+function RRemoteControl(){
+  const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:!1});
+  const load=()=>window.desktop.agent.getRemoteControl().then(r=>{if(r==null)return;
+    e(i=>({...i,loaded:!0,available:!!r.available,enrolled:!!r.enrolled,machineId:r.machineId||null,
+      mode:typeof r.mode==="string"?r.mode:"never",allow:r.allow||[],deny:r.deny||[],error:r.error||null}))})
+    .catch(err=>e(i=>({...i,loaded:!0,error:String(err&&err.message||err)})));
+  de.useEffect(()=>{load()},[]);
+  if(!s.loaded)return null;
+  if(!s.available)return null;
+  const turnOn=async()=>{e(i=>({...i,busy:!0,error:null}));
+    try{const name=(await window.desktop.agent.getLocalComputer().catch(()=>null))||{};
+      await window.desktop.agent.enrolRemoteControl(String(name.name||name.hostname||"This computer"));
+      await load();e(i=>({...i,busy:!1}))}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+  const turnOff=async()=>{e(i=>({...i,busy:!0,error:null,confirming:!1}));
+    try{await window.desktop.agent.revokeRemoteControl();await load();e(i=>({...i,busy:!1}))}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+  const setMode=async v=>{const was=s.mode;e(i=>({...i,mode:v,error:null}));
+    try{await window.desktop.agent.setRemoteControlMode(v)}
+    catch(err){e(i=>({...i,mode:was,error:String(err&&err.message||err)}))}};
+  if(!s.enrolled)return a.jsxs("div",{children:[
+    a.jsx(ie,{variant:"card",label:"Let your bots use this computer",
+      description:"Off. A bot on your server cannot reach this Mac at all. Turn this on and it can ask to run commands here — useful for reaching this machine from your phone, and worth understanding before you do it.",
+      children:a.jsx(oe,{disabled:s.busy,onClick:turnOn,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning on…":"Turn on…"})}),
+    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
+  return a.jsxs("div",{children:[
+    a.jsx(ie,{variant:"card",label:"Bots using this computer",
+      description:s.mode==="never"?"On, but nothing may run: every request is refused."
+        :s.mode==="ask"?"You are asked before anything runs here."
+        :"Anything a bot asks for runs here without asking you first.",
+      children:a.jsx(ye,{"aria-label":"Bots using this computer",onValueChange:setMode,options:RRemoteModes,
+        placement:"bottom-end",size:"lg",value:s.mode,variant:"filled"})}),
+    s.deny.length>0||s.allow.length>0?a.jsx(ie,{divided:!0,variant:"card",label:"Standing rules",
+      description:"Commands you have already answered for. Managed from the prompt when it appears.",
+      children:a.jsx(se,{as:"span",color:"secondary",size:"sm",
+        children:String(s.allow.length)+" allowed, "+String(s.deny.length)+" denied"})}):null,
+    a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
+      description:s.confirming?"This computer stops being reachable and its credential is destroyed. You can turn it on again later.":"Stop your bots reaching this computer.",
+      children:s.confirming
+        ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
+            a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,confirming:!1})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
+            a.jsx(oe,{disabled:s.busy,onClick:turnOff,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning off…":"Turn off"})]})
+        :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
+    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
+}
 const RLocalPerm=[{value:"always",label:"Always allow"},{value:"ask",label:"Ask every time"},{value:"never",label:"Never allow"}];
 function RLocalComputer(){
   const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null});
@@ -241,7 +290,7 @@ if(s.computers.length===0)return a.jsx(ie,{description:"A computer is added for 
 return a.jsxs("div",{children:[ROpenGrokRows(s.computers,s.activeKind),a.jsx(ROpenGrokReset,{mode:s.sharingMode,onDone:load})]})}
 
 function RBoxRuntime(){const all=[{value:"remote",label:"Grok VM"},{value:"local-docker",label:"Local VM"},{value:"windows365",label:"Windows 365"},{value:"opengrok",label:"OpenGrok Server"}];const[s,e]=de.useState(()=>RBoxLast??{mode:ROpenGrokSeeded()?"opengrok":null,provider:null,status:null,error:null,busy:!1,windows365:null,account:null});de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,mode:i.busy?i.mode:typeof r.mode==="string"?r.mode:i.mode,status:r.status??null,windows365:r.windows365??null,account:r.account??null,error:null};RBoxLast=next;return next})};const load=()=>window.desktop.agent.getBoxRuntime().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r&&r.message||r)}))});window.desktop.agent.getInferenceRouter().then(r=>{if(!t||r==null)return;e(i=>{const next={...i,provider:typeof r.provider==="string"?r.provider:i.provider};RBoxLast=next;return next})}).catch(()=>{});const onProvider=n=>{const p=n&&n.detail&&n.detail.provider;if(typeof p==="string")e(i=>({...i,provider:p}))};window.addEventListener("sand-router-provider-changed",onProvider);load();const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",onProvider)}},[]);const RBoxOptions=s.provider==="cursor"?all:all.filter(n=>n.value!=="remote"||n.value==="opengrok");const t=async n=>{if(n==null)return;if(n==="remote"&&s.provider!=="cursor")n="local-docker";e(i=>({...i,mode:n,busy:!0,error:null}));try{const r=await window.desktop.agent.setBoxRuntime(n);try{if(self.__sandSetOpenGrokMode)self.__sandSetOpenGrokMode(n==="opengrok")}catch(_){}e(i=>({...i,mode:n,status:r&&r.status||null,windows365:r&&r.windows365||null,account:r&&r.account||null,busy:!1}));window.dispatchEvent(new CustomEvent("sand-box-runtime-changed",{detail:{mode:n}}))}catch(r){e(i=>({...i,mode:n,busy:!1,error:String(r&&r.message||r)}))}};const n=s.mode==="opengrok"?"Your OpenGrok server holds the bots and runs their work.":s.mode==="windows365"?"Enter Windows 365 credentials below, then Save and Connect.":s.mode==="remote"?(s.account&&s.account.detail||"Uses the Cursor account already signed into Grok Bot."):(s.status&&s.status.detail||"A Linux desktop in Docker on this Mac.");if(s.mode==="opengrok")return a.jsx(ROpenGrokComputers,{});return a.jsxs("div",{children:[a.jsx(ie,{description:n,label:"Computer for this account",variant:"card",children:a.jsx(ye,{"aria-label":"Computer for this account",onValueChange:t,options:RBoxOptions,placement:"bottom-end",size:"lg",value:s.mode==null?null:RBoxOptions.some(r=>r.value===s.mode)?s.mode:"local-docker",variant:"filled"})}),s.mode==="windows365"?a.jsxs("div",{style:{marginTop:8},children:[a.jsx(se,{as:"p",size:"sm",children:"Windows 365 credentials"}),a.jsx(RW365Setup,{})]}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:String(s.error)}):null]})}
-function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"This computer",children:a.jsx(RLocalComputer,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
+function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"This computer",children:a.jsx(RLocalComputer,{})}),a.jsx(re,{title:"Remote control",children:a.jsx(RRemoteControl,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
 function RHardwareAcceleration(){
   const[t,n]=de.useState({enabled:!0,restartRequired:!1,changed:!1});
   de.useEffect(()=>{let c=!0;window.desktop.getHardwareAcceleration().then(d=>{if(c&&d)n(h=>({...h,enabled:d.enabled===!0}))}).catch(()=>{});return()=>{c=!1}},[]);
@@ -257,6 +306,96 @@ function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.val
 `;
 
 export const MAIN_CHROME_SOURCE = String.raw`
+const RAgentIssueCopy={
+  no_org_key:"No computer is set up for your organisation, so this bot has none.",
+  invalid_key:"Your organisation\u2019s box.ascii.dev key was rejected, so this bot has no computer.",
+  quota_exceeded:"Your organisation has no capacity left at box.ascii.dev, so this bot has no computer.",
+  provider_unreachable:"The computer provider could not be reached, so this bot has no computer yet.",
+  provider_error:"The computer provider refused, so this bot has no computer.",
+  not_supported:"This server does not offer the computer this bot asked for.",
+  unknown:"This bot has no computer."};
+const RAgentIssues={map:{},at:0};
+function RAgentIssueBar(){
+  try{
+    const row=document.querySelector(".sand-agent-item[data-agent-id][data-active=\"true\"]");
+    const id=row?row.getAttribute("data-agent-id"):null;
+    const existing=document.querySelector("[data-sand-agent-issue]");
+    const issue=id?RAgentIssues.map[id]:null;
+    if(!issue){if(existing)existing.remove();return}
+    if(!document.querySelector("[data-sand-agent-issue-style]")){
+      const st=document.createElement("style");st.setAttribute("data-sand-agent-issue-style","1");
+      st.textContent="[data-sand-agent-issue]{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);z-index:2147483400;max-width:min(520px,92vw);padding:9px 14px;border-radius:10px;font-size:12.5px;line-height:1.5;text-align:center;border:1px solid var(--sand-border-default,rgba(128,128,128,.3));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 10px 28px rgba(0,0,0,.24)}";
+      document.head.appendChild(st);
+    }
+    const said=RAgentIssueCopy[issue.code]||issue.message||RAgentIssueCopy.unknown;
+    const detail=RAgentIssueCopy[issue.code]&&issue.message?" "+issue.message:"";
+    const text=said+detail;
+    let bar=existing;
+    if(!bar){bar=document.createElement("div");bar.setAttribute("data-sand-agent-issue","1");
+      bar.setAttribute("role","status");bar.setAttribute("aria-live","polite");document.body.appendChild(bar)}
+    if(bar.textContent!==text)bar.textContent=text;
+  }catch{}
+}
+function RInstallAgentIssues(){
+  try{
+    if(typeof document==="undefined")return;
+    const load=function(){
+      try{Promise.resolve(window.desktop.agent.getOpenGrokAgentIssues()).then(function(r){
+        const next={};(r&&r.issues||[]).forEach(function(i){next[i.agentId]=i});
+        RAgentIssues.map=next;RAgentIssues.at=Date.now();RAgentIssueBar();
+      }).catch(function(){})}catch(_){}
+    };
+    load();setInterval(load,60000);setInterval(RAgentIssueBar,3000);
+  }catch{}
+}
+const RTurnStop={since:0,agent:null,busy:!1};
+function RTurnStopBar(){
+  const dot=document.querySelector(".sand-kit-status-dot");
+  const row=document.querySelector(".sand-agent-item[data-agent-id][data-active=\"true\"]")||document.querySelector(".sand-agent-item[data-agent-id]");
+  const agent=row?row.getAttribute("data-agent-id"):null;
+  const existing=document.querySelector("[data-sand-turn-stop]");
+  if(dot==null||agent==null){RTurnStop.since=0;RTurnStop.agent=null;if(existing)existing.remove();return}
+  if(RTurnStop.agent!==agent){RTurnStop.agent=agent;RTurnStop.since=Date.now();if(existing)existing.remove();return}
+  if(RTurnStop.since===0)RTurnStop.since=Date.now();
+  const seconds=Math.floor((Date.now()-RTurnStop.since)/1000);
+  if(seconds<45){if(existing)existing.remove();return}
+  if(!document.querySelector("[data-sand-turn-stop-style]")){
+    const st=document.createElement("style");st.setAttribute("data-sand-turn-stop-style","1");
+    st.textContent="[data-sand-turn-stop]{position:fixed;left:50%;bottom:104px;transform:translateX(-50%);z-index:2147483500;display:flex;align-items:center;gap:12px;padding:9px 12px 9px 16px;border-radius:11px;font-size:13px;border:1px solid var(--sand-border-default,rgba(128,128,128,.3));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 12px 34px rgba(0,0,0,.28)}"
+      +"[data-sand-turn-stop] button{font:inherit;font-size:12.5px;padding:5px 11px;border-radius:8px;cursor:pointer;border:1px solid var(--sand-border-default,rgba(128,128,128,.32));background:var(--sand-fill-ghost-hover,rgba(128,128,128,.10));color:inherit}"
+      +"[data-sand-turn-stop] button:disabled{opacity:.5;cursor:default}";
+    document.head.appendChild(st);
+  }
+  const minutes=Math.floor(seconds/60);
+  const label=minutes>=1?("This has been running for "+minutes+" minute"+(minutes===1?"":"s")+"."):"This has been running a while.";
+  let bar=existing;
+  if(!bar){
+    bar=document.createElement("div");bar.setAttribute("data-sand-turn-stop","1");
+    bar.setAttribute("role","status");bar.setAttribute("aria-live","polite");
+    const text=document.createElement("span");text.setAttribute("data-sand-turn-stop-text","1");
+    const button=document.createElement("button");button.type="button";button.textContent="Stop";
+    button.addEventListener("click",function(){
+      if(RTurnStop.busy)return;RTurnStop.busy=!0;button.disabled=!0;button.textContent="Stopping\u2026";
+      const done=function(msg){RTurnStop.busy=!1;RTurnStop.since=0;
+        const t=bar.querySelector("[data-sand-turn-stop-text]");if(t&&msg)t.textContent=msg;
+        setTimeout(function(){try{bar.remove()}catch{}},msg?4000:0)};
+      try{
+        Promise.resolve(window.desktop.agent.stopOpenGrokAgentTurn(RTurnStop.agent))
+          .then(function(){done()})
+          .catch(function(err){done("Could not stop it: "+String(err&&err.message||err).slice(0,90))});
+      }catch(err){done("Could not stop it: "+String(err&&err.message||err).slice(0,90))}
+    });
+    bar.append(text,button);document.body.appendChild(bar);
+  }
+  const t=bar.querySelector("[data-sand-turn-stop-text]");
+  if(t&&!RTurnStop.busy)t.textContent=label;
+}
+function RInstallTurnStop(){
+  try{
+    if(typeof document==="undefined")return;
+    setInterval(RTurnStopBar,3000);RTurnStopBar();
+  }catch{}
+}
 function RSendNotDelivered(){
   try{
     const existing=document.querySelector("[data-sand-send-blocked]");
@@ -289,16 +428,34 @@ function RBoxOpenPlaceholder(view,localMessage){
     try{
       const key=(view.status&&view.status.agentId)||"one";
       const now=Date.now(),started=RBoxWaking.get(key)||0;
-      if(now-started>60000){RBoxWaking.set(key,now);Promise.resolve(view.ensure()).catch(()=>{});waking=!0}
+      if(now-started>60000){RBoxWaking.set(key,now);setTimeout(function(){try{Promise.resolve(view.ensure()).catch(function(){})}catch(_){}} ,0);waking=!0}
       else waking=now-started<40000;
     }catch{}
+  }
+  const running=view!=null&&view.isStatusKnown&&view.status&&view.status.state==="running";
+  const screenExpected=running&&!RBoxHasNoScreen(view)&&view.vncUrl==null;
+  if(screenExpected&&view&&typeof view.retryStatus==="function"){
+    try{
+      const key=((view.status&&view.status.agentId)||"one")+":screen";
+      const now=Date.now(),first=RBoxWaking.get(key)||0;
+      if(first===0)RBoxWaking.set(key,now);
+      else if(now-first<90000&&now-(RBoxWaking.get(key+":at")||0)>2500){
+        RBoxWaking.set(key+":at",now);setTimeout(function(){try{view.retryStatus()}catch(_){}} ,0);
+      }
+    }catch{}
+  }else if(view&&view.status&&view.status.agentId){
+    try{RBoxWaking.delete(view.status.agentId+":screen");RBoxWaking.delete(view.status.agentId+":screen:at")}catch{}
   }
   const stated=RBoxEmptyMessage(view)??(view&&view.phase==="local"?localMessage:void 0);
   const stalled=off&&!waking&&RBoxWaking.size>0;
   const message=waking?"Waking this computer up\u2026"
+    :screenExpected?"Starting the desktop\u2026"
     :stalled?"This computer did not come up. The bot can still be asked to use it, which wakes it too."
     :stated;
-  return{emptyMessage:message,isEmptyLoading:waking};
+  return{emptyMessage:message,isEmptyLoading:waking||screenExpected};
+}
+function RBoxHasNoScreen(view){
+  try{return view!=null&&view.phase==="local"}catch{return!1}
 }
 function RBoxEmptyMessage(view){
   try{
@@ -306,7 +463,10 @@ function RBoxEmptyMessage(view){
     if(!view.isStatusKnown)return void 0;
     const state=view.status&&typeof view.status.state==="string"?view.status.state:null;
     if(state==null)return void 0;
-    if(state==="running")return "This computer has no screen. It runs commands and files for this bot.";
+    if(state==="running"){
+      if(RBoxHasNoScreen(view))return "This computer has no screen. It runs commands and files for this bot.";
+      return void 0;
+    }
     if(state==="stopped")return "This computer is asleep. Send a message and it wakes up.";
     if(state==="absent")return "This bot has no computer yet.";
     return "This computer is "+state+".";
@@ -317,6 +477,8 @@ function RRememberLoginWallSkip(){try{localStorage.setItem("sand-cursor-login-sk
 function ROpenRouterSettings(){const labeled=n=>(n.getAttribute("aria-label")||n.textContent||"").trim();const click=label=>{const el=[...document.querySelectorAll("button,[role=tab],[role=menuitem]")].find(n=>labeled(n)===label);if(el){el.click();return!0}return!1};const fire=()=>{if(click("Router"))return!0;window.dispatchEvent(new KeyboardEvent("keydown",{key:",",code:"Comma",keyCode:188,which:188,metaKey:!0,ctrlKey:!1,bubbles:!0,cancelable:!0}));click("Settings");return click("Router")};let n=0;const id=setInterval(()=>{if(fire()||++n>50)clearInterval(id)},200)}
 async function RSkipLoginWall(){RRememberLoginWallSkip();try{sessionStorage.setItem("sand-open-router-settings","1")}catch{}const agent=window.desktop&&window.desktop.agent;if(agent&&agent.skipCursorLoginWall)try{await agent.skipCursorLoginWall({})}catch{}window.location.reload()}
 function RInstallFirstRunLogins(){if(RLoginWallSkipped()){try{if(sessionStorage.getItem("sand-open-router-settings")==="1"){sessionStorage.removeItem("sand-open-router-settings");ROpenRouterSettings()}}catch{}}const hide=()=>{if(!RLoginWallSkipped())return;document.querySelectorAll(".sand-onboarding").forEach(n=>n.style.setProperty("display","none","important"))};hide();new MutationObserver(hide).observe(document.documentElement,{childList:!0,subtree:!0})}
+RInstallTurnStop();
+RInstallAgentIssues();
 function RInstallScreenSwitcher(){const labels={"local-docker":"Local Docker VM","grok-vm":"Grok VM","windows-365":"Windows 365",box:"box (Linux VM)"};const mount=s=>{if(!s||s.querySelector("[data-computer-screen-switcher]"))return;const e=document.createElement("div");e.className="sand-computer-screen-switcher";e.setAttribute("data-computer-screen-switcher","1");const t=async()=>{try{const n=window.desktop.agent.getProviderComputers?await window.desktop.agent.getProviderComputers():await window.desktop.agent.getInferenceRouter(),r=n.computers??n,i=Array.isArray(r.activated)?r.activated:[],o=r.selectedScreen??i[0]??null;e.replaceChildren();if(i.length<=1){e.style.display="none";if(i[0])s.setAttribute("data-active-computer-screen",i[0]);return}e.style.display="";{const l=document.createElement("div");l.setAttribute("role","tablist");l.setAttribute("aria-label","Computer screen");i.forEach(c=>{const d=document.createElement("button");d.type="button";d.setAttribute("role","tab");d.setAttribute("data-computer-screen",c);d.setAttribute("aria-selected",c===o?"true":"false");d.textContent=labels[c]??c;d.addEventListener("click",()=>{void window.desktop.agent.setComputerScreen(c).then(()=>{window.dispatchEvent(new CustomEvent("sand-computer-screen-changed",{detail:{screen:c}}));void t()})});l.append(d)});e.append(l)}if(o)s.setAttribute("data-active-computer-screen",o)}catch{}};s.prepend(e);void t();window.addEventListener("sand-router-provider-changed",t);window.addEventListener("sand-computer-screen-changed",t)};const scan=()=>{const target=document.querySelector(".sand-computer-preview")??document.querySelector(".sand-info-pane")??document.querySelector("[aria-label='Conversation details']");if(target)mount(target)};scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0})}
 if(typeof document!=="undefined"){const RBootProviderChrome=()=>{RInstallFirstRunLogins();RInstallScreenSwitcher()};if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",RBootProviderChrome);else RBootProviderChrome()}
 `;
@@ -990,13 +1152,13 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'var MODE_K="sand-opengrok-mode";'
   + 'var G=function(d,extra){return \'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\'+(extra||"")+d+"</svg>"};'
   + 'var P=[' 
-  +   '{id:"cursor",label:"Cursor",title:"Grok Bot",tag:"Sign in with the Cursor account this app was built for.",accent:"#8b8b8b",'
+  +   '{id:"cursor",label:"Cursor",title:"Grok Bot",lede:"Your team of always-on agents that you can give real work to.",how:"Signing in opens your browser to Cursor.",tag:"Sign in with the Cursor account this app was built for.",accent:"#8b8b8b",'
   +    'svg:G(\'<path d="M12 3 20 7.5v9L12 21 4 16.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/>\')},'
-  +   '{id:"opengrok",label:"OpenGrok Server",title:"Open Grok",tag:"Your own server holds the bots and runs their work.",accent:"#4ec9a5",'
+  +   '{id:"opengrok",label:"OpenGrok Server",title:"Open Grok",lede:"Your bots live on your own server, and the work runs there.",how:"Signing in opens your browser to your server.",tag:"Your own server holds the bots and runs their work.",accent:"#4ec9a5",'
   +    'svg:G(\'<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a13 13 0 0 1 0 16a13 13 0 0 1 0-16z"/>\')},'
-  +   '{id:"codex",label:"Codex",title:"Codex",tag:"Your ChatGPT subscription, signed in on this Mac.",accent:"#74aa9c",'
+  +   '{id:"codex",label:"Codex",title:"Codex",lede:"Your ChatGPT subscription, running your bots.",how:"Signing in opens a terminal and runs the Codex login on this Mac.",tag:"Your ChatGPT subscription, signed in on this Mac.",accent:"#74aa9c",'
   +    'svg:G(\'<path d="M12 3.2 18.6 7v10L12 20.8 5.4 17V7z"/><path d="M12 12l6.6-3.8M12 12v8.8M12 12 5.4 8.2"/>\')},'
-  +   '{id:"claude-code",label:"Claude",title:"Claude",tag:"Your Claude subscription, signed in on this Mac.",accent:"#d97757",'
+  +   '{id:"claude-code",label:"Claude",title:"Claude",lede:"Your Claude subscription, running your bots.",how:"Signing in opens a terminal and runs the Claude login on this Mac.",tag:"Your Claude subscription, signed in on this Mac.",accent:"#d97757",'
   +    'svg:G(\'<path d="M12 4v16M4.8 7.6l14.4 8.8M19.2 7.6 4.8 16.4"/>\')}'
   + '];'
   + 'var byId=function(id){for(var i=0;i<P.length;i++)if(P[i].id===id)return P[i];return P[0]};'
@@ -1026,6 +1188,11 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + '+".sand-lp-msg{font-size:12.5px;opacity:.72;margin:9px 0 0 47px}"'
   + '+".sand-lp-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}"'
   + '+".sand-lp-mark{display:inline-flex;align-items:center;justify-content:center;animation:sand-lp-mark .42s cubic-bezier(.2,.8,.3,1)}"'
+  + '+".sand-onboarding[data-lp-page]{--lp-a:var(--lp-accent,#8b8b8b)}"'
+  + '+".sand-onboarding[data-lp-page] [data-lp-mark]{filter:drop-shadow(0 0 26px color-mix(in oklch,var(--lp-a) 55%,transparent))}"'
+  + '+".sand-lp-rule{width:44px;height:2px;border-radius:2px;margin:14px auto 12px;background:var(--lp-a);opacity:.9}"'
+  + '+".sand-lp-how{margin:10px 0 0;font-size:12.5px;line-height:1.5;opacity:.62;text-align:center}"'
+  + '+".sand-lp-cli{margin:6px 0 0;font-size:12.5px;font-weight:500;text-align:center;color:var(--lp-a)}"'
   + '+".sand-lp-mark svg{width:1em;height:1em}";'
   + 'var styled=!1,style=function(){if(styled)return;styled=!0;var t=document.createElement("style");t.setAttribute("data-sand-login-provider","1");t.textContent=css;document.head.appendChild(t)};'
   // ---- read current provider ----
@@ -1033,10 +1200,32 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   +   'return Promise.all([a.getInferenceRouter().catch(function(){return null}),a.getBoxRuntime().catch(function(){return null})]).then(function(r){'
   +   'var prov=r[0]&&r[0].provider,box=r[1]&&r[1].mode;return box==="opengrok"?"opengrok":(prov||"cursor")})};'
   // ---- rewrite the page chrome for the chosen provider ----
-  + 'var chrome=function(p){var root=document.querySelector(".sand-onboarding");if(!root)return;'
+  + 'var chrome=function(p,given){var root=given||document.querySelector(".sand-onboarding");if(!root)return;'
   + 'var h=null,heads=root.querySelectorAll("h1,h2,[class*=title]");'
   + 'for(var i=0;i<heads.length;i++){var t=(heads[i].textContent||"").trim();if(/^(Grok Bot|Open Grok|Codex|Claude|Cursor)$/i.test(t)){h=heads[i];break}}'
-  + 'if(!h||h.getAttribute("data-lp-title")===p.id)return;'
+  + 'if(!h)return;var host=h.parentElement;if(!host)return;'
+  + 'root.style.setProperty("--lp-accent",p.accent);root.setAttribute("data-lp-page",p.id);'
+  + 'var lede=root.querySelector("[data-lp-lede]");'
+  + 'if(!lede){var ps=root.querySelectorAll("p,span,div");'
+  + 'for(var q=0;q<ps.length;q++){var n2=ps[q];if(n2.children.length)continue;'
+  + 'if(/always-on agents/i.test(n2.textContent||"")){n2.setAttribute("data-lp-lede","1");lede=n2;break}}}'
+  + 'if(lede)lede.textContent=p.lede;'
+  + 'if(lede&&lede.parentElement&&!root.querySelector("[data-lp-rule]")){'
+  + 'var rule=document.createElement("div");rule.setAttribute("data-lp-rule","1");rule.className="sand-lp-rule";'
+  + 'lede.parentElement.insertBefore(rule,lede);}'
+  + 'var how=root.querySelector("[data-lp-how]");'
+  + 'if(!how&&lede&&lede.parentElement){how=document.createElement("p");how.setAttribute("data-lp-how","1");how.className="sand-lp-how";'
+  + 'lede.parentElement.insertBefore(how,lede.nextSibling);}'
+  + 'if(how)how.textContent=p.how;'
+  + 'var cli=root.querySelector("[data-lp-cli]");'
+  + 'if(!cli&&how&&how.parentElement){cli=document.createElement("p");cli.setAttribute("data-lp-cli","1");cli.className="sand-lp-cli";'
+  + 'how.parentElement.insertBefore(cli,how.nextSibling);}'
+  + 'if(cli){cli.textContent="";'
+  + 'if(p.id==="codex"||p.id==="claude-code"){try{window.desktop.agent.getInferenceRouter().then(function(r){'
+  + 'var c=(r&&r.local&&r.local[p.id])||{};'
+  + 'cli.textContent=c.authenticated?"\\u2713 Already signed in on this Mac":c.installed?"Installed, not signed in yet":"Not installed yet";'
+  + '}).catch(function(){})}catch(_){}}}'
+  + 'if(h.getAttribute("data-lp-title")===p.id)return;'
   + 'h.setAttribute("data-lp-title",p.id);h.textContent=p.title;'
   + 'var host=h.parentElement;if(!host)return;'
   + 'var own=host.querySelector("[data-lp-mark]");'
@@ -1102,6 +1291,20 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   // ---- mount the gear, keep the chrome in step ----
   + 'var BACK=G(\'<path d="M15 5l-7 7 7 7"/>\');'
   + 'var chose=!1;var picked=function(){return chose};'
+  + 'try{self.__sandLoginPreview=function(id){'
+  + 'var host=document.createElement("div");host.className="sand-onboarding";'
+  + 'host.innerHTML="<div><svg width=\\"40\\" height=\\"40\\"></svg><h1>Grok Bot</h1>"'
+  + '+"<p>Your team of always-on agents that you can give real work to.</p>"'
+  + '+"<button type=\\"button\\">Sign in</button></div>";'
+  + 'chrome(byId(id),host);'
+  + 'return{id:id,page:host.getAttribute("data-lp-page"),'
+  + 'accent:host.style.getPropertyValue("--lp-accent"),'
+  + 'title:(host.querySelector("h1")||{}).textContent||null,'
+  + 'lede:(host.querySelector("[data-lp-lede]")||{}).textContent||null,'
+  + 'rule:!!host.querySelector("[data-lp-rule]"),'
+  + 'how:(host.querySelector("[data-lp-how]")||{}).textContent||null,'
+  + 'signIn:Array.from(host.querySelectorAll("button")).some(function(b){return /^Sign in/.test(b.textContent||"")})}'
+  + '}}catch(_){}'
   + 'var markPicked=function(on){chose=!!on};'
   + 'var mount=function(){var root=document.querySelector(".sand-onboarding");if(!root)return;'
   + 'if(getComputedStyle(root).position==="static")root.style.position="relative";'
@@ -1563,7 +1766,7 @@ export function patchOriginalLoginWall(source) {
 }
 
 const VIEW_LOAD_FALLBACK_BEFORE = 'function rPt(n){const e=he.c(3),{retry:t}=n;let s;e[0]===Symbol.for("react.memo_cache_sentinel")?(s=p.jsx("p",{children:"This view failed to load."}),e[0]=s):s=e[0];let r;return e[1]!==t?(r=p.jsxs("div",{role:"alert",children:[s,p.jsx("button",{type:"button",onClick:t,children:"Retry"})]}),e[1]=t,e[2]=r):r=e[2],r}';
-const VIEW_LOAD_FALLBACK_AFTER = 'function rPt(){return p.jsx("div",{role:"status","aria-live":"polite",className:"sand-9f619 sand-10l6tqk sand-k6ci0l sand-191j7n5 sand-1c42kn3 sand-78zum5 sand-6s0dn4 sand-167g77z sand-96k8nx sand-nuq7ks sand-dvlbce sand-f18ygs sand-mkeg23 sand-1y0btm7 sand-hpnuu7 sand-1ct8sxb sand-bovzr6 sand-jyw3bf sand-treaks sand-pmgbkh sand-settings-toast",style:{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",zIndex:2147483646},children:p.jsx("span",{className:"sand-1iyjqo2 sand-euugli",children:"Couldn\'t open that screen."})})}';
+const VIEW_LOAD_FALLBACK_AFTER = 'function rPt(n){const t=n&&n.retry;const[gone,setGone]=he.useState?[!1,function(){}]:[!1,function(){}];p.useEffect(function(){if(typeof t!=="function")return;var once=setTimeout(function(){try{t()}catch(_){}} ,1200);return function(){clearTimeout(once)}},[t]);return p.jsxs("div",{role:"status","aria-live":"polite",className:"sand-9f619 sand-10l6tqk sand-k6ci0l sand-191j7n5 sand-1c42kn3 sand-78zum5 sand-6s0dn4 sand-167g77z sand-96k8nx sand-nuq7ks sand-dvlbce sand-f18ygs sand-mkeg23 sand-1y0btm7 sand-hpnuu7 sand-1ct8sxb sand-bovzr6 sand-jyw3bf sand-treaks sand-pmgbkh sand-settings-toast",style:{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",zIndex:2147483646,display:"flex",alignItems:"center",gap:10},children:[p.jsx("span",{className:"sand-1iyjqo2 sand-euugli",children:"Couldn\'t open that screen."}),typeof t==="function"?p.jsx("button",{type:"button",onClick:t,style:{font:"inherit",fontSize:"12.5px",padding:"4px 10px",borderRadius:8,cursor:"pointer",border:"1px solid rgba(128,128,128,.35)",background:"rgba(128,128,128,.12)",color:"inherit"},children:"Try again"}):null]})}';
 
 export function patchOriginalViewFallback(source) {
   return replaceExactlyOnce(source, VIEW_LOAD_FALLBACK_BEFORE, VIEW_LOAD_FALLBACK_AFTER, "lazy-view error toast");
