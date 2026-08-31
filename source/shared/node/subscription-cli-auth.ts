@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 
 import type { SandInferenceProvider } from "../inference-router.js";
 import { getLocalInferenceCliStatus, resolveClaudeCodeCliPath, resolveCodexCliPath } from "./inference-router-local.js";
@@ -180,9 +181,12 @@ export function defaultSubscriptionCliRunner(
   options: SubscriptionCliRunnerOptions,
 ): Promise<SubscriptionCliRunResult> {
   return new Promise((resolve) => {
+    // cwd is the home dir so a version-manager shim (nodenv/asdf) resolves the
+    // user's global toolchain instead of whatever directory the app started in.
     execFile(file, [...args], {
       timeout: options.timeoutMs,
       env: options.env,
+      cwd: homedir(),
       windowsHide: true,
       maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
@@ -203,26 +207,43 @@ export async function defaultSubscriptionCliLoginStarter(
   // `codex login` runs its own localhost callback server and opens the browser,
   // so it launches silently in the background; `claude /login` is an interactive
   // TUI and still needs a real terminal.
-  if (options.mode !== "background" && options.platform === "darwin") {
+  const openInTerminal = async (): Promise<boolean> => {
+    if (options.platform !== "darwin") return false;
     const command = [file, ...args].map(shellSingleQuote).join(" ");
     const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`;
     const opened = await defaultSubscriptionCliRunner("/usr/bin/osascript", ["-e", script], {
       timeoutMs: SUBSCRIPTION_CLI_STATUS_TIMEOUT_MS,
       env: options.env,
     });
-    if (opened.ok) return { started: true };
-  }
+    return opened.ok;
+  };
+  if (options.mode !== "background" && await openInTerminal()) return { started: true };
   try {
     const child = spawn(file, [...args], {
       detached: true,
       stdio: "ignore",
       env: options.env,
+      cwd: homedir(),
     });
-    child.unref();
-    return { started: true };
+    // A login that dies within the grace window never opened its browser (bad
+    // PATH, version-manager shim on the wrong runtime, missing binary). Its
+    // stdio is discarded, so the only honest recovery is a visible terminal
+    // where the user's own shell runs the same command.
+    const diedEarly = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => { settle(false); }, 1_500);
+      const settle = (value: boolean) => { clearTimeout(timer); child.off("exit", onExit); child.off("error", onExit); resolve(value); };
+      const onExit = () => { settle(true); };
+      child.once("exit", onExit);
+      child.once("error", onExit);
+    });
+    if (!diedEarly) {
+      child.unref();
+      return { started: true };
+    }
   } catch {
-    return { started: false };
+    // fall through to the terminal below
   }
+  return { started: await openInTerminal() };
 }
 
 export function createSubscriptionCliAuthPort(deps: {
@@ -337,15 +358,11 @@ export async function logoutPreviousInferenceProvider(input: {
   if (input.previous === input.next) {
     return { previous: input.previous, next: input.next, loggedOut: "none", sessionCleared: false };
   }
-  if (isSubscriptionInferenceProvider(input.previous)) {
-    const result = await input.auth.logout(input.previous);
-    return {
-      previous: input.previous,
-      next: input.next,
-      loggedOut: input.previous,
-      sessionCleared: result.loggedOut,
-    };
-  }
+  // A Claude/Codex CLI login belongs to the user's machine, not to this app:
+  // running `claude /logout` / `codex logout` on a router switch destroys the
+  // user's own CLI session (deletes ~/.codex/auth.json), and the way back is a
+  // full browser login. Each provider keeps its own login; only the app-owned
+  // Cursor session is cleared, and only when a policy hands us the logout.
   if (input.previous === "cursor" && input.logoutCursor != null) {
     await input.logoutCursor();
     return { previous: input.previous, next: input.next, loggedOut: "cursor", sessionCleared: true };

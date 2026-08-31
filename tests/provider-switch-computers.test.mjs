@@ -70,7 +70,7 @@ function signedInAuth(overrides = {}) {
   };
 }
 
-test("switching provider logs out the previous official session and does not leave it selected", async () => {
+test("switching provider keeps every CLI login: each provider owns its own session", async () => {
   const loaded = await loadModule("source/shared/node/provider-switch.ts", "provider-switch.mjs");
   try {
     const { applyInferenceProviderSwitch } = loaded.module;
@@ -102,8 +102,10 @@ test("switching provider logs out the previous official session and does not lea
     });
     assert.equal(next.ok, true);
     assert.equal(next.provider, "codex");
-    assert.equal(next.previousLoggedOut, "claude-code");
-    assert.deepEqual(logouts, ["claude-code"]);
+    // The user's own `claude` CLI session must survive the router leaving it:
+    // `claude /logout` here would destroy a login the app does not own.
+    assert.equal(next.previousLoggedOut, "none");
+    assert.deepEqual(logouts, []);
     assert.equal(persisted, "codex");
   } finally {
     await loaded.dispose();
