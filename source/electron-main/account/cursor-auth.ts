@@ -22,11 +22,46 @@ export const DEFAULT_CURSOR_WEBSITE_URL = "https://cursor.com";
 export const DEFAULT_LOCAL_CURSOR_WEBSITE_URL = "https://localhost:4443";
 export const MAX_LOGIN_POLL_ATTEMPTS = 150;
 export { SignInPolicyViolationError, SIGN_IN_POLICY_VIOLATION_ERROR, SIGN_IN_POLICY_VIOLATION_MESSAGE } from "../../packages/cursor-config/auth/mdm-sign-in-policy.js";
+/**
+ * Did the backend reject the credential, or merely fail to answer?
+ *
+ * A rejection is stated: 400/401/403, or a body carrying shouldLogout. The
+ * body is read either way, so the backend's own words ("unknown refresh
+ * token") can be reported instead of a bare status code.
+ */
+async function readRefreshRefusal(response: Response): Promise<{ rejectsCredential: boolean; detail?: string }> {
+  let detail: string | undefined;
+  let saidLogout = false;
+  try {
+    const body = (await response.clone().json()) as unknown;
+    if (typeof body === "object" && body != null) {
+      const record = body as Record<string, unknown>;
+      if (typeof record.error === "string" && record.error.length > 0) detail = record.error.slice(0, 200);
+      saidLogout = record.shouldLogout === true;
+    }
+  } catch { /* a body we cannot read tells us nothing either way */ }
+  const statusRejects = response.status === 400 || response.status === 401 || response.status === 403;
+  return { rejectsCredential: statusRejects || saidLogout, ...(detail == null ? {} : { detail }) };
+}
+
 export class SandAuthOperationSupersededError extends Error { constructor() { super("Authentication operation was superseded."); } }
 export class SandAuthSignInRequiredError extends Error { constructor() { super("Sign in to Cursor to run Grok Bot."); } }
 export class SandAuthSignInExpiredError extends Error { constructor() { super("Cursor sign-in expired. Sign in again to run Grok Bot."); } }
 export class SandAuthLoginTimedOutError extends Error { constructor() { super("Cursor sign-in did not finish. Try again."); } }
 export class SandDevLoginError extends Error {}
+/**
+ * The backend could not answer a refresh, but did not reject the credential.
+ * Distinct from SandAuthSignInExpiredError because the session is still good:
+ * a server restarting, overloaded or rate-limiting is a reason to try again
+ * later, never a reason to sign somebody out.
+ */
+export class SandAuthRefreshUnavailableError extends Error {
+  constructor(readonly httpStatus: number, detail?: string) {
+    super(detail == null || detail.length === 0
+      ? `The account server could not refresh the sign-in (HTTP ${httpStatus}).`
+      : `The account server could not refresh the sign-in: ${detail}`);
+  }
+}
 
 export type SandAuthStatus =
   | { readonly kind: "logging-in" }
@@ -393,14 +428,45 @@ export class SandCursorAuthService {
   private noteRefreshFailure(operationEpoch: number, failure: SessionRefreshFailure): void { if (!this.isCurrentAuthOperation(operationEpoch)) return; if (this.refreshFailureStreak?.operationEpoch !== operationEpoch) { this.refreshFailureStreak = { operationEpoch, count: 1, startedAtMs: (this.options.now ?? Date.now)() }; reportSessionEvent({ phase: "refresh_failed", failure }); } else this.refreshFailureStreak.count += 1; }
   private noteRefreshSettled(operationEpoch: number, rescued: boolean): void { if (!this.isCurrentAuthOperation(operationEpoch)) return; const streak = this.refreshFailureStreak; if (streak?.operationEpoch === operationEpoch) { this.refreshFailureStreak = undefined; reportSessionEvent({ phase: "refresh_recovered", consecutiveFailures: streak.count, degradedMs: (this.options.now ?? Date.now)() - streak.startedAtMs }); } if (rescued) reportSessionEvent({ phase: "rotation_rescued" }); }
   private async refreshAccessToken(args: { backendUrl: string; operationEpoch: number; refreshToken: string }): Promise<string> { const active = this.refreshPromises.get(args.refreshToken); if (active != null) return await active; const promise = this.runRefreshAccessToken(args); this.refreshPromises.set(args.refreshToken, promise); try { return await promise; } finally { if (this.refreshPromises.get(args.refreshToken) === promise) this.refreshPromises.delete(args.refreshToken); } }
+  /**
+   * The access token another refresh already won, if this one lost the race.
+   *
+   * Refresh tokens rotate single-use, so a concurrent refresh leaves this one
+   * presenting a token the backend has already replaced. It answers "unknown
+   * refresh token" - identical to a dead session - so the only way to tell them
+   * apart is that our own store has moved on.
+   */
+  private async accessTokenIfSuperseded(presentedRefreshToken: string, operationEpoch: number): Promise<string | null> {
+    const storedRefresh = await this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY);
+    this.assertCurrentAuthOperation(operationEpoch);
+    if (storedRefresh == null || storedRefresh === presentedRefreshToken) return null;
+    const storedAccess = await this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY);
+    this.assertCurrentAuthOperation(operationEpoch);
+    return storedAccess != null && storedAccess.length > 0 ? storedAccess : null;
+  }
+
   private async runRefreshAccessToken(args: { backendUrl: string; operationEpoch: number; refreshToken: string }): Promise<string> {
     const policyHeaders = await (this.options.policyHeaders?.() ?? Promise.resolve({})); this.assertCurrentAuthOperation(args.operationEpoch); let response: Response;
     try { response = await (this.options.fetchOAuthToken ?? fetch)(new URL("/oauth/token", args.backendUrl), { method: "POST", body: JSON.stringify({ client_id: getAuthClientId(args.backendUrl), grant_type: "refresh_token", refresh_token: args.refreshToken }), headers: { "content-type": "application/json", ...policyHeaders } }); } catch (error) { this.noteRefreshFailure(args.operationEpoch, { kind: "network", errno: findSystemErrno(error) ?? "E_OTHER" }); throw error; }
-    this.assertCurrentAuthOperation(args.operationEpoch); if (!response.ok) { this.noteRefreshFailure(args.operationEpoch, { kind: "http_status", httpStatus: response.status }); this.advanceAuthOperationEpoch(); this.credentialState = "revoked"; this.reportedLoggedOutStatus = SIGN_IN_CONFIRMATION_FAILED_STATUS; this.profileCache.clear(); this.emitStatus(SIGN_IN_CONFIRMATION_FAILED_STATUS); throw new SandAuthSignInExpiredError(); }
+    this.assertCurrentAuthOperation(args.operationEpoch);
+    if (!response.ok) {
+      this.noteRefreshFailure(args.operationEpoch, { kind: "http_status", httpStatus: response.status });
+      const refusal = await readRefreshRefusal(response);
+      if (!refusal.rejectsCredential) {
+        this.assertCurrentAuthOperation(args.operationEpoch);
+        throw new SandAuthRefreshUnavailableError(response.status, refusal.detail);
+      }
+      const superseded = await this.accessTokenIfSuperseded(args.refreshToken, args.operationEpoch);
+      if (superseded != null) { this.noteRefreshSettled(args.operationEpoch, true); return superseded; }
+      this.assertCurrentAuthOperation(args.operationEpoch);
+      this.advanceAuthOperationEpoch(); this.credentialState = "revoked";
+      this.reportedLoggedOutStatus = SIGN_IN_CONFIRMATION_FAILED_STATUS; this.profileCache.clear();
+      this.emitStatus(SIGN_IN_CONFIRMATION_FAILED_STATUS); throw new SandAuthSignInExpiredError();
+    }
     let raw: unknown; try { raw = await response.json(); } catch (error) { this.noteRefreshFailure(args.operationEpoch, { kind: "bad_payload" }); throw error; }
     const parsed = parseOAuthTokenBody(raw); this.assertCurrentAuthOperation(args.operationEpoch);
     if (parsed?.shouldLogout === true && parsed.error === SIGN_IN_POLICY_VIOLATION_ERROR) { await this.revokeCredentials({ emitStatus: true, cause: "policy", loggedOutStatus: SIGN_IN_POLICY_VIOLATION_STATUS }); throw new SignInPolicyViolationError(); }
-    if (parsed == null || parsed.shouldLogout === true) { const storedRefresh = await this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY); this.assertCurrentAuthOperation(args.operationEpoch); if (storedRefresh != null && storedRefresh !== args.refreshToken) { const storedAccess = await this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY); this.assertCurrentAuthOperation(args.operationEpoch); if (storedAccess != null && storedAccess.length > 0) { this.noteRefreshSettled(args.operationEpoch, true); return storedAccess; } } await this.revokeCredentials({ emitStatus: true, cause: parsed == null ? "unparseable" : "session_revoked", ...(parsed == null ? {} : { loggedOutStatus: SIGN_IN_EXPIRED_STATUS }) }); throw new SandAuthSignInExpiredError(); }
+    if (parsed == null || parsed.shouldLogout === true) { const superseded = await this.accessTokenIfSuperseded(args.refreshToken, args.operationEpoch); if (superseded != null) { this.noteRefreshSettled(args.operationEpoch, true); return superseded; } await this.revokeCredentials({ emitStatus: true, cause: parsed == null ? "unparseable" : "session_revoked", ...(parsed == null ? {} : { loggedOutStatus: SIGN_IN_EXPIRED_STATUS }) }); throw new SandAuthSignInExpiredError(); }
     const accessToken = parsed.access_token; if (accessToken == null || accessToken.length === 0) { this.noteRefreshFailure(args.operationEpoch, { kind: "bad_payload" }); throw new SandAuthSignInExpiredError(); }
     const previous = await this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY); this.assertCurrentAuthOperation(args.operationEpoch); if (!await this.storeAuthentication({ accessToken, refreshToken: parsed.refresh_token ?? args.refreshToken }, args.operationEpoch)) throw new SandAuthOperationSupersededError(); this.assertCurrentAuthOperation(args.operationEpoch); this.noteRefreshSettled(args.operationEpoch, false);
     if (previous == null || parseJwtPayload(previous)?.sub !== parseJwtPayload(accessToken)?.sub) this.emitStatus(this.withProfile(createLoggedInStatus(accessToken))); return accessToken;

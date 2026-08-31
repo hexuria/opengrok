@@ -322,3 +322,104 @@ test("a signed-out message names the backend the person actually used", async ()
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+// Signing somebody out is the most destructive thing this service does, and it
+// used to happen for ANY non-2xx: a server answering 502 for one second while
+// it restarted ended the session and made the person sign in again. A server
+// that was fully down never did that, so a restarting backend was treated more
+// harshly than an absent one.
+async function loadAuth(temporaryRoot) {
+  const outfile = path.join(temporaryRoot, "auth.mjs");
+  await build({
+    entryPoints: [path.join(repoRoot, "source/electron-main/account/cursor-auth.ts")],
+    outfile, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
+  });
+  return await import(pathToFileURL(outfile).href);
+}
+
+function fakeSecrets(initial) {
+  const store = new Map(Object.entries(initial));
+  return {
+    store,
+    readSecret: async (k) => store.get(k) ?? null,
+    writeSecret: async (k, v) => { store.set(k, v); },
+    deleteSecret: async (k) => { store.delete(k); },
+  };
+}
+
+test("a backend that cannot answer does not end the session", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-refresh-"));
+  try {
+    const mod = await loadAuth(temporary);
+    const reply = (status, body) => new Response(body == null ? "" : JSON.stringify(body), {
+      status, headers: { "content-type": "application/json" },
+    });
+
+    for (const [status, body] of [[503, { error: "database unavailable" }], [500, null], [502, null], [429, null]]) {
+      const secrets = fakeSecrets({ "cursor-access-token": "access", "cursor-refresh-token": "refresh" });
+      const service = new mod.SandCursorAuthService({ secrets, fetchOAuthToken: async () => reply(status, body) });
+      await assert.rejects(
+        () => service.getValidAccessToken({ backendUrl: "http://server.test:1447" }),
+        (error) => error instanceof mod.SandAuthRefreshUnavailableError,
+        `HTTP ${status} must not be treated as a rejected credential`,
+      );
+      // The credentials survive: the next attempt can succeed without a sign-in.
+      assert.equal(secrets.store.get("cursor-refresh-token"), "refresh", `HTTP ${status} must keep the refresh token`);
+      assert.equal(secrets.store.get("cursor-access-token"), "access", `HTTP ${status} must keep the access token`);
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+// The backend states a rejection: 401 with shouldLogout. That, and only that,
+// ends a session.
+test("a rejected credential does end the session", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-refresh-reject-"));
+  try {
+    const mod = await loadAuth(temporary);
+    const secrets = fakeSecrets({ "cursor-access-token": "access", "cursor-refresh-token": "refresh" });
+    const service = new mod.SandCursorAuthService({
+      secrets,
+      fetchOAuthToken: async () => new Response(JSON.stringify({ error: "unknown refresh token", shouldLogout: true }), {
+        status: 401, headers: { "content-type": "application/json" },
+      }),
+    });
+    await assert.rejects(
+      () => service.getValidAccessToken({ backendUrl: "http://server.test:1447" }),
+      (error) => error instanceof mod.SandAuthSignInExpiredError,
+      "a stated rejection must end the session",
+    );
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+// Refresh tokens rotate single-use, so two refreshes racing leave the loser
+// presenting a token the backend has already replaced. It answers exactly as it
+// would for a dead session, so the only way to tell them apart is that our own
+// store has moved on — and signing the person out there would be wrong.
+test("losing a rotation race is not a reason to sign anybody out", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-refresh-race-"));
+  try {
+    const mod = await loadAuth(temporary);
+    const secrets = fakeSecrets({ "cursor-access-token": "stale-access", "cursor-refresh-token": "token-we-present" });
+    const service = new mod.SandCursorAuthService({
+      secrets,
+      // The other refresh wins while ours is in flight: it stores its new pair,
+      // and the backend then rejects the token we presented as unknown.
+      fetchOAuthToken: async () => {
+        secrets.store.set("cursor-refresh-token", "token-the-winner-stored");
+        secrets.store.set("cursor-access-token", "access-the-winner-stored");
+        return new Response(JSON.stringify({ error: "unknown refresh token", shouldLogout: true }), {
+          status: 401, headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const token = await service.getValidAccessToken({ backendUrl: "http://server.test:1447" });
+    assert.equal(token, "access-the-winner-stored", "the winner's token must be used instead of signing out");
+    assert.equal(secrets.store.get("cursor-refresh-token"), "token-the-winner-stored", "the session must survive intact");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
