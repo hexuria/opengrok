@@ -84,6 +84,7 @@ export const MAIN_METHOD_TABLE = {
   signOutOfOpenGrokServer: { args: "none" },
   listOpenGrokComputers: { args: "none" },
   resetOpenGrokComputer: { args: "none" },
+  stopOpenGrokAgentTurn: { args: "object" },
   getWindows365Settings: { args: "none" },
   setWindows365Settings: { args: "object" },
   getWindows365Session: { args: "none" },

@@ -599,3 +599,26 @@ test("opening a stopped computer wakes it, once, and only from the opened view",
   RBoxOpenPlaceholder({ isStatusKnown: false, isStatusUnavailable: false, status: null, ensure: () => { blind += 1; } }, "local copy");
   assert.equal(blind, 0, "a status we do not have is not a reason to wake anything");
 });
+
+// The renderer source is evaluated whole by other tests to read one function
+// out of it. A bare setInterval at its top level therefore ran in the test
+// process and kept it alive for ever — the suite hung rather than failed,
+// which is the worse of the two.
+test("evaluating the renderer source starts nothing outside a browser", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+
+  const realSetInterval = globalThis.setInterval;
+  const started = [];
+  globalThis.setInterval = (...args) => { started.push(args[1]); return realSetInterval(() => {}, 1 << 30); };
+  try {
+    new Function(chrome)();
+    assert.deepEqual(started, [], "nothing may schedule a timer when there is no document");
+  } finally {
+    globalThis.setInterval = realSetInterval;
+  }
+
+  // The installer must still do its job where there IS a document.
+  assert.match(chrome, /function RInstallTurnStop\(\)/);
+  assert.match(chrome, /if\(typeof document==="undefined"\)return/);
+});

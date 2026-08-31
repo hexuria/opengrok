@@ -453,6 +453,17 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     },
     getBoxRuntime: async () => { const mode = invoke(deps.settingsStore, "getBoxRuntime"); invariant(isSandBoxRuntime(mode), "Unknown box runtime."); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
     setBoxRuntime: async (raw) => { const requested = req(raw).mode; invariant(isSandBoxRuntime(requested), "Unknown box runtime."); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const mode = coerceBoxRuntimeForProvider(requested, isSandInferenceProvider(provider) ? provider : "cursor"); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); const previous = invoke(deps.settingsStore, "getBoxRuntime"); invoke(deps.settingsStore, "setBoxRuntime", mode); /* Crossing between backends changes who the account belongs to, so the old session cannot survive it: signing in to an OpenGrok server must sign you out of Cursor, and leaving must sign you out of the server. One account, never two. */ if ((previous === "opengrok") !== (mode === "opengrok")) { try { await Promise.resolve(invoke(deps.cursorAccount, "logout")); } catch { /* already signed out */ } } try { if (mode === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(settingsPath); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", previous); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
+    stopOpenGrokAgentTurn: async (raw) => {
+      const agentId = req(raw).agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "stopOpenGrokAgentTurn requires an agent id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
+      const secrets = await import("./secrets/secret-store.js");
+      const { callOpenGrokGateway } = await import("./box/opengrok-gateway-call.js");
+      const reply = await callOpenGrokGateway(secrets, gatewayUrl, "stopAgentTurn", { agentId });
+      const record = typeof reply === "object" && reply != null ? (reply as Record<string, unknown>) : {};
+      return { agentId, isRunning: record.isRunning === true };
+    },
     resetOpenGrokComputer: async () => {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
       invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
