@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { GATEWAY_NETWORK_TOKEN_HEADER } from "../../shared/gateway-wire.js";
 import { SAND_LOCAL_EXEC_SUPERVISED_WINDOW_MS } from "../../shared/local-exec-daemon.js";
-import { SAND_LOCAL_TOOLS_DISABLED_MESSAGE, SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE, localToolApprovalCovers } from "../../shared/local-tool-permission-machinery.js";
+import { SAND_LOCAL_TOOLS_DISABLED_MESSAGE, SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE, localToolApprovalCovers, type SandLocalToolRequest } from "../../shared/local-tool-permission-machinery.js";
 import { getSandBackendClientHeaders } from "../../shared/node/sand-client-metadata.js";
 import { SandSettingsStore } from "../../shared/node/settings/sand-settings-store.js";
 import { getSandVariant } from "../../shared/node/sand-variant.js";
@@ -15,6 +15,10 @@ import {
 } from "./local-exec-daemon-protocol.js";
 import { SandLocalExecProvider, type LocalExecExecutor, type SandLocalExecProviderOptions } from "./local-exec-provider.js";
 import { getLocalToolApprovalsPath, getLocalToolRetirementsPath, readLiveLocalToolApprovals, retireLocalToolApproval } from "./local-tool-approvals.js";
+import {
+  LOCAL_TOOL_ASK_TIMEOUT_MS, getLocalToolPendingAsksPath, pendingAskOutcome, readLocalToolPendingAsks,
+  recordLocalToolPendingAsk, withdrawLocalToolPendingAsk
+} from "./local-tool-pending-asks.js";
 
 export class SandLocalExecConnectionError extends Error {}
 export const NO_LOCAL_EXEC_CONNECTION_MESSAGE = "local-exec daemon has no gateway connection yet (waiting for the desktop to hand one off)";
@@ -32,11 +36,62 @@ export async function resolveLocalExecConnectionFromBackend(args: { readonly bac
   return { baseUrl, ...(token === undefined ? {} : { token }), ...(networkToken.length === 0 ? {} : { headers: { [GATEWAY_NETWORK_TOKEN_HEADER]: networkToken } }) };
 }
 
+export const LOCAL_TOOL_ASK_POLL_MS = 400;
+
+/**
+ * Put the question in front of the desktop and wait for the answer.
+ *
+ * Resolves to undefined when the request may proceed, or to the refusal to
+ * send back. The approvals file stays the only thing that grants: an answer of
+ * "allow" is recorded there by the desktop, and this only notices that it has
+ * appeared. So a decision that never became an approval grants nothing, and
+ * the gate has one source of truth rather than two that can disagree.
+ *
+ * The question is always withdrawn afterwards, including on the timeout, so a
+ * request nobody was there to answer cannot resurface hours later in front of
+ * someone who has no idea what it belongs to.
+ */
+async function askForLocalToolApproval(args: {
+  readonly approvalId: string;
+  readonly describes: SandLocalToolRequest;
+  readonly covered: () => Promise<boolean>;
+  readonly pendingAsksPath: string;
+  readonly now: () => number;
+  readonly delay: number;
+  readonly origin?: string;
+  readonly timeoutMs?: number;
+}): Promise<string | undefined> {
+  const askedAtMs = args.now();
+  const timeoutMs = args.timeoutMs ?? LOCAL_TOOL_ASK_TIMEOUT_MS;
+  try {
+    await recordLocalToolPendingAsk({
+      id: args.approvalId,
+      action: args.describes.action,
+      target: args.describes.target,
+      askedAtMs,
+      ...(args.describes.attachToResourcePath === undefined ? {} : { resourcePath: args.describes.attachToResourcePath }),
+      ...(args.origin === undefined ? {} : { origin: args.origin }),
+    }, args.pendingAsksPath);
+  } catch { return SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE; }
+  try {
+    for (;;) {
+      const ask = (await readLocalToolPendingAsks(args.pendingAsksPath)).find((entry) => entry.id === args.approvalId);
+      const outcome = pendingAskOutcome({ ask, isApproved: await args.covered(), nowMs: args.now(), timeoutMs });
+      if (outcome === "approved") return undefined;
+      if (outcome !== "waiting") return SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE;
+      await new Promise<void>((resolve) => setTimeout(resolve, args.delay));
+    }
+  } finally {
+    await withdrawLocalToolPendingAsk(args.approvalId, args.pendingAsksPath).catch(() => undefined);
+  }
+}
+
 interface LocalToolPermissionStore { getLocalToolPermission(): "always" | "ask" | "never"; }
 interface ProviderLifecycle { start(): void; close(): void; }
 export interface RunLocalExecDaemonOptions {
   readonly connectionPath?: string; readonly credentialPath?: string; readonly supervisorHeartbeatPath?: string; readonly discoveryPath?: string;
   readonly approvalsPath?: string; readonly retirementsPath?: string; readonly publishDiscovery?: boolean;
+  readonly pendingAsksPath?: string; readonly askPollMs?: number;
   readonly settingsStore?: LocalToolPermissionStore; readonly executor?: LocalExecExecutor;
   readonly providerFactory?: (options: SandLocalExecProviderOptions) => ProviderLifecycle;
   readonly resolveConnectionFromBackend?: typeof resolveLocalExecConnectionFromBackend;
@@ -80,14 +135,37 @@ export async function runLocalExecDaemon(options: RunLocalExecDaemonOptions = {}
   const discoveryPath = options.discoveryPath ?? getLocalExecDaemonDiscoveryPath(); const publishDiscovery = options.publishDiscovery !== false; const backendResolver = options.resolveConnectionFromBackend ?? resolveLocalExecConnectionFromBackend;
   const now = options.now ?? Date.now; const pid = options.pid ?? process.pid; const startedAt = now(); const entryRealpath = options.entryRealpath; const generationToken = options.generationToken; if (publishDiscovery && (entryRealpath == null || generationToken == null)) throw new SandLocalExecConnectionError("local-exec daemon discovery requires canonical entry identity and generation token"); const ownedDiscovery = entryRealpath == null || generationToken == null ? null : { pid, startedAt, entryRealpath, generationToken }; let lastInflightCount = 0; let publishing = false; let publishPending = false;
   const publishDaemonDiscovery = async (): Promise<void> => { publishPending = true; if (publishing) return; publishing = true; try { while (publishPending) { publishPending = false; await writeLocalExecDaemonDiscovery({ pid, startedAt, entryRealpath: entryRealpath!, generationToken: generationToken!, inflightCount: lastInflightCount }, discoveryPath).catch((error) => console.error(`[local-exec-daemon] discovery publish failed (previous record stands): ${errorLogTag(error)}`)); } } finally { publishing = false; } };
-  const settingsStore = options.settingsStore ?? new SandSettingsStore(join(getSandRootDir(), "settings.json")); const approvalsPath = options.approvalsPath ?? getLocalToolApprovalsPath(); const retirementsPath = options.retirementsPath ?? getLocalToolRetirementsPath();
+  const settingsStore = options.settingsStore ?? new SandSettingsStore(join(getSandRootDir(), "settings.json")); const approvalsPath = options.approvalsPath ?? getLocalToolApprovalsPath(); const retirementsPath = options.retirementsPath ?? getLocalToolRetirementsPath(); const pendingAsksPath = options.pendingAsksPath ?? getLocalToolPendingAsksPath(); const waitTick = options.askPollMs ?? LOCAL_TOOL_ASK_POLL_MS;
   const executor = options.executor;
   if (executor === undefined) throw new SandLocalExecConnectionError("local-exec executor runtime is not configured");
   const providerOptions: SandLocalExecProviderOptions = {
     executor,
     resolveConnection: async () => { const connection = await readLocalExecDaemonConnection(connectionPath); if (connection == null) throw new SandLocalExecConnectionError(NO_LOCAL_EXEC_CONNECTION_MESSAGE); return connection; },
     onConnectionStale: async () => { const handoff = await readLocalExecDaemonCredential(credentialPath); if (handoff == null) return; const current = await readLocalExecDaemonConnection(connectionPath); if (!localExecHandoffServesConnection(handoff, current)) return; const fresh = await backendResolver({ backendUrl: handoff.backendUrl, credential: handoff.credential }); if (fresh != null) await writeLocalExecDaemonConnection(fresh, connectionPath); },
-    isLocalUseBlocked: async ({ approvalId, describes, terminalsFolder }) => { const permission = settingsStore.getLocalToolPermission(); if (permission === "never") return SAND_LOCAL_TOOLS_DISABLED_MESSAGE; if (permission === "always") return undefined; if (approvalId == null || approvalId.length === 0 || describes == null) return SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE; const approval = (await readLiveLocalToolApprovals(approvalsPath, retirementsPath)).get(approvalId); if (approval == null) return SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE; return localToolApprovalCovers({ ...approval, ...(approval.action === "run-command" ? { resourcePath: terminalsFolder } : {}) }, describes) ? undefined : SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE; },
+    isLocalUseBlocked: async ({ approvalId, describes, terminalsFolder }) => {
+      const permission = settingsStore.getLocalToolPermission();
+      if (permission === "never") return SAND_LOCAL_TOOLS_DISABLED_MESSAGE;
+      if (permission === "always") return undefined;
+      if (approvalId == null || approvalId.length === 0 || describes == null) return SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE;
+      const covered = async (): Promise<boolean> => {
+        const approval = (await readLiveLocalToolApprovals(approvalsPath, retirementsPath)).get(approvalId);
+        if (approval == null) return false;
+        return localToolApprovalCovers({ ...approval, ...(approval.action === "run-command" ? { resourcePath: terminalsFolder } : {}) }, describes);
+      };
+      if (await covered()) return undefined;
+      // Nothing approved this yet. A request the person started themselves is
+      // approved before it is sent, so arriving here means it came from
+      // somewhere else - a bot on their server reaching this machine. "Ask
+      // every time" should mean they are asked, not that the request is
+      // refused for never having been asked about, so put the question where
+      // the desktop can see it and hold the frame while it is answered.
+      const origin = (await readLocalExecDaemonConnection(connectionPath))?.baseUrl;
+      return await askForLocalToolApproval({
+        approvalId, describes, covered,
+        pendingAsksPath, now, delay: waitTick,
+        ...(origin === undefined ? {} : { origin }),
+      });
+    },
     onApprovalRetired: async (approvalId) => { await retireLocalToolApproval(approvalId, approvalsPath, retirementsPath).catch((error) => console.error(`[local-exec-daemon] failed to retire approval ${approvalId}: ${errorLogTag(error)}`)); },
     ...(publishDiscovery ? { onInflightChange: (count: number) => { lastInflightCount = count; void publishDaemonDiscovery(); } } : {}),
     isSupervised: async () => { const heartbeat = await readLocalExecSupervisorHeartbeat(heartbeatPath); return now() - heartbeat.at <= SAND_LOCAL_EXEC_SUPERVISED_WINDOW_MS; },
