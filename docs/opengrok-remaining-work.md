@@ -88,9 +88,36 @@ Nothing has verified them together.
 
 ---
 
-## Task 2 — A real login page per provider
+## Task 2 — A real login page per provider — BUILT 31 Aug 2026, one check outstanding
 
 **Owner: ours. Highest regression risk on this list.**
+
+**Built and committed** (`9844254`, 242 tests). Each provider carries its own
+accent, its own opening line, and a sentence naming what pressing Sign in does —
+a terminal for Codex and Claude, a browser for Cursor and OpenGrok — plus what
+their CLI is already doing. Upstream's sign-in button is untouched: it is what
+starts each flow, and replacing the page to restyle it would have risked the one
+screen a person cannot get past.
+
+**What could not be verified live, and why.** The login page exists only when
+signed out, so driving all four pages needs a signed-out app:
+
+- Signing out needs the user to sign back in, which no session may do.
+- Switching provider to reach a page is worse: `setBoxRuntime` signs the person
+  out when crossing the OpenGrok boundary, so picking Codex or Claude to look at
+  their page would destroy the session it was meant to preserve.
+- Presenting the helper with a synthetic page opens the picker instead — correct
+  behaviour, since nothing is picked on a signed-in launch — and pressing
+  through it restarts the coordinator and wedges the renderer. Tried twice; the
+  app recovered both times, and the approach was abandoned rather than repeated.
+
+**So this is verified at the content level, not the pixel level.** A test asserts
+all four providers carry distinct accents and ledes, that the CLI providers say a
+terminal opens and the others say a browser does, that none is sold as Grok Bot,
+and that the paint code actually uses those fields.
+
+**To finish it:** the user signs out, all four pages are driven over CDP, and the
+user signs back in. That is the only honest route, and it needs them.
 
 Today one page has its title and mark swapped per provider. The tagline is still
 upstream's generic Grok Bot line, and nothing tells a person that choosing Codex
