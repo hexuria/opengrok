@@ -288,13 +288,17 @@ function RBoxOpenPlaceholder(view,localMessage){
   if(off&&view&&typeof view.ensure==="function"){
     try{
       const key=(view.status&&view.status.agentId)||"one";
-      const now=Date.now(),last=RBoxWaking.get(key)||0;
-      if(now-last>60000){RBoxWaking.set(key,now);Promise.resolve(view.ensure()).catch(()=>{})}
-      waking=!0;
+      const now=Date.now(),started=RBoxWaking.get(key)||0;
+      if(now-started>60000){RBoxWaking.set(key,now);Promise.resolve(view.ensure()).catch(()=>{});waking=!0}
+      else waking=now-started<40000;
     }catch{}
   }
-  const message=waking?"Waking this computer up\u2026":(RBoxEmptyMessage(view)??(view&&view.phase==="local"?localMessage:void 0));
-  return{emptyMessage:message,isEmptyLoading:waking||(view!=null&&view.phase!=="local"&&message==null)};
+  const stated=RBoxEmptyMessage(view)??(view&&view.phase==="local"?localMessage:void 0);
+  const stalled=off&&!waking&&RBoxWaking.size>0;
+  const message=waking?"Waking this computer up\u2026"
+    :stalled?"This computer did not come up. The bot can still be asked to use it, which wakes it too."
+    :stated;
+  return{emptyMessage:message,isEmptyLoading:waking};
 }
 function RBoxEmptyMessage(view){
   try{
