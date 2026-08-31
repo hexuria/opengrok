@@ -45,7 +45,7 @@ export function parseBoxDoctorOutput(raw: string): BoxDoctorResult {
 export function execCapture(command: string, args: readonly string[], options: { readonly cwd: string; readonly env?: NodeJS.ProcessEnv; readonly now?: () => number } ): Promise<DevControlsCommandResult> {
   const now = options.now ?? Date.now; const startedAt = now();
   return new Promise((resolve) => {
-    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env ?? process.env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env ?? process.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let output = "";
     const append = (chunk: Buffer): void => { output += chunk.toString(); if (output.length > 200_000) output = output.slice(-200_000); };
     child.stdout?.on("data", append); child.stderr?.on("data", append);

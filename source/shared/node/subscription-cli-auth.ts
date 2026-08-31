@@ -68,7 +68,7 @@ export async function openCodexInstallTerminal(options: { readonly platform?: No
       return { opened: opened.ok };
     }
     if (platform === "win32") {
-      const child = spawn("cmd.exe", ["/c", "start", "powershell", "-NoExit", "-ExecutionPolicy", "ByPass", "-c", "irm https://chatgpt.com/codex/install.ps1 | iex"], { detached: true, stdio: "ignore", env });
+      const child = spawn("cmd.exe", ["/c", "start", "powershell", "-NoExit", "-ExecutionPolicy", "ByPass", "-c", "irm https://chatgpt.com/codex/install.ps1 | iex"], { detached: true, stdio: "ignore", env, windowsHide: true });
       child.unref();
       return { opened: true };
     }
@@ -202,7 +202,7 @@ function spawnDetachedSurvives(file: string, args: readonly string[], env: NodeJ
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(file, [...args], { detached: true, stdio: "ignore", env, cwd: homedir() });
+      child = spawn(file, [...args], { detached: true, stdio: "ignore", env, cwd: homedir(), windowsHide: true });
     } catch {
       resolve(false);
       return;
@@ -276,6 +276,7 @@ export async function defaultSubscriptionCliLoginStarter(
       env: options.env,
       cwd: homedir(),
       shell: invocation.shell,
+      windowsHide: true,
     });
     // A login that dies within the grace window never opened its browser (bad
     // PATH, version-manager shim on the wrong runtime, missing binary). Its

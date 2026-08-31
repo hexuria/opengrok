@@ -51,6 +51,9 @@ function spawn(executable: string, params: string[], options?: SpawnOptionsWithE
       spawnOptions.stdio ??= ["pipe", "pipe", "pipe"];
     }
     spawnOptions.stdio ??= ["ignore", "pipe", "pipe"];
+    // A GUI app on Windows gets a visible console window for every
+    // console-subsystem child unless it is hidden explicitly.
+    spawnOptions.windowsHide ??= true;
     const process = spawnChild(cmd, args, spawnOptions);
     if (opts.processInfo && process.pid !== undefined) opts.processInfo.pid = process.pid;
 
