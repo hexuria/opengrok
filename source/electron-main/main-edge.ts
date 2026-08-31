@@ -442,11 +442,11 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     setBoxRuntime: async (raw) => { const requested = req(raw).mode; invariant(isSandBoxRuntime(requested), "Unknown box runtime."); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const mode = coerceBoxRuntimeForProvider(requested, isSandInferenceProvider(provider) ? provider : "cursor"); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); const previous = invoke(deps.settingsStore, "getBoxRuntime"); invoke(deps.settingsStore, "setBoxRuntime", mode); /* Crossing between backends changes who the account belongs to, so the old session cannot survive it: signing in to an OpenGrok server must sign you out of Cursor, and leaving must sign you out of the server. One account, never two. */ if ((previous === "opengrok") !== (mode === "opengrok")) { try { await Promise.resolve(invoke(deps.cursorAccount, "logout")); } catch { /* already signed out */ } } try { if (mode === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(settingsPath); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", previous); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
     listOpenGrokComputers: async () => {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
-      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { computers: [], computerError: null, signedIn: false };
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { computers: [], computerError: null, activeKind: null, signedIn: false };
       try {
         const secretStore = await import("./secrets/secret-store.js");
         const stored = (await secretStore.readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) ?? "";
-        if (stored.length === 0) return { computers: [], computerError: null, signedIn: false };
+        if (stored.length === 0) return { computers: [], computerError: null, activeKind: null, signedIn: false };
         let access = stored;
         try {
           const fresh = await Promise.resolve(invoke(deps.cursorAccount, "getValidAccessToken", { backendUrl: gatewayUrl }));
@@ -455,9 +455,9 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         if (access !== stored) await secretStore.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, access);
         const { listOpenGrokComputers } = await import("./box/opengrok-signin.js");
         const listed = await listOpenGrokComputers(gatewayUrl, access);
-        return { computers: listed.computers, computerError: listed.computerError, signedIn: true };
+        return { computers: listed.computers, computerError: listed.computerError, activeKind: listed.activeKind, signedIn: true };
       } catch (error) {
-        return { computers: [], computerError: null, signedIn: true, error: String(error instanceof Error ? error.message : error) };
+        return { computers: [], computerError: null, activeKind: null, signedIn: true, error: String(error instanceof Error ? error.message : error) };
       }
     },
     signInToOpenGrokServer: async (raw) => {

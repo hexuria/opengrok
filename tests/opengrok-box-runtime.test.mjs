@@ -133,10 +133,11 @@ test("a computer the organisation has not configured stays marked unconfigured",
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
     computers: [
-      { id: "local-docker", label: "Local VM (on the server)", kind: "local-docker", state: "available", configured: true },
+      { id: "local-docker", label: "Local VM (on the server)", kind: "local-docker", state: "available", configured: true, active: true },
       { id: "ascii", label: "box.ascii.dev", kind: "ascii", state: "not-configured", configured: false },
       { id: "windows365", label: "Windows 365", kind: "windows365", state: "not-configured", configured: false },
     ],
+    activeKind: "local-docker",
   }), { status: 200, headers: { "content-type": "application/json" } });
   try {
     const { computers: rows } = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
@@ -144,6 +145,7 @@ test("a computer the organisation has not configured stays marked unconfigured",
     assert.deepEqual(rows.map((row) => row.configured), [true, false, false]);
     assert.deepEqual(rows.map((row) => row.label), ["Local VM (on the server)", "box.ascii.dev", "Windows 365"]);
     assert.deepEqual(rows.map((row) => row.kind), ["local-docker", "ascii", "windows365"]);
+    assert.deepEqual(rows.map((row) => row.active), [true, undefined, undefined], "the account's own computer must be identifiable");
   } finally {
     globalThis.fetch = realFetch;
     await cleanup();
@@ -453,4 +455,31 @@ test("the computer placeholder says what is actually true of the box", async () 
   assert.equal(RBoxEmptyMessage({ isStatusKnown: true, isStatusUnavailable: true, status: { state: "running" } }), undefined);
   assert.equal(RBoxEmptyMessage(null), undefined);
   assert.equal(RBoxEmptyMessage({ isStatusKnown: true, isStatusUnavailable: false, status: {} }), undefined);
+});
+
+// The panel lists what the organisation offers and cannot pick between them, so
+// it has to say which one is actually in use — otherwise it reads as a chooser
+// nobody can operate. Both forms the server sends must survive the parser.
+test("the account's own computer is named, by row flag or by kind", async () => {
+  const { loaded, cleanup } = await loadSignIn();
+  const realFetch = globalThis.fetch;
+  const reply = (body) => async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    globalThis.fetch = reply({
+      computers: [{ id: "ascii", label: "box.ascii.dev", kind: "ascii", state: "available", configured: true, active: true }],
+      activeKind: "ascii",
+    });
+    const named = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(named.activeKind, "ascii");
+    assert.equal(named.computers[0].active, true);
+
+    // A server that names neither is not asserting anything about which is in use.
+    globalThis.fetch = reply({ computers: [{ id: "ascii", label: "box", kind: "ascii" }] });
+    const silent = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.equal(silent.activeKind, null);
+    assert.ok(!("active" in silent.computers[0]));
+  } finally {
+    globalThis.fetch = realFetch;
+    await cleanup();
+  }
 });
