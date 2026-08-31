@@ -243,7 +243,7 @@ function RRemoteControl(){
         :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
-const RLocalPerm=[{value:"always",label:"Always allow"},{value:"ask",label:"Ask every time"},{value:"never",label:"Never allow"}];
+const RLocalPerm=[{value:"always",label:"On"},{value:"never",label:"Off"}];
 function RLocalComputer(){
   const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null});
   de.useEffect(()=>{let alive=!0;
@@ -274,9 +274,9 @@ function RLocalComputer(){
           onChange:ev=>{const v=ev.currentTarget.value;e(i=>({...i,draft:v}))},
           placeholder:s.hostname||"This computer",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:230},value:s.draft}),
         a.jsx(oe,{disabled:s.saving||!dirty,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.saving?"Saving…":"Save"})]})}),
-    a.jsx(ie,{divided:!0,description:"Let a bot open files and run tasks on this computer. Auto-review still checks every action first.",label:"Execution on this computer",variant:"card",
-      children:a.jsx(ye,{"aria-label":"Execution on this computer",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
-        value:s.permission==null?null:s.permission,variant:"filled"})}),
+    a.jsx(ie,{divided:!0,description:"When on, bots on your server can run commands on this computer. Turn it off to stop them, whatever a rule or the server says. Per-command consent still happens on the server.",label:"This computer accepts bot commands",variant:"card",
+      children:a.jsx(ye,{"aria-label":"This computer accepts bot commands",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
+        value:s.permission==null?null:s.permission==="never"?"never":"always",variant:"filled"})}),
     s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
