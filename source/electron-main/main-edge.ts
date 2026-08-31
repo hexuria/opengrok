@@ -150,23 +150,36 @@ function openGrokAccountSecrets(deps: MainEdgeDeps, gatewayUrl: string): { readS
  * judge reads each line as one instruction; the global tier always sends
  * concrete values, so a cleared list is "" (stop inheriting), never null.
  */
+/** The whole-row PUT. Every field is sent; null means "inherit from below". */
+async function putAutoReviewPolicyRow(
+  deps: MainEdgeDeps,
+  body: { readonly scopeKind: "global" | "coworker"; readonly scopeId: string; readonly enabled: boolean | null; readonly allowInstructions: string | null; readonly blockInstructions: string | null },
+): Promise<void> {
+  const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+  if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return;
+  const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+  await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+    path: "/auto-review/policy", method: "PUT", body,
+  });
+}
+
+/** One text blob per direction; [] becomes "" (explicit none), null stays null. */
+function autoReviewBlob(rows: readonly string[] | null): string | null {
+  return rows === null ? null : rows.join("\n");
+}
+
+/** The global tier mirrors the local instructions with concrete values only. */
 async function putOpenGrokAutoReviewPolicy(
   deps: MainEdgeDeps,
   scopeKind: "global" | "coworker",
   scopeId: string,
   instructions: { readonly isEnabled: boolean; readonly allowInstructions: readonly string[]; readonly blockInstructions: readonly string[] },
 ): Promise<void> {
-  const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
-  if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return;
-  const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-  await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
-    path: "/auto-review/policy", method: "PUT",
-    body: {
-      scopeKind, scopeId,
-      enabled: instructions.isEnabled,
-      allowInstructions: instructions.allowInstructions.join("\n"),
-      blockInstructions: instructions.blockInstructions.join("\n"),
-    },
+  await putAutoReviewPolicyRow(deps, {
+    scopeKind, scopeId,
+    enabled: instructions.isEnabled,
+    allowInstructions: instructions.allowInstructions.join("\n"),
+    blockInstructions: instructions.blockInstructions.join("\n"),
   });
 }
 
@@ -595,6 +608,49 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         path: "/local-exec/policy/rule", method: "DELETE", body: { machineId, kind, pattern },
       });
       return { kind, pattern };
+    },
+    getAgentAutoReview: async (raw) => {
+      const agentId = req(raw).agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "getAgentAutoReview needs an agent id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { available: false };
+      try {
+        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const [policy, effective] = await Promise.all([
+          callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/auto-review/policy" }),
+          callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/auto-review/effective", query: { coworkerId: agentId } }),
+        ]);
+        const coworkers = typeof policy === "object" && policy != null ? (policy as Record<string, unknown>).coworkers : undefined;
+        const row = typeof coworkers === "object" && coworkers != null ? (coworkers as Record<string, unknown>)[agentId] ?? null : null;
+        return { available: true, row, effective: effective ?? null };
+      } catch (error) {
+        return { available: true, error: String(error instanceof Error ? error.message : error) };
+      }
+    },
+    setAgentAutoReview: async (raw) => {
+      const r = req(raw);
+      const agentId = r.agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "setAgentAutoReview needs an agent id.");
+      const enabled = r.enabled === true ? true : r.enabled === false ? false : null;
+      const asRows = (v: unknown): string[] | null => v === null || v === undefined ? null : Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : null;
+      await putAutoReviewPolicyRow(deps, {
+        scopeKind: "coworker", scopeId: agentId, enabled,
+        allowInstructions: autoReviewBlob(asRows(r.allowInstructions)),
+        blockInstructions: autoReviewBlob(asRows(r.blockInstructions)),
+      });
+      return { agentId };
+    },
+    deleteAgentAutoReview: async (raw) => {
+      const agentId = req(raw).agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "deleteAgentAutoReview needs an agent id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: "/auto-review/policy", method: "DELETE", body: { scopeKind: "coworker", scopeId: agentId },
+      });
+      return { agentId };
     },
     getOpenGrokAgentIssues: async () => {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
