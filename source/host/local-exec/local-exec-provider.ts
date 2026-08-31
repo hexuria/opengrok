@@ -23,6 +23,7 @@ export class SandLocalExecStreamError extends Error {}
 export const SSE_RECONNECT_MIN_MS = 1_000;
 export const SSE_RECONNECT_MAX_MS = 10_000;
 export const SSE_STALL_TIMEOUT_MS = 35_000;
+export const SSE_DIAL_TIMEOUT_MS = 20_000;
 export const STALE_CONNECTION_FAILURE_THRESHOLD = 3;
 export const RESPONSE_POST_RETRIES = 3;
 export const RESPONSE_POST_RETRY_DELAY_MS = 200;
@@ -73,6 +74,7 @@ export interface SandLocalExecProviderOptions {
   readonly executor: LocalExecExecutor;
   readonly root?: string; readonly computerId?: string; readonly computerLabel?: string; readonly maxFileBytes?: number; readonly variant?: string;
   readonly fetch?: typeof fetch;
+  readonly dialTimeoutMs?: number;
   readonly onConnectionStale?: () => Promise<void> | void;
   readonly isSupervised?: () => Promise<boolean | undefined> | boolean | undefined;
   readonly onApprovalRetired?: (approvalId: string) => Promise<void> | void;
@@ -116,7 +118,19 @@ export class SandLocalExecProvider {
   private async currentSupervised(): Promise<boolean | undefined> { return await this.options.isSupervised?.(); }
   async streamRequests(resetBackoff: () => void = () => {}): Promise<void> {
     const connection = await this.options.resolveConnection(); const controller = new AbortController(); this.abortController = controller;
-    const response = await this.fetcher(`${connection.baseUrl}${GATEWAY_LOCAL_EXEC_REQUESTS_PATH}`, { headers: withLocalExecAuth({ accept: "text/event-stream" }, connection), signal: controller.signal });
+    // The dial gets a deadline of its own. A server coming back up can accept
+    // the connection and never answer, and awaiting that forever parks the
+    // whole reconnect loop: responses keep POSTing on their fresh sockets, so
+    // everything looks healthy while no request can ever arrive. The stall
+    // watchdog cannot help - it only arms once a response exists. Abort the
+    // dial instead, which throws into the retry loop and re-dials on the
+    // normal backoff. Once the stream is open the timer is gone; the open
+    // body may stay silent as long as the watchdog is fed.
+    const dialTimer = setTimeout(() => controller.abort(), this.options.dialTimeoutMs ?? SSE_DIAL_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await this.fetcher(`${connection.baseUrl}${GATEWAY_LOCAL_EXEC_REQUESTS_PATH}`, { headers: withLocalExecAuth({ accept: "text/event-stream" }, connection), signal: controller.signal });
+    } finally { clearTimeout(dialTimer); }
     if (!response.ok || response.body == null) throw new SandLocalExecStreamError(`local-exec requests stream failed: ${response.status}`);
     resetBackoff(); void this.currentSupervised().then((supervised) => this.postBatch([{ kind: "hello", localRoot: this.root, terminalsFolder: this.terminalsFolder, computerId: this.computerId, label: this.computerLabel, ...(supervised === undefined ? {} : { supervised }), ...(this.options.variant === undefined ? {} : { variant: this.options.variant }) }], this.controlPostDeadline));
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ""; const stall = this.stallWatchdog.arm(() => controller.abort());
