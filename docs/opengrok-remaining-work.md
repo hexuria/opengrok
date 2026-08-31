@@ -225,3 +225,48 @@ relaunch with `--remote-debugging-port=9223` → verify over CDP.
 into making a false status more precise, three times over, before the cause
 turned out to be a liveness probe reading a path the provider forbids. When a
 panel keeps saying the wrong thing, suspect the thing feeding it.
+
+---
+
+## Reverse exec — VERIFIED END TO END, 31 Aug 2026
+
+Two real commands ran on the user's Mac behind two real Allow presses:
+`~/Code/example123` and `~/Code/example123/xyz` both exist on disk, created
+through: bot ask → inline approval card → Allow once → local approval recorded
+→ server resume-dispatch (approvalId = callId) → shellStreamArgs exec on the
+daemon → streamed result → model summary in the chat.
+
+### The inline card contract (byte-verified against the shipped renderer)
+
+The server emits a transcript entry when `user_machine_shell` suspends on Ask:
+
+```json
+{"kind":"send-message","id":"<entryId>","timestampMs":0,
+ "message":{"type":"local-tool-permission",
+  "ask":{"requestId":"<callId>","status":"pending",
+         "action":"run-command","target":"<full command>"}}}
+```
+
+- Renderer dedup key: `local-tool-permission:${requestId}:${status}` — to
+  update a card re-emit the SAME entryId with only `ask.status` changed
+  (`allow-once|always|denied|never|expired`).
+- The answer arrives server-side as gateway method
+  `POST /api/resolveLocalToolPermission`
+  `{entryId, requestId, resolution, agentId}`. "Always" may arrive as
+  `allow-once` (client ceiling downgrade).
+- Allow once records the LOCAL approval under requestId BEFORE resolving, so
+  the resumed frame passes the machine's own gate. The Mac stays the consent
+  source of truth. Always/Never set the machine's local Execution permission.
+- A resolve for a dead request flips the stored entry to `expired` (server
+  heal-on-press) and returns 410. Asks have NO timeout by design.
+- The modal is retired. The daemon's hold-and-ask file remains the gate for
+  frames arriving with no approval (out-of-band); they expire at 90s with no
+  UI until out-of-band consent is designed (push notification, not a window).
+
+### Still open
+
+- "Always allow this command" → server policy-rule endpoints (card sends it;
+  server-side standing-rule mapping unconfirmed).
+- Passkey ceremony test (RP `opengrok.app`) — needs the user's go.
+- Per-bot desktops (one box, several displays — verdict in
+  docs/per-bot-desktops-plan.md), parked next in line.

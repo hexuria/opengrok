@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { withOpenGrokDaemonToken, type OpenGrokDaemonIdentity } from "../box/opengrok-daemon-descriptor.js";
 
 import {
   clearLocalExecDaemonDiscoveryIfMatches,
@@ -115,6 +116,7 @@ export interface CoordinatorControlExecutorDependencies {
   readonly listRoutedMcpTools?: () => Promise<unknown>;
   readonly executeRoutedMcpTool?: (request: unknown) => Promise<unknown>;
   readonly runMessagesOp?: (op: unknown) => Promise<unknown>;
+  readonly readOpenGrokDaemonIdentity?: () => Promise<OpenGrokDaemonIdentity>;
   readonly readLocalExecDaemonDiscovery?: () => Promise<LocalExecDiscovery | null>;
   readonly clearLocalExecDaemonDiscoveryIfMatches?: (expected: LocalExecDiscovery) => Promise<boolean>;
   readonly native?: {
@@ -462,7 +464,18 @@ export function createCoordinatorControlExecutors(
   };
 
   return {
-    resolveGatewayConnection: () => connector.connect(),
+    resolveGatewayConnection: async (args?: { readonly purpose?: string }) => {
+      const connection = await connector.connect();
+      // Only the descriptor the local-exec daemon reads may carry the
+      // per-machine token; the gateway transport shares this same call and
+      // must keep speaking as the gateway.
+      if (args?.purpose !== "local-exec-daemon" || dependencies.readOpenGrokDaemonIdentity == null) return connection;
+      try {
+        return withOpenGrokDaemonToken(connection, await dependencies.readOpenGrokDaemonIdentity());
+      } catch {
+        return connection;
+      }
+    },
     listRoutedMcpTools: async () => {
       if (dependencies.listRoutedMcpTools == null) throw new Error("Desktop MCP routing is unavailable.");
       return await dependencies.listRoutedMcpTools();
