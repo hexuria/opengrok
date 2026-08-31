@@ -1560,6 +1560,22 @@ export function patchOriginalViewFallback(source) {
  * stays in the box, and the message is never delivered. Watched live, a click
  * vanished and the identical click worked minutes later. Say so instead.
  */
+/**
+ * The expanded computer view, which had a word only for a local computer.
+ *
+ * For a remote box it passed no message and set the busy flag, so the
+ * placeholder fell through to "Booting up the computer" and stayed there. The
+ * view holds the box status, so the same message the strip uses applies here.
+ */
+export function patchOriginalExpandedPlaceholder(source) {
+  return replaceExactlyOnce(
+    source,
+    '...d.phase==="local"?{emptyMessage:ZOn}:{},isEmptyLoading:d.phase!=="local"',
+    'emptyMessage:RBoxEmptyMessage(d)??(d.phase==="local"?ZOn:void 0),isEmptyLoading:d.phase!=="local"&&RBoxEmptyMessage(d)==null',
+    "expanded computer placeholder",
+  );
+}
+
 export function patchOriginalSilentSend(source) {
   return replaceExactlyOnce(
     source,
@@ -1622,7 +1638,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
-    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source)))))))))))))))],
+    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))],
     ["panel", panelCandidates[0], patchOriginalSettingsPanel],
   ]) {
     const patched = transform(candidate.source);
