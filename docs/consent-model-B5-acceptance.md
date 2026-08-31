@@ -63,17 +63,16 @@ and Allow once / Always allow / Deny. **Allow once** settled it — the same
 entryId flipped to "Allowed once", the run resumed and the command ran ("the
 command ran; that is all I needed"). A second prompt raised a fresh card.
 
-### Known limitation — the card's "Always allow" scopes to global, not coworker
-The plan wants the card's "Always allow" to append to the **coworker** tier
-(most specific). The pinned upstream 0.18 card has no `proposedRule` support and
-appends to the local auto-review instructions store, which this build mirrors to
-the **global** tier — verified: after pressing Always, `decidedBy.allowInstructions`
-became `global`, not `coworker`. Rerouting the card to the coworker tier needs a
-surgical patch of the minified card whose always-append and resolve call sit in
-separate locations — fragile, and not attempted. The **clean per-agent path is
-the agent-settings auto-review widget** (above), which writes the coworker tier
-directly and is fully verified. This is the one deviation from the ideal model,
-surfaced for the user's call: accept global-scoped card-Always for v1 (the
-widget covers coworker), or schedule the card patch.
+### Accepted for v1 — the card's "Always allow" scopes to global, not coworker
+The plan's ideal is for the card's "Always allow" to append to the **coworker**
+tier. The pinned upstream 0.18 card has no `proposedRule` support and appends to
+the local auto-review instructions store, which this build mirrors to the
+**global** tier — verified: after pressing Always, `decidedBy.allowInstructions`
+became `global`, not `coworker`. Rerouting it would need a fragile surgical patch
+of the minified card (its always-append and resolve call sit in separate spots).
+**The user decided (this session) to ACCEPT the global-scoped card-"Always" for
+v1** — it is safe (the user's own allow rule), and the **agent-settings
+auto-review widget is the clean per-agent path** (verified above), which is
+sufficient for per-agent scoping. Not a defect to fix; a deliberate v1 scope.
 
 `npm run check`: 258 tests green. Commits are lowercase-subject with why-bodies.
