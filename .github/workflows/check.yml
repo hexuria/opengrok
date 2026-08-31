@@ -1,4 +1,4 @@
-name: repository checks
+name: ci
 
 on:
   push:
@@ -7,8 +7,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Typecheck + full test suite + editable-frontend build on every desktop OS
+  # the Electron app targets. macOS is the shipped platform; Linux and Windows
+  # runs exist to catch darwin-only assumptions (paths, shell-outs, signals)
+  # before they land, not to produce a package.
   check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Install the locked dependency graph
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck frontend and source, run the test suite
+        run: npm run check
+      - name: Build the editable frontend
+        run: npm run frontend:build
+
+  # Publication hygiene only needs one OS, and it is the one job that wants
+  # the LFS-tracked research archives present.
+  publication:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -21,9 +51,39 @@ jobs:
           cache: npm
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
-      - name: Run source and publication checks
-        run: npm run check
-      - name: Build the editable frontend
-        run: npm run frontend:build
       - name: Verify a fresh clean-history export is lossless
         run: npm run publication:check
+
+  # The real package is macOS-only by design: the pinned 0.18 runtime is
+  # recovered from a checksum-pinned DMG (hdiutil) and the bundle is signed
+  # (ad-hoc on CI - resolveCodesignIdentity falls back when no Developer ID
+  # certificate is installed). Windows/Linux packaging does not exist yet;
+  # when it does, it gets its own job here.
+  package-macos:
+    runs-on: macos-latest
+    needs: check
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Install the locked dependency graph
+        run: npm ci --no-audit --no-fund
+      - name: Cache the pinned runtime DMG
+        uses: actions/cache@v4
+        with:
+          path: .cache/downloads
+          key: grok-bot-dmg-0.18.0-a253ccd8
+      - name: Recover the pinned runtime
+        run: npm run bootstrap
+      - name: Package Open Grok.app (typecheck + tests + build + ad-hoc sign)
+        run: npm run package
+      - name: Zip the bundle with metadata intact
+        run: /usr/bin/ditto -c -k --keepParent "dist/Open Grok.app" "open-grok-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-grok-macos
+          path: open-grok-macos.zip
+          retention-days: 14
