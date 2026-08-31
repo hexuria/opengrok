@@ -40,6 +40,8 @@ export const MAIN_METHOD_TABLE = {
   setLocalToolPermission: { args: "object" },
   recordLocalToolApproval: { args: "object" },
   clearLocalToolApprovals: { args: "none" },
+  getAskpassPrompt: { args: "none" },
+  respondAskpass: { args: "object" },
   getSidebarCollapsed: { args: "none" },
   setSidebarCollapsed: { args: "object" },
   pickAvatarSource: { args: "none" },
