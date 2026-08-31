@@ -1449,6 +1449,53 @@ export function patchOriginalLocalToolAsk(source) {
 // signed in through Codex or Claude and the app is working perfectly. It now
 // names whoever the current provider says you are, and offers to sign out of
 // that rather than into Cursor.
+const AGENT_AUTOREVIEW_HELPER = ';(()=>{try{'
+  + 'var css=document.createElement("style");css.textContent=".sand-lp-ar{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(127,127,127,.28);border-radius:10px;display:flex;flex-direction:column;gap:8px}.sand-lp-ar h4{margin:0;font-size:13px}.sand-lp-ar .lp-ar-sub{opacity:.62;font-size:12px;margin:0}.sand-lp-ar textarea{width:100%;min-height:52px;font:12px/1.4 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;resize:vertical}.sand-lp-ar .lp-ar-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sand-lp-ar button{font:inherit;font-size:12px;padding:5px 10px;border-radius:6px;border:1px solid rgba(127,127,127,.4);background:transparent;color:inherit;cursor:pointer}.sand-lp-ar .lp-ar-err{color:#f87171;font-size:12px;margin:0}";'
+  + '(document.head||document.documentElement).appendChild(css);'
+  + 'var currentAgent=function(){var it=document.querySelector(\'.sand-agent-item[aria-current="page"]\');return it?it.getAttribute("data-agent-id"):null};'
+  + 'var mount=function(pane){'
+  + '  var agentId=currentAgent();if(!agentId)return;'
+  + '  var existing=pane.querySelector(".sand-lp-ar");'
+  + '  if(existing&&existing.getAttribute("data-lp-ar")===agentId)return;'
+  + '  if(existing)existing.remove();'
+  + '  var a=window.desktop&&window.desktop.agent;if(!a||!a.getAgentAutoReview)return;'
+  + '  var box=document.createElement("div");box.className="sand-lp-ar";box.setAttribute("data-lp-ar",agentId);'
+  + '  box.innerHTML=\'<h4>Auto-review for this agent</h4>\''
+  + '    +\'<p class="lp-ar-sub" data-ar-badge></p>\''
+  + '    +\'<label class="lp-ar-row"><span>Reviewing</span><select data-ar-enabled><option value="inherit">Inherit from global</option><option value="on">On</option><option value="off">Off</option></select></label>\''
+  + '    +\'<p class="lp-ar-sub">Allow (one rule per line)</p><textarea data-ar-allow placeholder="e.g. read files under my project"></textarea>\''
+  + '    +\'<p class="lp-ar-sub">Block (one rule per line)</p><textarea data-ar-block placeholder="e.g. anything that installs software"></textarea>\''
+  + '    +\'<div class="lp-ar-row"><button data-ar-save>Save for this agent</button><button data-ar-reset>Reset to global</button></div>\''
+  + '    +\'<p class="lp-ar-err" data-ar-err></p>\';'
+  + '  pane.appendChild(box);'
+  + '  var q=function(k){return box.querySelector("[data-ar-"+k+"]")};'
+  + '  var badge=q("badge"),sel=q("enabled"),allow=q("allow"),block=q("block"),save=q("save"),reset=q("reset"),err=q("err");'
+  + '  var load=function(){a.getAgentAutoReview(agentId).then(function(r){'
+  + '    if(!r||r.available===false){box.style.display="none";return}'
+  + '    if(r.error){err.textContent=String(r.error);return}'
+  + '    var row=r.row||null,eff=r.effective||{},by=(eff&&eff.decidedBy)||{};'
+  + '    sel.value=row&&typeof row.enabled==="boolean"?(row.enabled?"on":"off"):"inherit";'
+  + '    allow.value=row&&typeof row.allowInstructions==="string"?row.allowInstructions:"";'
+  + '    block.value=row&&typeof row.blockInstructions==="string"?row.blockInstructions:"";'
+  + '    var w=function(f){return by[f]==="coworker"?"this agent":by[f]==="global"?"global":"default"};'
+  + '    badge.textContent="Effective: "+(eff.enabled?"on":"off")+" - enabled from "+w("enabled")+", allow from "+w("allowInstructions")+", block from "+w("blockInstructions")+".";'
+  + '  }).catch(function(e){err.textContent=String(e&&e.message||e)})};'
+  + '  save.addEventListener("click",function(){err.textContent="";'
+  + '    var enabled=sel.value==="on"?!0:sel.value==="off"?!1:null;'
+  + '    var mk=function(t){return t.split(String.fromCharCode(10)).map(function(x){return x.trim()}).filter(Boolean)};'
+  + '    var inheritAll=sel.value==="inherit"&&allow.value.trim()===""&&block.value.trim()==="";'
+  + '    var done=function(){load()};var oops=function(e){err.textContent=String(e&&e.message||e)};'
+  + '    if(inheritAll){a.deleteAgentAutoReview(agentId).then(done).catch(oops);return}'
+  + '    var allowV=sel.value==="inherit"&&allow.value.trim()===""?null:mk(allow.value);'
+  + '    var blockV=sel.value==="inherit"&&block.value.trim()===""?null:mk(block.value);'
+  + '    a.setAgentAutoReview(agentId,{enabled:enabled,allowInstructions:allowV,blockInstructions:blockV}).then(done).catch(oops)});'
+  + '  reset.addEventListener("click",function(){err.textContent="";a.deleteAgentAutoReview(agentId).then(function(){load()}).catch(function(e){err.textContent=String(e&&e.message||e)})});'
+  + '  load();'
+  + '};'
+  + 'var scan=function(){var ps=document.querySelectorAll(".sand-agent-settings");for(var i=0;i<ps.length;i++)mount(ps[i])};'
+  + 'scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0});'
+  + '}catch(_){}})();';
+
 const ACCOUNT_CARD_HELPER = ';(()=>{try{'
   + 'var t=document.createElement("style");t.textContent=".sand-agents-empty{display:none!important}";'
   + '(document.head||document.documentElement).appendChild(t);'
@@ -1718,7 +1765,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
   patched = patchOriginalCardLocalFlip(patched);
-  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ACCOUNT_CARD_HELPER + patched;
+  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ACCOUNT_CARD_HELPER + AGENT_AUTOREVIEW_HELPER + patched;
 }
 
 
