@@ -52,3 +52,21 @@ test("the daemon on/off helper maps enrolled legacy values to on, never to off",
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("the per-agent auto-review widget is injected and is valid JS", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
+  const m = src.match(/const AGENT_AUTOREVIEW_HELPER = ([\s\S]*?);\n\nconst ACCOUNT_CARD_HELPER/);
+  assert.ok(m, "AGENT_AUTOREVIEW_HELPER must exist");
+  const js = (0, eval)(m[1]);
+  const acorn = await import("acorn");
+  acorn.parse(js, { ecmaVersion: "latest" });
+  // It drives the real edges and scopes itself to the agent settings pane.
+  assert.match(js, /getAgentAutoReview/);
+  assert.match(js, /setAgentAutoReview/);
+  assert.match(js, /deleteAgentAutoReview/);
+  // The pane has no id of its own; the open agent comes from the selected item.
+  assert.match(js, /\.sand-agent-settings/);
+  assert.match(js, /aria-current/);
+  // And it is actually wired into the shipped prepend chain.
+  assert.match(src, /\+ AGENT_AUTOREVIEW_HELPER \+ patched;/);
+});
