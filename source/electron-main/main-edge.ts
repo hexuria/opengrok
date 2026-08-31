@@ -435,7 +435,8 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const nextRuntime = isSandBoxRuntime(currentRuntime) ? coerceBoxRuntimeForProvider(currentRuntime, switched.provider) : undefined;
       if (nextRuntime != null && nextRuntime !== currentRuntime) {
         invoke(deps.settingsStore, "setBoxRuntime", nextRuntime);
-        if (nextRuntime === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
+        // Subscription providers run on the desktop host, not the Docker VM.
+        if (nextRuntime === "local-docker" && !isSubscriptionInferenceProvider(switched.provider)) await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
         invoke(deps.boxRecovery, "restartCoordinator");
       }
       const computers = providerComputersOf(deps, switched.provider);
@@ -475,7 +476,8 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         if (nextRuntime != null && nextRuntime !== currentRuntime) {
           invoke(deps.settingsStore, "setBoxRuntime", nextRuntime);
           const runtimeSettingsPath = String(Reflect.get(deps.settingsStore, "settingsPath") ?? "");
-          if (nextRuntime === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
+          // Subscription providers run on the desktop host, not the Docker VM.
+          if (nextRuntime === "local-docker" && !isSubscriptionInferenceProvider(requested)) await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
           optionalInvoke(deps.boxRecovery, "restartCoordinator");
         }
       }
