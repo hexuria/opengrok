@@ -199,6 +199,26 @@ function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.val
 `;
 
 export const MAIN_CHROME_SOURCE = String.raw`
+function RSendNotDelivered(){
+  try{
+    const existing=document.querySelector("[data-sand-send-blocked]");
+    if(existing)existing.remove();
+    if(!document.querySelector("[data-sand-send-blocked-style]")){
+      const st=document.createElement("style");
+      st.setAttribute("data-sand-send-blocked-style","1");
+      st.textContent="[data-sand-send-blocked]{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483600;max-width:min(460px,92vw);padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.45;text-align:center;border:1px solid var(--sand-border-default,rgba(128,128,128,.3));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 12px 34px rgba(0,0,0,.28);animation:sand-sb-in .18s ease-out}"
+        +"@keyframes sand-sb-in{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translateX(-50%)}}";
+      document.head.appendChild(st);
+    }
+    const n=document.createElement("div");
+    n.setAttribute("data-sand-send-blocked","1");
+    n.setAttribute("role","status");
+    n.setAttribute("aria-live","polite");
+    n.textContent="This chat is still opening, so the message was not sent. Your text is still here \u2014 try again in a moment.";
+    document.body.appendChild(n);
+    setTimeout(()=>{try{n.remove()}catch{}},6000);
+  }catch{}
+}
 function RBoxEmptyMessage(view){
   try{
     if(view==null||view.isStatusUnavailable)return void 0;
@@ -1475,6 +1495,22 @@ export function patchOriginalViewFallback(source) {
  * better word for, including a box that is up and simply has no screen. The
  * view already holds the box status, so the message can be chosen from it.
  */
+/**
+ * The composer's send, when it has nothing to send to.
+ *
+ * It returns silently: the button is enabled, the click lands, the typed text
+ * stays in the box, and the message is never delivered. Watched live, a click
+ * vanished and the identical click worked minutes later. Say so instead.
+ */
+export function patchOriginalSilentSend(source) {
+  return replaceExactlyOnce(
+    source,
+    "if(we==null)return;const Pe=_",
+    "if(we==null){RSendNotDelivered();return}const Pe=_",
+    "silent send bail",
+  );
+}
+
 export function patchOriginalComputerPlaceholder(source) {
   source = replaceExactlyOnce(
     source,
@@ -1528,7 +1564,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
-    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalComputerPlaceholder(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))],
+    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source)))))))))))))))],
     ["panel", panelCandidates[0], patchOriginalSettingsPanel],
   ]) {
     const patched = transform(candidate.source);
