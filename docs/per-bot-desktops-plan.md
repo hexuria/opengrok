@@ -45,22 +45,38 @@ received is a server that provides one.
 
 ---
 
-## The decision that comes first
+## The decision that came first — ANSWERED 31 Aug 2026
 
-**Can one ascii.dev box run several X displays, or does a screen each mean a box
-each?** Nobody knows yet, and everything below branches on it.
+**One box hosts several displays. Box-per-agent is ruled out.** The server
+session settled it with a real probe (a paid box created, inspected,
+destroyed), not an inference from the API surface:
 
-- **Several displays in one box** — matches the original, keeps
-  one-account-one-computer, costs nothing extra. Needs the box image to run more
-  than one X server plus a router, and the server to assign and report them.
-- **A box per agent** — simpler to reach, but collides with the sharing model
-  the user chose, and multiplies the ascii.dev bill by the number of bots. It
-  also stops being a *shared* computer, which was the point.
+- A second server on port 6081 coexists with the managed noVNC on 6080 —
+  both listening at once, confirmed with `ss`.
+- `expose_port(6081)` returns a real external URL
+  (`https://box-node-…-6081.on.ascii.dev?_token=…`), so `/host` maps an
+  arbitrary port, not just the managed desktop.
+- `/commands` and the desktop session both run as `user` on `/home/user` —
+  same `whoami`, same files. The product promise (separate screens, shared
+  computer) holds with no extra work.
 
-**This is the server session's question** (and possibly ascii.dev's). Do not
-build toward either answer until it is settled. Note that a box per agent is a
-product decision with a cost, not a technical fallback — it needs the user, not
-just us.
+So one-account-one-computer survives and the ascii.dev bill does not multiply.
+A fork display is **build work in the box image**, not a new box:
+`apt-get install -y xvfb x11vnc` → `Xvfb :1` → `x11vnc -display :1 -rfbport
+5901` → `websockify --web=/usr/share/novnc 6081 localhost:5901` →
+`expose_port(6081)`.
+
+**Known work items from the probe**, so they are not rediscovered later:
+
+- The image ships no X/VNC tooling by default; ascii's managed desktop
+  installs x11vnc/novnc/websockify on first `POST /desktop` and runs the
+  primary as real Xorg `:0`. Forks must `apt-get install xvfb` first —
+  a provisioning step, not a blocker.
+- Server-side bug found in passing: `AsciiBoxes::start` (detached exec)
+  mis-parses the reply — the API returns a numeric pid where a string is
+  expected. `run` is fine; fix `start` before leaning on detached starts.
+- ascii's proxy wants its `_token` handling matched the way the managed
+  6080 URL already does it; a bare service on the exposed port answers 403.
 
 ---
 
