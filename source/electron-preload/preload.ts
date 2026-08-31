@@ -306,6 +306,7 @@ export function createDesktopPreloadBridge(options: {
       enrolRemoteControl: (label: string) => edge("enrolRemoteControl", { label }),
       revokeRemoteControl: () => edge("revokeRemoteControl"),
       setRemoteControlMode: (mode: string) => edge("setRemoteControlMode", { mode }),
+      deleteRemoteControlRule: (kind: string, pattern: string) => edge("deleteRemoteControlRule", { kind, pattern }),
       getLocalComputer: () => edge("getLocalComputer"),
       setLocalComputerName: (name: string) => edge("setLocalComputerName", { name }),
       setOpenGrokServer: (gatewayUrl: string, token?: string) => edge("setOpenGrokServer", { gatewayUrl, ...(token === undefined ? {} : { token }) }),

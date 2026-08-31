@@ -198,6 +198,12 @@ const RRemoteModes=[
   {value:"never",label:"Never"},
   {value:"ask",label:"Ask every time"},
   {value:"bypass",label:"Always allow"}];
+function RRuleRow(kind,pattern,onDelete,busy){
+  return a.jsxs("div",{key:kind+":"+pattern,className:"sand-9f619 sand-78zum5",style:{gap:8,alignItems:"center",justifyContent:"space-between"},children:[
+    a.jsxs("div",{className:"sand-9f619 sand-78zum5",style:{gap:8,alignItems:"center",minWidth:0},children:[
+      a.jsx(se,{as:"span",color:kind==="allow"?"secondary":"red",size:"sm",children:kind==="allow"?"Allow":"Never"}),
+      a.jsx(se,{as:"span",color:"secondary",size:"sm",style:{fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},children:pattern})]}),
+    a.jsx(oe,{disabled:busy,onClick:function(){onDelete(kind,pattern)},shape:"rectangular",size:"sm",variant:"secondary","aria-label":"Delete this rule",children:"Delete"})]})}
 function RRemoteControl(){
   const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:!1});
   const load=()=>window.desktop.agent.getRemoteControl().then(r=>{if(r==null)return;
@@ -218,6 +224,9 @@ function RRemoteControl(){
   const setMode=async v=>{const was=s.mode;e(i=>({...i,mode:v,error:null}));
     try{await window.desktop.agent.setRemoteControlMode(v)}
     catch(err){e(i=>({...i,mode:was,error:String(err&&err.message||err)}))}};
+  const removeRule=async(kind,pattern)=>{e(i=>({...i,busy:!0,error:null}));
+    try{await window.desktop.agent.deleteRemoteControlRule(kind,pattern);await load();e(i=>({...i,busy:!1}))}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
   if(!s.enrolled)return a.jsxs("div",{children:[
     a.jsx(ie,{variant:"card",label:"Let your bots use this computer",
       description:"Off. A bot on your server cannot reach this Mac at all. Turn this on and it can ask to run commands here — useful for reaching this machine from your phone, and worth understanding before you do it.",
@@ -231,9 +240,10 @@ function RRemoteControl(){
       children:a.jsx(ye,{"aria-label":"Bots using this computer",onValueChange:setMode,options:RRemoteModes,
         placement:"bottom-end",size:"lg",value:s.mode,variant:"filled"})}),
     s.deny.length>0||s.allow.length>0?a.jsx(ie,{divided:!0,variant:"card",label:"Standing rules",
-      description:"Commands you have already answered for. Managed from the prompt when it appears.",
-      children:a.jsx(se,{as:"span",color:"secondary",size:"sm",
-        children:String(s.allow.length)+" allowed, "+String(s.deny.length)+" denied"})}):null,
+      description:"Commands you have answered Always or Never for. Delete one to be asked again.",
+      children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:6},children:[
+        ...s.allow.map(function(p){return RRuleRow("allow",p,removeRule,s.busy)}),
+        ...s.deny.map(function(p){return RRuleRow("deny",p,removeRule,s.busy)})]})}):null,
     a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
       description:s.confirming?"This computer stops being reachable and its credential is destroyed. You can turn it on again later.":"Stop your bots reaching this computer.",
       children:s.confirming
