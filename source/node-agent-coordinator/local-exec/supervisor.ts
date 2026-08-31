@@ -50,7 +50,7 @@ export type LocalExecDaemonState =
   | { readonly phase: "failed"; readonly reason: string };
 
 interface LocalExecControl {
-  resolveGatewayConnection(args: Record<string, never>): Promise<unknown>;
+  resolveGatewayConnection(args: { readonly purpose?: "local-exec-daemon" }): Promise<unknown>;
   mintLocalExecDaemonCredential(args: Record<string, never>): Promise<unknown | null>;
   spawnLocalExecDaemon(args: { readonly env: Readonly<Record<string, string>>; readonly logPath: string }): Promise<LocalExecProcessIdentity>;
   isProcessAlive(args: { readonly pid: number }): Promise<boolean>;
@@ -126,7 +126,7 @@ export function createLocalExecDaemonSupervisor(options: LocalExecDaemonSupervis
     if (disposed || paused) return;
     const refreshId = ++refreshSequence;
     try {
-      const connection = await options.control.resolveGatewayConnection({});
+      const connection = await options.control.resolveGatewayConnection({ purpose: "local-exec-daemon" });
       const write = descriptorWrite.then(async () => {
         if (disposed || refreshId !== refreshSequence) return;
         await writeLocalExecDaemonConnection(connection, paths.connectionPath);
