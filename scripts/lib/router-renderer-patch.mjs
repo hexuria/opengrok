@@ -428,7 +428,7 @@ function RBoxOpenPlaceholder(view,localMessage){
     try{
       const key=(view.status&&view.status.agentId)||"one";
       const now=Date.now(),started=RBoxWaking.get(key)||0;
-      if(now-started>60000){RBoxWaking.set(key,now);Promise.resolve(view.ensure()).catch(()=>{});waking=!0}
+      if(now-started>60000){RBoxWaking.set(key,now);setTimeout(function(){try{Promise.resolve(view.ensure()).catch(function(){})}catch(_){}} ,0);waking=!0}
       else waking=now-started<40000;
     }catch{}
   }
@@ -440,7 +440,7 @@ function RBoxOpenPlaceholder(view,localMessage){
       const now=Date.now(),first=RBoxWaking.get(key)||0;
       if(first===0)RBoxWaking.set(key,now);
       else if(now-first<90000&&now-(RBoxWaking.get(key+":at")||0)>2500){
-        RBoxWaking.set(key+":at",now);view.retryStatus();
+        RBoxWaking.set(key+":at",now);setTimeout(function(){try{view.retryStatus()}catch(_){}} ,0);
       }
     }catch{}
   }else if(view&&view.status&&view.status.agentId){
@@ -1766,7 +1766,7 @@ export function patchOriginalLoginWall(source) {
 }
 
 const VIEW_LOAD_FALLBACK_BEFORE = 'function rPt(n){const e=he.c(3),{retry:t}=n;let s;e[0]===Symbol.for("react.memo_cache_sentinel")?(s=p.jsx("p",{children:"This view failed to load."}),e[0]=s):s=e[0];let r;return e[1]!==t?(r=p.jsxs("div",{role:"alert",children:[s,p.jsx("button",{type:"button",onClick:t,children:"Retry"})]}),e[1]=t,e[2]=r):r=e[2],r}';
-const VIEW_LOAD_FALLBACK_AFTER = 'function rPt(){return p.jsx("div",{role:"status","aria-live":"polite",className:"sand-9f619 sand-10l6tqk sand-k6ci0l sand-191j7n5 sand-1c42kn3 sand-78zum5 sand-6s0dn4 sand-167g77z sand-96k8nx sand-nuq7ks sand-dvlbce sand-f18ygs sand-mkeg23 sand-1y0btm7 sand-hpnuu7 sand-1ct8sxb sand-bovzr6 sand-jyw3bf sand-treaks sand-pmgbkh sand-settings-toast",style:{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",zIndex:2147483646},children:p.jsx("span",{className:"sand-1iyjqo2 sand-euugli",children:"Couldn\'t open that screen."})})}';
+const VIEW_LOAD_FALLBACK_AFTER = 'function rPt(n){const t=n&&n.retry;const[gone,setGone]=he.useState?[!1,function(){}]:[!1,function(){}];p.useEffect(function(){if(typeof t!=="function")return;var once=setTimeout(function(){try{t()}catch(_){}} ,1200);return function(){clearTimeout(once)}},[t]);return p.jsxs("div",{role:"status","aria-live":"polite",className:"sand-9f619 sand-10l6tqk sand-k6ci0l sand-191j7n5 sand-1c42kn3 sand-78zum5 sand-6s0dn4 sand-167g77z sand-96k8nx sand-nuq7ks sand-dvlbce sand-f18ygs sand-mkeg23 sand-1y0btm7 sand-hpnuu7 sand-1ct8sxb sand-bovzr6 sand-jyw3bf sand-treaks sand-pmgbkh sand-settings-toast",style:{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",zIndex:2147483646,display:"flex",alignItems:"center",gap:10},children:[p.jsx("span",{className:"sand-1iyjqo2 sand-euugli",children:"Couldn\'t open that screen."}),typeof t==="function"?p.jsx("button",{type:"button",onClick:t,style:{font:"inherit",fontSize:"12.5px",padding:"4px 10px",borderRadius:8,cursor:"pointer",border:"1px solid rgba(128,128,128,.35)",background:"rgba(128,128,128,.12)",color:"inherit"},children:"Try again"}):null]})}';
 
 export function patchOriginalViewFallback(source) {
   return replaceExactlyOnce(source, VIEW_LOAD_FALLBACK_BEFORE, VIEW_LOAD_FALLBACK_AFTER, "lazy-view error toast");

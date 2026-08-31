@@ -578,6 +578,7 @@ test("opening a stopped computer wakes it, once, and only from the opened view",
   let ensured = 0;
   const stopped = { isStatusKnown: true, isStatusUnavailable: false, phase: "off", status: { state: "stopped", agentId: "cw_wake" }, ensure: () => { ensured += 1; return Promise.resolve(); } };
   const first = RBoxOpenPlaceholder(stopped, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
   assert.equal(ensured, 1, "a stopped computer is woken when its view is opened");
   assert.match(first.emptyMessage, /Waking/i, "and says so, rather than telling the person to go and type at it");
   assert.equal(first.isEmptyLoading, true);
@@ -585,6 +586,7 @@ test("opening a stopped computer wakes it, once, and only from the opened view",
   // A re-render must not wake it again — renders are frequent, wakes are not free.
   RBoxOpenPlaceholder(stopped, "local copy");
   RBoxOpenPlaceholder(stopped, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
   assert.equal(ensured, 1, "re-rendering must not wake the same computer repeatedly");
 
   // A running computer is left alone, and says what it is rather than spinning.
@@ -717,6 +719,7 @@ test("a screen that is still arriving is not reported as absent", async () => {
   const before = asked;
   await new Promise((r) => setTimeout(r, 2700));
   place(remote, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
   assert.ok(asked > before, "a screen that has not arrived must be asked for again");
 
   // A box with a screen says nothing and stops asking.
@@ -726,4 +729,20 @@ test("a screen that is still arriving is not reported as absent", async () => {
   }, "local copy");
   assert.equal(up.emptyMessage, undefined);
   assert.equal(up.isEmptyLoading, false);
+});
+
+// Asking the store to update while another component is rendering is what
+// tripped the error boundary, which then showed "Couldn't open that screen"
+// over a working desktop. Both calls must happen after the render.
+test("nothing asks the store to update during a render", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  assert.doesNotMatch(chrome, /;view\.retryStatus\(\);/, "retryStatus must not be called inline");
+  assert.match(chrome, /setTimeout\(function\(\)\{try\{view\.retryStatus\(\)\}/);
+  assert.match(chrome, /setTimeout\(function\(\)\{try\{Promise\.resolve\(view\.ensure\(\)\)/);
+
+  // And the failure view keeps the way out the original offered.
+  const fallback = eval(/const VIEW_LOAD_FALLBACK_AFTER = ([\s\S]*?);\n/.exec(src)[1]);
+  assert.match(fallback, /const t=n&&n\.retry/, "the retry callback must not be thrown away");
+  assert.match(fallback, /Try again/, "a stuck error needs a way out");
 });
