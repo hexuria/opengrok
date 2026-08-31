@@ -6,7 +6,7 @@ export const POWERSHELL_TIMEOUT_MS = 30_000;
 export class SandInstallerSignatureError extends Error {}
 const execFileAsync = promisify(execFile);
 async function runPowershellDefault(args: readonly string[]): Promise<{ stdout: string }> { return await execFileAsync("powershell.exe", [...args], { timeout: POWERSHELL_TIMEOUT_MS, windowsHide: true }); }
-function spawnDetachedDefault(command: string, args: readonly string[], onError?: (error: Error) => void): void { const child = spawn(command, [...args], { detached: true, stdio: "ignore" }); child.on("error", (error) => onError?.(error)); child.unref(); }
+function spawnDetachedDefault(command: string, args: readonly string[], onError?: (error: Error) => void): void { const child = spawn(command, [...args], { detached: true, stdio: "ignore", windowsHide: true }); child.on("error", (error) => onError?.(error)); child.unref(); }
 export class SandWindowsInstaller {
   constructor(private readonly options: { readonly quit: () => void; readonly log?: (message: string) => void; readonly signerAllowlist?: readonly string[]; readonly runPowershell?: (args: readonly string[]) => Promise<{ stdout: string }>; readonly spawnDetached?: (command: string, args: readonly string[], onError?: (error: Error) => void) => void }) {}
   async verifySignature(installerPath: string): Promise<void> {

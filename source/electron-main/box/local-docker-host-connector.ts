@@ -75,6 +75,7 @@ async function runDocker(args: readonly string[]): Promise<CommandResult> {
     const child = spawn(executable, [...args], {
       env: { ...process.env, PATH: dockerSearchPath() },
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     let output = "";
     const append = (chunk: Buffer): void => { output += chunk.toString(); if (output.length > 200_000) output = output.slice(-200_000); };
@@ -320,6 +321,7 @@ export async function ensureDesktopHost(
       env,
       stdio: ["ignore", logFd, logFd],
       detached: true,
+      windowsHide: true,
     });
   } finally {
     closeSync(logFd);
