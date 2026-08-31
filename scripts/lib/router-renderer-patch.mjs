@@ -171,19 +171,77 @@ a.jsx(se,{as:"span",color:connected?"primary":"secondary",size:"sm",children:det
 s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 
 const ROpenGrokErrorCopy={no_org_key:["No computer set up yet","An admin can add box.ascii.dev for your organisation on the server’s admin dashboard."],invalid_key:["The box.ascii.dev key was rejected","It may be wrong, expired, or revoked. An admin can replace it on the dashboard."],quota_exceeded:["No capacity left at box.ascii.dev","Your organisation’s account is out of boxes or credit."],provider_unreachable:["Could not reach box.ascii.dev","The server could not get through. This usually clears on its own."],provider_error:["box.ascii.dev refused the request","The provider answered with a failure."],not_supported:["Not available on this server","This deployment does not offer the computer that was asked for."],unknown:["A computer could not be set up","The server did not say why."]};
-function ROpenGrokRows(list){return a.jsx("div",{children:list.map((c,i)=>{const kindName=ROpenGrokKind[c.kind]||(c.kind?String(c.kind):""),ready=c.configured!==!1,detail=[kindName,c.state?String(c.state):null].filter(Boolean).join(" \u00b7 ")||"On your OpenGrok server.";return a.jsx(ie,{divided:i>0,description:detail,label:String(c.label||c.name||kindName||c.id),variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:ready?String(c.state||"Ready"):"Set up by your org admin"})},String(c.id))})})}
+function ROpenGrokReset({mode,onDone}){
+  const[s,e]=de.useState({asking:!1,busy:!1,note:null,error:null});
+  if(mode==="per-org")return a.jsx(ie,{divided:!0,description:"This computer belongs to your whole organisation. An admin can reset it from your server’s admin dashboard.",label:"Reset",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Admin only"})});
+  const run=async()=>{e(i=>({...i,busy:!0,error:null,note:null}));
+    try{const r=await window.desktop.agent.resetOpenGrokComputer();
+      const failed=r&&r.computerError;
+      e({asking:!1,busy:!1,error:failed?String(failed.message||failed.code||"The server could not set up a new computer."):null,
+         note:failed?null:"Done. New computer is "+String((r&&r.state)||"starting")+"."});
+      if(!failed&&onDone)onDone()}
+    catch(err){e(i=>({...i,busy:!1,asking:!1,error:String(err&&err.message||err)}))}};
+  return a.jsxs("div",{children:[
+    a.jsx(ie,{divided:!0,label:"Reset this computer",variant:"card",
+      description:s.asking
+        ?"This destroys the computer and everything saved on it. A new one is set up from your organisation’s current settings. This cannot be undone."
+        :"Throw this computer away and set up a fresh one. Its files are not kept.",
+      children:s.asking
+        ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
+            a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,asking:!1})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
+            a.jsx(oe,{disabled:s.busy,onClick:run,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Resetting…":"Reset and lose the files"})]})
+        :a.jsx(oe,{onClick:()=>e(i=>({...i,asking:!0,note:null,error:null})),shape:"rectangular",size:"sm",variant:"secondary",children:"Reset…"})}),
+    s.note?a.jsx(se,{as:"p",color:"secondary",size:"sm",style:{marginTop:8},children:s.note}):null,
+    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]})}
+function ROpenGrokRows(list,activeKind){return a.jsx("div",{children:list.map((c,i)=>{const kindName=ROpenGrokKind[c.kind]||(c.kind?String(c.kind):""),ready=c.configured!==!1,mine=c.active===!0||(activeKind!=null&&c.kind===activeKind),detail=[kindName,c.state?String(c.state):null].filter(Boolean).join(" \u00b7 ")||"On your OpenGrok server.",right=mine?"Your computer":ready?"Available to your org":"Set up by your org admin";return a.jsx(ie,{divided:i>0,description:detail,label:String(c.label||c.name||kindName||c.id),variant:"card",children:a.jsx(se,{as:"span",color:mine?"green":"secondary",size:"sm",children:right})},String(c.id))})})}
+const RLocalPerm=[{value:"always",label:"Always allow"},{value:"ask",label:"Ask every time"},{value:"never",label:"Never allow"}];
+function RLocalComputer(){
+  const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null});
+  de.useEffect(()=>{let alive=!0;
+    Promise.all([
+      window.desktop.agent.getLocalComputer().catch(()=>null),
+      window.desktop.localToolPermission.get().catch(()=>null),
+      window.desktop.localToolPermission.ceiling?window.desktop.localToolPermission.ceiling().catch(()=>null):Promise.resolve(null)
+    ]).then(r=>{if(!alive)return;const c=r[0]||{},p=r[1];
+      e(i=>({...i,name:c.name||"",hostname:c.hostname||"",isCustom:!!c.isCustom,draft:c.name||"",
+        permission:typeof p==="string"?p:(p&&typeof p.permission==="string"?p.permission:null),
+        ceiling:typeof r[2]==="string"?r[2]:(r[2]&&typeof r[2].permission==="string"?r[2].permission:null),
+        loaded:!0}))}).catch(()=>{alive&&e(i=>({...i,loaded:!0}))});
+    return()=>{alive=!1}},[]);
+  const save=async()=>{const next=s.draft.trim();e(i=>({...i,saving:!0,error:null}));
+    try{await window.desktop.agent.setLocalComputerName(next);
+      const c=await window.desktop.agent.getLocalComputer().catch(()=>null);
+      e(i=>({...i,saving:!1,name:(c&&c.name)||next,isCustom:!!(c&&c.isCustom),draft:(c&&c.name)||next}))}
+    catch(err){e(i=>({...i,saving:!1,error:String(err&&err.message||err)}))}};
+  const setPerm=async v=>{const was=s.permission;e(i=>({...i,permission:v,error:null}));
+    try{await window.desktop.localToolPermission.set(v)}
+    catch(err){e(i=>({...i,permission:was,error:String(err&&err.message||err)}))}};
+  if(!s.loaded)return a.jsx(ie,{description:"The computer you are using now.",label:"This computer",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Loading…"})});
+  const dirty=s.draft.trim()!==(s.name||"").trim();
+  return a.jsxs("div",{children:[
+    a.jsx(ie,{description:s.isCustom&&s.hostname?"Known to this network as "+s.hostname+".":"The computer you are using now.",label:"This computer",variant:"card",
+      children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
+        a.jsx("input",{"aria-label":"Name for this computer",className:RRouterInputClass,disabled:s.saving,
+          onChange:ev=>{const v=ev.currentTarget.value;e(i=>({...i,draft:v}))},
+          placeholder:s.hostname||"This computer",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:230},value:s.draft}),
+        a.jsx(oe,{disabled:s.saving||!dirty,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.saving?"Saving…":"Save"})]})}),
+    a.jsx(ie,{divided:!0,description:"Let a bot open files and run tasks on this computer. Auto-review still checks every action first.",label:"Execution on this computer",variant:"card",
+      children:a.jsx(ye,{"aria-label":"Execution on this computer",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
+        value:s.permission==null?null:s.permission,variant:"filled"})}),
+    s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
+    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
-function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null,computerError:null});
-const load=()=>window.desktop.agent.listOpenGrokComputers().then(r=>{if(r==null)return;e({computers:r.computers||[],signedIn:!!r.signedIn,error:r.error||null,computerError:r.computerError||null})}).catch(err=>e(i=>({...i,error:String(err&&err.message||err)})));
+function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null,computerError:null,activeKind:null,sharingMode:null});
+const load=()=>window.desktop.agent.listOpenGrokComputers().then(r=>{if(r==null)return;e({computers:r.computers||[],signedIn:!!r.signedIn,error:r.error||null,computerError:r.computerError||null,activeKind:r.activeKind||null,sharingMode:r.sharingMode||null})}).catch(err=>e(i=>({...i,error:String(err&&err.message||err)})));
 de.useEffect(()=>{load();const onChange=()=>load();window.addEventListener("sand-opengrok-changed",onChange);const id=setInterval(load,3e4);return()=>{clearInterval(id);window.removeEventListener("sand-opengrok-changed",onChange)}},[]);
 if(s.computers==null)return a.jsx(ie,{description:"Asking the server which computers it has.",label:"Computers",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Loading\u2026"})});
 if(s.error)return a.jsx(ie,{description:"The server did not answer. It may be an older build without the computer list.",label:"Computers",variant:"card",children:a.jsx(se,{as:"span",color:"red",size:"sm",children:String(s.error).slice(0,80)})});
-if(s.computerError){const c=ROpenGrokErrorCopy[s.computerError.code]||ROpenGrokErrorCopy.unknown,detail=String(s.computerError.message||"").trim();return a.jsxs("div",{children:[a.jsx(ie,{description:c[1],label:c[0],variant:"card",children:a.jsx(se,{as:"span",color:"red",size:"sm",children:"No computer"})}),detail?a.jsx(se,{as:"p",color:"secondary",size:"sm",style:{marginTop:8},children:detail}):null,s.computers.length>0?a.jsx("div",{style:{marginTop:8},children:ROpenGrokRows(s.computers)}):null]})}
+if(s.computerError){const known=ROpenGrokErrorCopy[s.computerError.code],detail=String(s.computerError.message||"").trim(),c=known||(detail?["A computer could not be set up",detail]:ROpenGrokErrorCopy.unknown);return a.jsxs("div",{children:[a.jsx(ie,{description:c[1],label:c[0],variant:"card",children:a.jsx(se,{as:"span",color:"red",size:"sm",children:"No computer"})}),detail&&known?a.jsx(se,{as:"p",color:"secondary",size:"sm",style:{marginTop:8},children:detail}):null,s.computers.length>0?a.jsx("div",{style:{marginTop:8},children:ROpenGrokRows(s.computers,s.activeKind)}):null]})}
 if(s.computers.length===0)return a.jsx(ie,{description:"A computer is added for your whole organisation, on your server\u2019s admin dashboard. Until then your bots run on the server itself.",label:"Computers",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"None yet"})});
-return ROpenGrokRows(s.computers)}
+return a.jsxs("div",{children:[ROpenGrokRows(s.computers,s.activeKind),a.jsx(ROpenGrokReset,{mode:s.sharingMode,onDone:load})]})}
 
 function RBoxRuntime(){const all=[{value:"remote",label:"Grok VM"},{value:"local-docker",label:"Local VM"},{value:"windows365",label:"Windows 365"},{value:"opengrok",label:"OpenGrok Server"}];const[s,e]=de.useState(()=>RBoxLast??{mode:ROpenGrokSeeded()?"opengrok":null,provider:null,status:null,error:null,busy:!1,windows365:null,account:null});de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,mode:i.busy?i.mode:typeof r.mode==="string"?r.mode:i.mode,status:r.status??null,windows365:r.windows365??null,account:r.account??null,error:null};RBoxLast=next;return next})};const load=()=>window.desktop.agent.getBoxRuntime().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r&&r.message||r)}))});window.desktop.agent.getInferenceRouter().then(r=>{if(!t||r==null)return;e(i=>{const next={...i,provider:typeof r.provider==="string"?r.provider:i.provider};RBoxLast=next;return next})}).catch(()=>{});const onProvider=n=>{const p=n&&n.detail&&n.detail.provider;if(typeof p==="string")e(i=>({...i,provider:p}))};window.addEventListener("sand-router-provider-changed",onProvider);load();const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",onProvider)}},[]);const RBoxOptions=s.provider==="cursor"?all:all.filter(n=>n.value!=="remote"||n.value==="opengrok");const t=async n=>{if(n==null)return;if(n==="remote"&&s.provider!=="cursor")n="local-docker";e(i=>({...i,mode:n,busy:!0,error:null}));try{const r=await window.desktop.agent.setBoxRuntime(n);try{if(self.__sandSetOpenGrokMode)self.__sandSetOpenGrokMode(n==="opengrok")}catch(_){}e(i=>({...i,mode:n,status:r&&r.status||null,windows365:r&&r.windows365||null,account:r&&r.account||null,busy:!1}));window.dispatchEvent(new CustomEvent("sand-box-runtime-changed",{detail:{mode:n}}))}catch(r){e(i=>({...i,mode:n,busy:!1,error:String(r&&r.message||r)}))}};const n=s.mode==="opengrok"?"Your OpenGrok server holds the bots and runs their work.":s.mode==="windows365"?"Enter Windows 365 credentials below, then Save and Connect.":s.mode==="remote"?(s.account&&s.account.detail||"Uses the Cursor account already signed into Grok Bot."):(s.status&&s.status.detail||"A Linux desktop in Docker on this Mac.");if(s.mode==="opengrok")return a.jsx(ROpenGrokComputers,{});return a.jsxs("div",{children:[a.jsx(ie,{description:n,label:"Computer for this account",variant:"card",children:a.jsx(ye,{"aria-label":"Computer for this account",onValueChange:t,options:RBoxOptions,placement:"bottom-end",size:"lg",value:s.mode==null?null:RBoxOptions.some(r=>r.value===s.mode)?s.mode:"local-docker",variant:"filled"})}),s.mode==="windows365"?a.jsxs("div",{style:{marginTop:8},children:[a.jsx(se,{as:"p",size:"sm",children:"Windows 365 credentials"}),a.jsx(RW365Setup,{})]}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:String(s.error)}):null]})}
-function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
+function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"This computer",children:a.jsx(RLocalComputer,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
 function RHardwareAcceleration(){
   const[t,n]=de.useState({enabled:!0,restartRequired:!1,changed:!1});
   de.useEffect(()=>{let c=!0;window.desktop.getHardwareAcceleration().then(d=>{if(c&&d)n(h=>({...h,enabled:d.enabled===!0}))}).catch(()=>{});return()=>{c=!1}},[]);
@@ -199,6 +257,61 @@ function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.val
 `;
 
 export const MAIN_CHROME_SOURCE = String.raw`
+function RSendNotDelivered(){
+  try{
+    const existing=document.querySelector("[data-sand-send-blocked]");
+    if(existing)existing.remove();
+    if(!document.querySelector("[data-sand-send-blocked-style]")){
+      const st=document.createElement("style");
+      st.setAttribute("data-sand-send-blocked-style","1");
+      st.textContent="[data-sand-send-blocked]{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483600;max-width:min(460px,92vw);padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.45;text-align:center;border:1px solid var(--sand-border-default,rgba(128,128,128,.3));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 12px 34px rgba(0,0,0,.28);animation:sand-sb-in .18s ease-out}"
+        +"@keyframes sand-sb-in{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translateX(-50%)}}";
+      document.head.appendChild(st);
+    }
+    const n=document.createElement("div");
+    n.setAttribute("data-sand-send-blocked","1");
+    n.setAttribute("role","status");
+    n.setAttribute("aria-live","polite");
+    n.textContent="This chat is still opening, so the message was not sent. Your text is still here \u2014 try again in a moment.";
+    document.body.appendChild(n);
+    setTimeout(()=>{try{n.remove()}catch{}},6000);
+  }catch{}
+}
+const RBoxWaking=new Map();
+function RBoxOpenPlaceholder(view,localMessage){
+  const off=(()=>{try{
+    if(view==null||view.isStatusUnavailable||!view.isStatusKnown)return!1;
+    const st=view.status&&typeof view.status.state==="string"?view.status.state:null;
+    return st!=null&&st!=="running";
+  }catch{return!1}})();
+  let waking=!1;
+  if(off&&view&&typeof view.ensure==="function"){
+    try{
+      const key=(view.status&&view.status.agentId)||"one";
+      const now=Date.now(),started=RBoxWaking.get(key)||0;
+      if(now-started>60000){RBoxWaking.set(key,now);Promise.resolve(view.ensure()).catch(()=>{});waking=!0}
+      else waking=now-started<40000;
+    }catch{}
+  }
+  const stated=RBoxEmptyMessage(view)??(view&&view.phase==="local"?localMessage:void 0);
+  const stalled=off&&!waking&&RBoxWaking.size>0;
+  const message=waking?"Waking this computer up\u2026"
+    :stalled?"This computer did not come up. The bot can still be asked to use it, which wakes it too."
+    :stated;
+  return{emptyMessage:message,isEmptyLoading:waking};
+}
+function RBoxEmptyMessage(view){
+  try{
+    if(view==null||view.isStatusUnavailable)return void 0;
+    if(!view.isStatusKnown)return void 0;
+    const state=view.status&&typeof view.status.state==="string"?view.status.state:null;
+    if(state==null)return void 0;
+    if(state==="running")return "This computer has no screen. It runs commands and files for this bot.";
+    if(state==="stopped")return "This computer is asleep. Send a message and it wakes up.";
+    if(state==="absent")return "This bot has no computer yet.";
+    return "This computer is "+state+".";
+  }catch{return void 0}
+}
 function RLoginWallSkipped(){try{return localStorage.getItem("sand-cursor-login-skip")==="1"&&localStorage.getItem("sand-opengrok-mode")!=="1"}catch{return!1}}
 function RRememberLoginWallSkip(){try{localStorage.setItem("sand-cursor-login-skip","1")}catch{}}
 function ROpenRouterSettings(){const labeled=n=>(n.getAttribute("aria-label")||n.textContent||"").trim();const click=label=>{const el=[...document.querySelectorAll("button,[role=tab],[role=menuitem]")].find(n=>labeled(n)===label);if(el){el.click();return!0}return!1};const fire=()=>{if(click("Router"))return!0;window.dispatchEvent(new KeyboardEvent("keydown",{key:",",code:"Comma",keyCode:188,which:188,metaKey:!0,ctrlKey:!1,bubbles:!0,cancelable:!0}));click("Settings");return click("Router")};let n=0;const id=setInterval(()=>{if(fire()||++n>50)clearInterval(id)},200)}
@@ -1456,6 +1569,64 @@ export function patchOriginalViewFallback(source) {
   return replaceExactlyOnce(source, VIEW_LOAD_FALLBACK_BEFORE, VIEW_LOAD_FALLBACK_AFTER, "lazy-view error toast");
 }
 
+/**
+ * The placeholder shown where a computer's screen would be.
+ *
+ * It falls through to "Booting up the computer" for every state it has no
+ * better word for, including a box that is up and simply has no screen. The
+ * view already holds the box status, so the message can be chosen from it.
+ */
+/**
+ * The composer's send, when it has nothing to send to.
+ *
+ * It returns silently: the button is enabled, the click lands, the typed text
+ * stays in the box, and the message is never delivered. Watched live, a click
+ * vanished and the identical click worked minutes later. Say so instead.
+ */
+/**
+ * The expanded computer view, which had a word only for a local computer.
+ *
+ * For a remote box it passed no message and set the busy flag, so the
+ * placeholder fell through to "Booting up the computer" and stayed there. The
+ * view holds the box status, so the same message the strip uses applies here.
+ *
+ * Opening this view also wakes a stopped box. Someone opening their computer
+ * is asking to use it; being told to go and type a message at it instead, by a
+ * panel already holding the function that wakes it, is a poor answer.
+ */
+export function patchOriginalExpandedPlaceholder(source) {
+  return replaceExactlyOnce(
+    source,
+    '...d.phase==="local"?{emptyMessage:ZOn}:{},isEmptyLoading:d.phase!=="local"',
+    '...RBoxOpenPlaceholder(d,ZOn)',
+    "expanded computer placeholder",
+  );
+}
+
+export function patchOriginalSilentSend(source) {
+  return replaceExactlyOnce(
+    source,
+    "if(we==null)return;const Pe=_",
+    "if(we==null){RSendNotDelivered();return}const Pe=_",
+    "silent send bail",
+  );
+}
+
+export function patchOriginalComputerPlaceholder(source) {
+  source = replaceExactlyOnce(
+    source,
+    "This agent runs on your machine. There's no separate desktop to stream.",
+    "This computer has no graphical screen. It runs shell commands and files for this bot.",
+    "headless computer copy",
+  );
+  return replaceExactlyOnce(
+    source,
+    "emptyMessage:void 0,isEmptyLoading:A,pullPercent:e.pullPercent",
+    "emptyMessage:RBoxEmptyMessage(e),isEmptyLoading:A,pullPercent:e.pullPercent",
+    "computer placeholder message",
+  );
+}
+
 export function patchOriginalMainChrome(source) {
   if (source.includes("function RInstallFirstRunLogins()")) {
     throw new Error("Original renderer main chrome is already patched.");
@@ -1494,7 +1665,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
-    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source)))))))))))))],
+    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))],
     ["panel", panelCandidates[0], patchOriginalSettingsPanel],
   ]) {
     const patched = transform(candidate.source);

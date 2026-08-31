@@ -110,6 +110,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /label:"Codex"/);
   // Replaced by the login page's gear and provider sheet.
   assert.match(rendererPatch, /sand-lp-back/);
+  assert.match(rendererPatch, /function RSendNotDelivered\(\)/);
+  assert.match(rendererPatch, /if\(we==null\)\{RSendNotDelivered\(\);return\}/);
   assert.match(rendererPatch, /patchOriginalMainChrome/);
   assert.match(rendererPatch, /sand-cursor-login-skip/);
   assert.match(rendererPatch, /first-run-login-skip/);

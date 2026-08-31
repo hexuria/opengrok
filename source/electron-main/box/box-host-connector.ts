@@ -5,7 +5,7 @@ import { type EnsureSandBoxRequest, type EnsureSandBoxResponse, type ForceRecrea
 import { GrokBotService } from "../../packages/proto/generated/aiserver/v1/grok_bot_connect.js";
 import { ErrorDetails } from "../../packages/proto/generated/aiserver/v1/utils_pb.js";
 import { createSandCursorBackendClient, getSandInferenceBackendUrl } from "../../shared/node/cursor-backend/cursor-inference.js";
-import { getAccessTokenExpiryMs } from "../../shared/node/cursor-token.js";
+import { getAccessTokenExpiryMs, getConfiguredBackendUrl } from "../../shared/node/cursor-token.js";
 import { getSandBackendClientHeaders } from "../../shared/node/sand-client-metadata.js";
 import { parseSandBoxMigrationOperationId } from "../../shared/box-migration.js";
 import { GATEWAY_ACCESS_DENIED_MESSAGE_MARKER, CLOUD_AGENT_STORAGE_DISABLED, GATEWAY_NO_STORAGE_MESSAGE_MARKER, SAND_BOX_BLOCKED, SAND_BOX_BLOCK_REASON_KEY, encodeSandBoxBlockedMessage, type SandBoxBlockedInfo } from "../../shared/gateway-reachability.js";
@@ -97,13 +97,35 @@ export class BrokeredHostConnector {
     this.blocked = undefined;
     this.updateSink?.noteBackendUpdateRequirement(false);
     if (box.gatewayUrl.length === 0) throw new SandBoxHostConnectError("Broker did not expose the in-box Sand gateway (gateway_url empty); the backend stamps it on every box — check the backend version/logs.");
-    const connection = buildConnection(box.gatewayUrl, box.gatewayToken, box.networkToken, { primaryUrl: box.vncUrl, forkBaseUrl: box.forkVncBaseUrl });
+    let connection = buildConnection(box.gatewayUrl, box.gatewayToken, box.networkToken, { primaryUrl: box.vncUrl, forkBaseUrl: box.forkVncBaseUrl });
+    const accountHeaders = await this.openGrokAccountHeaders(box.gatewayUrl);
+    if (accountHeaders != null) connection = { ...connection, headers: { ...(connection.headers ?? {}), ...accountHeaders } };
     try {
       console.log(`[sand][remote-box] account computer gateway=${new URL(box.gatewayUrl).host} vncProxy=${connection.vncProxy == null ? "no" : "yes"}`);
     } catch {
       console.log("[sand][remote-box] account computer connected");
     }
     return connection;
+  }
+
+  /**
+   * The account this gateway call is for, when the gateway is our own server.
+   *
+   * Asks for a *valid* token rather than a stored one: an access token lives an
+   * hour, and a stale one identifies nobody. A failure here is not a reason to
+   * refuse the call - without the header the server falls back to its configured
+   * account, which is what happened before this existed.
+   */
+  private async openGrokAccountHeaders(gatewayUrl: string): Promise<Record<string, string> | undefined> {
+    let backendUrl: string;
+    try {
+      backendUrl = getConfiguredBackendUrl();
+      if (new URL(gatewayUrl).origin !== new URL(backendUrl).origin) return undefined;
+    } catch { return undefined; }
+    try {
+      const accessToken = await this.deps.getAccessToken({ backendUrl });
+      return accessToken.length === 0 ? undefined : { [OPENGROK_ACCOUNT_HEADER]: accessToken };
+    } catch { return undefined; }
   }
 
   async recreate({ preserveData, force = false }: { preserveData: boolean; force?: boolean }) {
@@ -143,6 +165,9 @@ export class BrokeredHostConnector {
     } catch { return undefined; }
   }
 }
+
+/** Names whose account a gateway call is for; the server verifies the signature. */
+export const OPENGROK_ACCOUNT_HEADER = "x-opengrok-account";
 
 export class EnvDescriptorHostConnector {
   constructor(private readonly env: NodeJS.ProcessEnv = process.env) {}

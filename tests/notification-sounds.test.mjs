@@ -339,3 +339,60 @@ test("the checked-in tones are the official 0.27 48 kHz stereo PCM WAV files", a
   assert.match(readme, /tmp-2-tick-DY1KrPne\.wav/);
   assert.doesNotMatch(readme, /These five WAV files are \*\*self-authored\*\*/);
 });
+
+// Closing the window does not stop the coordinator posting agent events at it,
+// and a destroyed window is not a null one — it is still an object, so the null
+// check passed and asking it whether it was focused threw "Object has been
+// destroyed", which took the whole main process down.
+test("a window that is being torn down does not crash the notifier", async () => {
+  const loaded = await loadModule(
+    "source/electron-main/notifications/os-notification-manager.ts",
+    "os-notification-manager.mjs",
+  );
+  const mod = loaded.module;
+  try {
+    const agents = [{ id: "a1", name: "Ada", status: "running", unread: true, updatedAtMs: 1 }];
+
+    // A window that says it is destroyed must be treated as absent.
+    const shown = [];
+    const destroyed = new mod.SandOsNotificationManager({
+      getWindow: () => ({
+        isDestroyed: () => true,
+        isFocused: () => { throw new Error("Object has been destroyed"); },
+        isMinimized: () => false, restore() {}, show() {}, focus() {},
+      }),
+      isSupported: () => true,
+      createNotification: () => { shown.push(1); return { close() {}, on() {} }; },
+      openAgent: () => {},
+    });
+    destroyed.handleAgentsEvent({ agents });
+    destroyed.handleAgentUpsertedEvent({ agent: agents[0] });
+    assert.equal(shown.length, 0, "a window that is gone must not be notified about");
+
+    // And one destroyed between the check and the question — the real race —
+    // must not throw either.
+    const racing = new mod.SandOsNotificationManager({
+      getWindow: () => ({
+        isDestroyed: () => false,
+        isFocused: () => { throw new Error("Object has been destroyed"); },
+        isMinimized: () => false, restore() {}, show() {}, focus() {},
+      }),
+      isSupported: () => true,
+      createNotification: () => ({ close() {}, on() {} }),
+      openAgent: () => {},
+    });
+    racing.handleAgentsEvent({ agents });
+    racing.handleAgentUpsertedEvent({ agent: agents[0] });
+
+    // A getWindow that throws outright is also survivable.
+    const throwing = new mod.SandOsNotificationManager({
+      getWindow: () => { throw new Error("Object has been destroyed"); },
+      isSupported: () => true,
+      createNotification: () => ({ close() {}, on() {} }),
+      openAgent: () => {},
+    });
+    throwing.handleAgentsEvent({ agents });
+  } finally {
+    await loaded.dispose();
+  }
+});
