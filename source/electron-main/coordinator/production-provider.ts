@@ -1,7 +1,4 @@
 import { statSync } from "node:fs";
-import { createLocalToolAskWatcher } from "../local-exec/local-tool-ask-prompt.js";
-import { answerLocalToolPendingAsk, pruneLocalToolPendingAsks, readLocalToolPendingAsks } from "../../host/local-exec/local-tool-pending-asks.js";
-import { recordLocalToolApproval as persistAskApproval } from "../../host/local-exec/local-tool-approvals.js";
 import { OPENGROK_DAEMON_TOKEN_SECRET } from "../../shared/box-runtime.js";
 
 import type {
@@ -410,22 +407,11 @@ export function createProductionCoordinatorAdapter<
       const prompt = createWebAuthnPromptController({
         createWindow: ports.createWebAuthnPromptWindow,
       });
-      // When the local-exec daemon holds a request to ask about, put the
-      // question in front of the person. The daemon writes the question, this
-      // shows it, and an allow becomes the local approval the daemon's own
-      // gate then finds - the same file, so there is one source of truth.
-      const askWatcher = createLocalToolAskWatcher({
-        readPendingAsks: () => readLocalToolPendingAsks(),
-        recordApproval: (approval) => persistAskApproval(approval as Parameters<typeof persistAskApproval>[0]),
-        answerAsk: (id, decision) => answerLocalToolPendingAsk(id, decision),
-        createWindow: (options) => ports.createWebAuthnPromptWindow(options),
-        reportFailure: (error) => ports.reportFailure("coordinator", "local-tool-ask", error),
-      });
-      const askTimer = setInterval(() => {
-        void pruneLocalToolPendingAsks(Date.now()).catch(() => undefined);
-        void askWatcher.poll();
-      }, 700);
-      askTimer.unref();
+      // The daemon's hold-and-ask file is the machine's gate; the inline
+      // transcript card answers it (the approval is recorded before the
+      // server resumes, so the held frame finds it). Nothing pops a window:
+      // the user ruled the modal out, so a frame that arrives with no
+      // recorded approval simply expires at the daemon's 90s hold.
       let focusedState = { isFocused: false };
       let disposed = false;
       let observationSequence = 0;
@@ -606,7 +592,6 @@ export function createProductionCoordinatorAdapter<
           disposed = true;
           observationSequence += 1;
           unsubscribe();
-          clearInterval(askTimer);
           prompt.finish();
           if (active === accountRuntime) active = undefined;
           await accountRuntime.dispose();
