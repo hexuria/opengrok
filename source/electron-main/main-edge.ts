@@ -116,6 +116,32 @@ function invoke(target: UnknownRecord, method: string, ...args: unknown[]): unkn
 function req(value: unknown): UnknownRecord { return typeof value === "object" && value != null && !Array.isArray(value) ? value as UnknownRecord : {}; }
 function detectTimeZone(): string | null { const value = Intl.DateTimeFormat().resolvedOptions().timeZone; return value.length > 0 ? value : null; }
 const sleep = (milliseconds: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, milliseconds));
+/**
+ * Account secrets for the OpenGrok account API, refreshed before use.
+ *
+ * The stored access token lives an hour; replaying it raw meant every
+ * account-scoped call started failing an hour after sign-in. Ask the auth
+ * service for a valid token first - the same move listOpenGrokComputers
+ * already makes - and fall back to the stored one only when refresh is
+ * unavailable, because refusing to refresh is not a reason to skip the call.
+ */
+function openGrokAccountSecrets(deps: MainEdgeDeps, gatewayUrl: string): { readSecret(key: string): Promise<string | null> } {
+  return {
+    readSecret: async (key: string): Promise<string | null> => {
+      const secretStore = await import("./secrets/secret-store.js");
+      const stored = (await secretStore.readSecret(key)) ?? "";
+      if (key !== OPENGROK_ACCESS_TOKEN_SECRET) return stored.length === 0 ? null : stored;
+      let access = stored;
+      try {
+        const fresh = await Promise.resolve(invoke(deps.cursorAccount, "getValidAccessToken", { backendUrl: gatewayUrl }));
+        if (typeof fresh === "string" && fresh.length > 0) access = fresh;
+      } catch { /* see above */ }
+      if (access !== stored && access.length > 0) await secretStore.writeSecret(key, access);
+      return access.length === 0 ? null : access;
+    },
+  };
+}
+
 function subscriptionAuthOf(deps: MainEdgeDeps): SubscriptionCliAuthPort {
   return deps.subscriptionAuth ?? createSubscriptionCliAuthWiring().port;
 }
@@ -462,7 +488,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       if (machineId.length === 0 || !hasToken) return { available: true, enrolled: false };
       try {
         const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-        const policy = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        const policy = await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
           path: "/local-exec/policy", query: { machine: machineId },
         }) as Record<string, unknown> | undefined;
         const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -482,7 +508,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
       const secrets = await import("./secrets/secret-store.js");
       const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-      const reply = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+      const reply = await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
         path: "/local-exec/daemon", method: "POST", body: { label },
       }) as Record<string, unknown> | undefined;
       const machineId = typeof reply?.machineId === "string" ? reply.machineId : "";
@@ -504,7 +530,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       if (typeof gatewayUrl === "string" && gatewayUrl.length > 0 && machineId.length > 0) {
         try {
           const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-          await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
             path: `/local-exec/daemon/${encodeURIComponent(machineId)}`, method: "DELETE",
           });
         } catch { /* the credential is already gone from this machine */ }
@@ -520,7 +546,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const machineId = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
       invariant(machineId.length > 0, "This computer is not enrolled for remote control.");
       const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-      await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+      await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
         path: "/local-exec/policy", method: "PUT", body: { machineId, mode },
       });
       return { mode };
