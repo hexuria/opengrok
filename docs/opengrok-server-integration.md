@@ -158,7 +158,7 @@ breaks the whole thing.
 | `promptAcceptanceStatus` | the client asks whether a prompt was taken |
 
 A real model door is required for this tier to mean anything. It is live
-(`gpt-5.6-terra`); while it was `OG_MODEL_DOOR=mock` every reply was an echo,
+(`gpt-5.6-luna`); while it was `OG_MODEL_DOOR=mock` every reply was an echo,
 which is indistinguishable from a working model if the only test is
 "reply with exactly X". Test with a question whose answer is not in the prompt.
 

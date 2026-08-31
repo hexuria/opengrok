@@ -198,6 +198,12 @@ const RRemoteModes=[
   {value:"never",label:"Never"},
   {value:"ask",label:"Ask every time"},
   {value:"bypass",label:"Always allow"}];
+function RRuleRow(kind,pattern,onDelete,busy){
+  return a.jsxs("div",{key:kind+":"+pattern,className:"sand-9f619 sand-78zum5",style:{gap:8,alignItems:"center",justifyContent:"space-between"},children:[
+    a.jsxs("div",{className:"sand-9f619 sand-78zum5",style:{gap:8,alignItems:"center",minWidth:0},children:[
+      a.jsx(se,{as:"span",color:kind==="allow"?"secondary":"red",size:"sm",children:kind==="allow"?"Allow":"Never"}),
+      a.jsx(se,{as:"span",color:"secondary",size:"sm",style:{fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},children:pattern})]}),
+    a.jsx(oe,{disabled:busy,onClick:function(){onDelete(kind,pattern)},shape:"rectangular",size:"sm",variant:"secondary","aria-label":"Delete this rule",children:"Delete"})]})}
 function RRemoteControl(){
   const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:!1});
   const load=()=>window.desktop.agent.getRemoteControl().then(r=>{if(r==null)return;
@@ -218,6 +224,9 @@ function RRemoteControl(){
   const setMode=async v=>{const was=s.mode;e(i=>({...i,mode:v,error:null}));
     try{await window.desktop.agent.setRemoteControlMode(v)}
     catch(err){e(i=>({...i,mode:was,error:String(err&&err.message||err)}))}};
+  const removeRule=async(kind,pattern)=>{e(i=>({...i,busy:!0,error:null}));
+    try{await window.desktop.agent.deleteRemoteControlRule(kind,pattern);await load();e(i=>({...i,busy:!1}))}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
   if(!s.enrolled)return a.jsxs("div",{children:[
     a.jsx(ie,{variant:"card",label:"Let your bots use this computer",
       description:"Off. A bot on your server cannot reach this Mac at all. Turn this on and it can ask to run commands here — useful for reaching this machine from your phone, and worth understanding before you do it.",
@@ -231,9 +240,10 @@ function RRemoteControl(){
       children:a.jsx(ye,{"aria-label":"Bots using this computer",onValueChange:setMode,options:RRemoteModes,
         placement:"bottom-end",size:"lg",value:s.mode,variant:"filled"})}),
     s.deny.length>0||s.allow.length>0?a.jsx(ie,{divided:!0,variant:"card",label:"Standing rules",
-      description:"Commands you have already answered for. Managed from the prompt when it appears.",
-      children:a.jsx(se,{as:"span",color:"secondary",size:"sm",
-        children:String(s.allow.length)+" allowed, "+String(s.deny.length)+" denied"})}):null,
+      description:"Commands you have answered Always or Never for. Delete one to be asked again.",
+      children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:6},children:[
+        ...s.allow.map(function(p){return RRuleRow("allow",p,removeRule,s.busy)}),
+        ...s.deny.map(function(p){return RRuleRow("deny",p,removeRule,s.busy)})]})}):null,
     a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
       description:s.confirming?"This computer stops being reachable and its credential is destroyed. You can turn it on again later.":"Stop your bots reaching this computer.",
       children:s.confirming
@@ -243,7 +253,7 @@ function RRemoteControl(){
         :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
-const RLocalPerm=[{value:"always",label:"Always allow"},{value:"ask",label:"Ask every time"},{value:"never",label:"Never allow"}];
+const RLocalPerm=[{value:"always",label:"On"},{value:"never",label:"Off"}];
 function RLocalComputer(){
   const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null});
   de.useEffect(()=>{let alive=!0;
@@ -274,9 +284,9 @@ function RLocalComputer(){
           onChange:ev=>{const v=ev.currentTarget.value;e(i=>({...i,draft:v}))},
           placeholder:s.hostname||"This computer",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:230},value:s.draft}),
         a.jsx(oe,{disabled:s.saving||!dirty,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.saving?"Saving…":"Save"})]})}),
-    a.jsx(ie,{divided:!0,description:"Let a bot open files and run tasks on this computer. Auto-review still checks every action first.",label:"Execution on this computer",variant:"card",
-      children:a.jsx(ye,{"aria-label":"Execution on this computer",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
-        value:s.permission==null?null:s.permission,variant:"filled"})}),
+    a.jsx(ie,{divided:!0,description:"When on, bots on your server can run commands on this computer. Turn it off to stop them, whatever a rule or the server says. Per-command consent still happens on the server.",label:"This computer accepts bot commands",variant:"card",
+      children:a.jsx(ye,{"aria-label":"This computer accepts bot commands",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
+        value:s.permission==null?null:s.permission==="never"?"never":"always",variant:"filled"})}),
     s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
@@ -1412,6 +1422,19 @@ const A11Y_ANNOUNCE_HELPER = ';(()=>{try{'
 const LOCAL_TOOL_TITLE_BEFORE = 'hideBadge:!0,leading:Y,title:TLn,...U}';
 const LOCAL_TOOL_TITLE_AFTER = 'hideBadge:!0,leading:Y,title:(self.__sandLocalToolAskTitle&&self.__sandLocalToolAskTitle(s.action)||TLn),...U}';
 
+const CARD_LOCAL_FLIP_BEFORE = 'if(e==="always"||e==="never")try{await n.setPermission(e)!==e&&(e=e==="always"?"allow-once":"deny")}catch{e=e==="always"?"allow-once":"deny"}';
+// One consent model: the card's Always/Never write a SERVER standing rule and
+// nothing else. Upstream also flipped the Mac's own permission here - which in
+// the on/off world meant a single command's "Never" turned the whole machine
+// off, and "Always" reached across to the local switch. Both are wrong now:
+// the switch is set only in Settings. Drop the flip; the resolution still goes
+// to resolveLocalToolPermission (the server makes the rule) and allow-once
+// still records the local approval the Cursor route reads.
+const CARD_LOCAL_FLIP_AFTER = '';
+export function patchOriginalCardLocalFlip(source) {
+  return replaceExactlyOnce(source, CARD_LOCAL_FLIP_BEFORE, CARD_LOCAL_FLIP_AFTER, "card local-permission flip removal");
+}
+
 export function patchOriginalLocalToolAsk(source) {
   return replaceExactlyOnce(source, LOCAL_TOOL_TITLE_BEFORE, LOCAL_TOOL_TITLE_AFTER, "local tool ask title");
 }
@@ -1426,6 +1449,53 @@ export function patchOriginalLocalToolAsk(source) {
 // signed in through Codex or Claude and the app is working perfectly. It now
 // names whoever the current provider says you are, and offers to sign out of
 // that rather than into Cursor.
+const AGENT_AUTOREVIEW_HELPER = ';(()=>{try{'
+  + 'var css=document.createElement("style");css.textContent=".sand-lp-ar{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(127,127,127,.28);border-radius:10px;display:flex;flex-direction:column;gap:8px}.sand-lp-ar h4{margin:0;font-size:13px}.sand-lp-ar .lp-ar-sub{opacity:.62;font-size:12px;margin:0}.sand-lp-ar textarea{width:100%;min-height:52px;font:12px/1.4 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;resize:vertical}.sand-lp-ar .lp-ar-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sand-lp-ar button{font:inherit;font-size:12px;padding:5px 10px;border-radius:6px;border:1px solid rgba(127,127,127,.4);background:transparent;color:inherit;cursor:pointer}.sand-lp-ar .lp-ar-err{color:#f87171;font-size:12px;margin:0}";'
+  + '(document.head||document.documentElement).appendChild(css);'
+  + 'var currentAgent=function(){var it=document.querySelector(\'.sand-agent-item[aria-current="page"]\');return it?it.getAttribute("data-agent-id"):null};'
+  + 'var mount=function(pane){'
+  + '  var agentId=currentAgent();if(!agentId)return;'
+  + '  var existing=pane.querySelector(".sand-lp-ar");'
+  + '  if(existing&&existing.getAttribute("data-lp-ar")===agentId)return;'
+  + '  if(existing)existing.remove();'
+  + '  var a=window.desktop&&window.desktop.agent;if(!a||!a.getAgentAutoReview)return;'
+  + '  var box=document.createElement("div");box.className="sand-lp-ar";box.setAttribute("data-lp-ar",agentId);'
+  + '  box.innerHTML=\'<h4>Auto-review for this agent</h4>\''
+  + '    +\'<p class="lp-ar-sub" data-ar-badge></p>\''
+  + '    +\'<label class="lp-ar-row"><span>Reviewing</span><select data-ar-enabled><option value="inherit">Inherit from global</option><option value="on">On</option><option value="off">Off</option></select></label>\''
+  + '    +\'<p class="lp-ar-sub">Allow (one rule per line)</p><textarea data-ar-allow placeholder="e.g. read files under my project"></textarea>\''
+  + '    +\'<p class="lp-ar-sub">Block (one rule per line)</p><textarea data-ar-block placeholder="e.g. anything that installs software"></textarea>\''
+  + '    +\'<div class="lp-ar-row"><button data-ar-save>Save for this agent</button><button data-ar-reset>Reset to global</button></div>\''
+  + '    +\'<p class="lp-ar-err" data-ar-err></p>\';'
+  + '  pane.appendChild(box);'
+  + '  var q=function(k){return box.querySelector("[data-ar-"+k+"]")};'
+  + '  var badge=q("badge"),sel=q("enabled"),allow=q("allow"),block=q("block"),save=q("save"),reset=q("reset"),err=q("err");'
+  + '  var load=function(){a.getAgentAutoReview(agentId).then(function(r){'
+  + '    if(!r||r.available===false){box.style.display="none";return}'
+  + '    if(r.error){err.textContent=String(r.error);return}'
+  + '    var row=r.row||null,eff=r.effective||{},by=(eff&&eff.decidedBy)||{};'
+  + '    sel.value=row&&typeof row.enabled==="boolean"?(row.enabled?"on":"off"):"inherit";'
+  + '    allow.value=row&&typeof row.allowInstructions==="string"?row.allowInstructions:"";'
+  + '    block.value=row&&typeof row.blockInstructions==="string"?row.blockInstructions:"";'
+  + '    var w=function(f){return by[f]==="coworker"?"this agent":by[f]==="global"?"global":"default"};'
+  + '    badge.textContent="Effective: "+(eff.enabled?"on":"off")+" - enabled from "+w("enabled")+", allow from "+w("allowInstructions")+", block from "+w("blockInstructions")+".";'
+  + '  }).catch(function(e){err.textContent=String(e&&e.message||e)})};'
+  + '  save.addEventListener("click",function(){err.textContent="";'
+  + '    var enabled=sel.value==="on"?!0:sel.value==="off"?!1:null;'
+  + '    var mk=function(t){return t.split(String.fromCharCode(10)).map(function(x){return x.trim()}).filter(Boolean)};'
+  + '    var inheritAll=sel.value==="inherit"&&allow.value.trim()===""&&block.value.trim()==="";'
+  + '    var done=function(){load()};var oops=function(e){err.textContent=String(e&&e.message||e)};'
+  + '    if(inheritAll){a.deleteAgentAutoReview(agentId).then(done).catch(oops);return}'
+  + '    var allowV=sel.value==="inherit"&&allow.value.trim()===""?null:mk(allow.value);'
+  + '    var blockV=sel.value==="inherit"&&block.value.trim()===""?null:mk(block.value);'
+  + '    a.setAgentAutoReview(agentId,{enabled:enabled,allowInstructions:allowV,blockInstructions:blockV}).then(done).catch(oops)});'
+  + '  reset.addEventListener("click",function(){err.textContent="";a.deleteAgentAutoReview(agentId).then(function(){load()}).catch(function(e){err.textContent=String(e&&e.message||e)})});'
+  + '  load();'
+  + '};'
+  + 'var scan=function(){var ps=document.querySelectorAll(".sand-agent-settings");for(var i=0;i<ps.length;i++)mount(ps[i])};'
+  + 'scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0});'
+  + '}catch(_){}})();';
+
 const ACCOUNT_CARD_HELPER = ';(()=>{try{'
   + 'var t=document.createElement("style");t.textContent=".sand-agents-empty{display:none!important}";'
   + '(document.head||document.documentElement).appendChild(t);'
@@ -1694,7 +1764,8 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalGallerySizes(patched);
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
-  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ACCOUNT_CARD_HELPER + patched;
+  patched = patchOriginalCardLocalFlip(patched);
+  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ACCOUNT_CARD_HELPER + AGENT_AUTOREVIEW_HELPER + patched;
 }
 
 
@@ -1840,6 +1911,8 @@ export function patchOriginalMainChrome(source) {
   return `${source}\n${MAIN_CHROME_SOURCE}`;
 }
 
+const EXECUTION_ROW_ANCHOR='const De="Execution on Local Computer",ia="Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.";function da(){';
+
 export function patchOriginalSettingsPanel(source) {
   if (containsUnquotedCodexIdentifier(COMPONENT_SOURCE)) {
     throw new SyntaxError("Router renderer patch must quote the string 'codex' (or \"codex\"). An unquoted codex identifier breaks npm run package.");
@@ -1847,6 +1920,17 @@ export function patchOriginalSettingsPanel(source) {
   let patched = replaceExactlyOnce(source, COMPONENT_ANCHOR, `${COMPONENT_SOURCE}${COMPONENT_ANCHOR}`, "component insertion");
   patched = replaceExactlyOnce(patched, GENERAL_BEFORE, GENERAL_AFTER, "Router panel switch");
   patched = replaceExactlyOnce(patched, USAGE_BEFORE, USAGE_AFTER, "Usage panel switch");
+  // The machine execution permission is set in one place only - Settings >
+  // Computer > This computer. This General-tab twin let the two drift apart on
+  // screen (the user hit exactly that: General said Never while Computer said
+  // Ask), and the latest Grok Bot deleted its copy too. The row is one
+  // self-contained component, so it is excised by making it render nothing.
+  patched = replaceExactlyOnce(
+    patched,
+    EXECUTION_ROW_ANCHOR,
+    `${EXECUTION_ROW_ANCHOR}return null;`,
+    "General-tab execution row excision",
+  );
   return patched;
 }
 
