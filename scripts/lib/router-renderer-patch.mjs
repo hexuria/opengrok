@@ -277,6 +277,25 @@ function RSendNotDelivered(){
     setTimeout(()=>{try{n.remove()}catch{}},6000);
   }catch{}
 }
+const RBoxWaking=new Map();
+function RBoxOpenPlaceholder(view,localMessage){
+  const off=(()=>{try{
+    if(view==null||view.isStatusUnavailable||!view.isStatusKnown)return!1;
+    const st=view.status&&typeof view.status.state==="string"?view.status.state:null;
+    return st!=null&&st!=="running";
+  }catch{return!1}})();
+  let waking=!1;
+  if(off&&view&&typeof view.ensure==="function"){
+    try{
+      const key=(view.status&&view.status.agentId)||"one";
+      const now=Date.now(),last=RBoxWaking.get(key)||0;
+      if(now-last>60000){RBoxWaking.set(key,now);Promise.resolve(view.ensure()).catch(()=>{})}
+      waking=!0;
+    }catch{}
+  }
+  const message=waking?"Waking this computer up\u2026":(RBoxEmptyMessage(view)??(view&&view.phase==="local"?localMessage:void 0));
+  return{emptyMessage:message,isEmptyLoading:waking||(view!=null&&view.phase!=="local"&&message==null)};
+}
 function RBoxEmptyMessage(view){
   try{
     if(view==null||view.isStatusUnavailable)return void 0;
@@ -1566,12 +1585,16 @@ export function patchOriginalViewFallback(source) {
  * For a remote box it passed no message and set the busy flag, so the
  * placeholder fell through to "Booting up the computer" and stayed there. The
  * view holds the box status, so the same message the strip uses applies here.
+ *
+ * Opening this view also wakes a stopped box. Someone opening their computer
+ * is asking to use it; being told to go and type a message at it instead, by a
+ * panel already holding the function that wakes it, is a poor answer.
  */
 export function patchOriginalExpandedPlaceholder(source) {
   return replaceExactlyOnce(
     source,
     '...d.phase==="local"?{emptyMessage:ZOn}:{},isEmptyLoading:d.phase!=="local"',
-    'emptyMessage:RBoxEmptyMessage(d)??(d.phase==="local"?ZOn:void 0),isEmptyLoading:d.phase!=="local"&&RBoxEmptyMessage(d)==null',
+    '...RBoxOpenPlaceholder(d,ZOn)',
     "expanded computer placeholder",
   );
 }

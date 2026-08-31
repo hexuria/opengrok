@@ -563,3 +563,39 @@ test("reset is offered for your own computer and withheld for a shared one", asy
   const mainEdge = await readFile(path.join(repoRoot, "source", "electron-main", "main-edge.ts"), "utf8");
   assert.match(mainEdge, /invariant\(listed\.sharingMode !== "per-org"/);
 });
+
+// Opening a computer is a request to use it. Telling the person it is asleep
+// and to go type a message at it, from a panel already holding the function
+// that wakes it, is a poor answer. But waking costs money at the provider, so
+// it happens only from the view someone deliberately opened, and not more than
+// once a minute however often React re-renders it.
+test("opening a stopped computer wakes it, once, and only from the opened view", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  const RBoxOpenPlaceholder = new Function(`${chrome}\nreturn RBoxOpenPlaceholder;`)();
+
+  let ensured = 0;
+  const stopped = { isStatusKnown: true, isStatusUnavailable: false, phase: "off", status: { state: "stopped", agentId: "cw_wake" }, ensure: () => { ensured += 1; return Promise.resolve(); } };
+  const first = RBoxOpenPlaceholder(stopped, "local copy");
+  assert.equal(ensured, 1, "a stopped computer is woken when its view is opened");
+  assert.match(first.emptyMessage, /Waking/i, "and says so, rather than telling the person to go and type at it");
+  assert.equal(first.isEmptyLoading, true);
+
+  // A re-render must not wake it again — renders are frequent, wakes are not free.
+  RBoxOpenPlaceholder(stopped, "local copy");
+  RBoxOpenPlaceholder(stopped, "local copy");
+  assert.equal(ensured, 1, "re-rendering must not wake the same computer repeatedly");
+
+  // A running computer is left alone, and says what it is rather than spinning.
+  let ranEnsure = 0;
+  const running = { isStatusKnown: true, isStatusUnavailable: false, phase: "remote", status: { state: "running", agentId: "cw_run" }, ensure: () => { ranEnsure += 1; } };
+  const up = RBoxOpenPlaceholder(running, "local copy");
+  assert.equal(ranEnsure, 0, "a running computer must not be woken");
+  assert.match(up.emptyMessage, /no screen/i);
+  assert.equal(up.isEmptyLoading, false, "a computer that is up is not still loading");
+
+  // An unknown status is not a stopped one: do not wake what we cannot see.
+  let blind = 0;
+  RBoxOpenPlaceholder({ isStatusKnown: false, isStatusUnavailable: false, status: null, ensure: () => { blind += 1; } }, "local copy");
+  assert.equal(blind, 0, "a status we do not have is not a reason to wake anything");
+});
