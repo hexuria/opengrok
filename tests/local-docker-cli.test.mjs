@@ -84,3 +84,16 @@ test("chooseLocalHostTarget prefers a live Docker gateway and starts a stopped V
   assert.equal(mod.chooseLocalHostTarget({ dockerGatewayReady: false, desktopGatewayReady: false, dockerContainerRunning: true }), "wait-docker-gateway");
   assert.equal(mod.chooseLocalHostTarget({ dockerGatewayReady: false, desktopGatewayReady: false, dockerContainerRunning: false }), "ensure-docker");
 });
+
+test("subscription providers route the local runtime to the desktop host, not the Docker VM", async () => {
+  const connector = await readFile(path.join(repoRoot, "source/electron-main/box/local-docker-host-connector.ts"), "utf8");
+  const edge = await readFile(path.join(repoRoot, "source/electron-main/main-edge.ts"), "utf8");
+  // Claude's binary and Keychain login only exist on this Mac: claude-code and
+  // codex must connect to ensureDesktopHost before any Docker routing runs.
+  assert.match(connector, /isSubscriptionInferenceProvider\(provider\)/);
+  assert.match(connector, /target=desktop-host provider=/);
+  assert.match(connector, /return await desktopConnect\(\);/);
+  // Switching to a subscription provider must not boot the Docker VM.
+  assert.match(edge, /nextRuntime === "local-docker" && !isSubscriptionInferenceProvider\(switched\.provider\)/);
+  assert.match(edge, /nextRuntime === "local-docker" && !isSubscriptionInferenceProvider\(requested\)/);
+});

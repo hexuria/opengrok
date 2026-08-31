@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { SandSettingsStore } from "../../shared/node/settings/sand-settings-store.js";
+import { isSubscriptionInferenceProvider } from "../../shared/node/subscription-cli-auth.js";
 import type { RecreateResult } from "./box-recreate-commands.js";
 import { noteOpenGrokServerStatus } from "./opengrok-server-status.js";
 import type { SandRemoteHostConnector } from "./box-host-connector.js";
@@ -216,6 +217,7 @@ export async function getLocalDockerStatus(settingsPath: string): Promise<LocalD
 }
 
 let ensureInFlight: Promise<GatewayConnection> | undefined;
+let desktopHostInFlight: Promise<GatewayConnection> | undefined;
 
 async function isDirectory(path: string): Promise<boolean> {
   try { return (await stat(path)).isDirectory(); } catch { return false; }
@@ -450,10 +452,26 @@ export function createSettingsRoutedHostConnector(
     }).finally(() => { ensureInFlight = undefined; });
     return ensureInFlight;
   };
+  const desktopConnect = (): Promise<GatewayConnection> => {
+    if (desktopHostInFlight == null) desktopHostInFlight = ensureDesktopHost(settings.settingsPath)
+      .finally(() => { desktopHostInFlight = undefined; });
+    return desktopHostInFlight;
+  };
   return {
     connect: async () => {
       const runtime = settings.getBoxRuntime();
-      if (runtime === "local-docker") return await localConnect();
+      if (runtime === "local-docker") {
+        // Claude/Codex inference needs this Mac: the `claude` binary and its
+        // Keychain login cannot exist inside the linux VM, so subscription
+        // providers get the desktop host (the host bundle running directly on
+        // this machine). Cursor's local VM keeps the Docker container.
+        const provider = settings.getInferenceProvider();
+        if (isSubscriptionInferenceProvider(provider)) {
+          await noteConnector(settings.settingsPath, `target=desktop-host provider=${provider}`).catch(() => undefined);
+          return await desktopConnect();
+        }
+        return await localConnect();
+      }
       // The user's own OpenGrok server. Deliberately reached without any
       // environment variable: SAND_HOST_GATEWAY_URL also switches on the
       // env-descriptor account binding, which deadlocks before the window

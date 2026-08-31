@@ -168,7 +168,11 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(localDocker, /"127\.0\.0\.1:1340:1340"/);
   assert.match(localDocker, /SAND_BOX_AUTO_UPDATE=0/);
   assert.match(localDocker, /dst=\/home\/box\/sand-host\/host-main\.cjs,readonly/);
-  assert.match(localDocker, /if \(runtime === "local-docker"\) return await localConnect\(\)/);
+  // local-docker routes by provider: subscription CLIs get the desktop host
+  // (claude cannot run inside the linux VM), everything else the Docker VM.
+  assert.match(localDocker, /isSubscriptionInferenceProvider\(provider\)/);
+  assert.match(localDocker, /return await desktopConnect\(\);/);
+  assert.match(localDocker, /return await localConnect\(\);/);
   assert.match(rendererPatch, /getWindows365Settings/);
   assert.match(rendererPatch, /checkoutWindows365/);
   assert.match(rendererPatch, /Tenant ID/);
