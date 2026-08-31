@@ -1,6 +1,6 @@
 import { createRealPollingPolicy } from "../internal/scheduling.js";
 import { BOX_VNC_METHOD_TABLE } from "../shared/rpc/vnc.js";
-import { buildHostClipboardPasteScript, resolveHostToBoxSync } from "./box-vnc-clipboard-paste.js";
+import { buildHostClipboardPasteAndKeyScript, buildHostClipboardPasteScript, isHostPasteKey, resolveHostToBoxSync } from "./box-vnc-clipboard-paste.js";
 import {
   buildVncLivenessBeaconReadExpression,
   buildVncLivenessBeaconScript,
@@ -195,6 +195,24 @@ export function installVncClipboardBridge(options: {
   });
   options.window.addEventListener("focus", mirrorHostClipboardToBox);
   document.addEventListener("mousedown", mirrorHostClipboardToBox, true);
+  document.addEventListener("keydown", (event: { preventDefault(): void; stopImmediatePropagation(): void; readonly key?: string; readonly metaKey?: boolean; readonly ctrlKey?: boolean; readonly altKey?: boolean }) => {
+    if (!isHostPasteKey(event) || !visibility.isVisible() || options.frame == null) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    edge.readClipboard().then((text) => {
+      options.frame?.executeJavaScript(buildHostClipboardPasteAndKeyScript(text)).then((didPaste) => {
+        const synced = resolveHostToBoxSync(text, didPaste === true);
+        if (synced == null) return;
+        lastHostTextSentToBox = synced;
+        const element = textarea();
+        if (element != null) element.value = synced;
+      }).catch((error: unknown) => {
+        options.warn?.("vnc clipboard paste failed", errorMessage(error));
+      });
+    }).catch((error: unknown) => {
+      options.warn?.("vnc clipboard read failed", errorMessage(error));
+    });
+  }, true);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") mirrorHostClipboardToBox();
   });
@@ -359,7 +377,7 @@ export function buildVncMacKeyMappingScript(): string {
       if (!/Mac/i.test((navigator && navigator.platform) || "")) return;
       window.__sandVncMacKeysInstalled = true;
 
-      var SHORTCUTS = { KeyA: 0x61, KeyC: 0x63, KeyV: 0x76, KeyX: 0x78, KeyZ: 0x7a };
+      var SHORTCUTS = { KeyA: 0x61, KeyC: 0x63, KeyX: 0x78, KeyZ: 0x7a };
       var CONTROL_L = 0xffe3;
       var SHIFT_L = 0xffe1;
       var HELD_MODIFIERS = [
