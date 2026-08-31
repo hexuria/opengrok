@@ -521,7 +521,7 @@ test("renderer patch never emits an unquoted codex identifier", async () => {
     false,
   );
   const patched = patchOriginalSettingsPanel(
-    'prefix;Q=x==="general"?a.jsx(Te,{children:a.jsx(Sa,{auth:t})}):null;Z=x==="usage"?a.jsx(Te,{children:a.jsx(Na,{})}):null;function Sa(s){return s}',
+    'prefix;Q=x==="general"?a.jsx(Te,{children:a.jsx(Sa,{auth:t})}):null;Z=x==="usage"?a.jsx(Te,{children:a.jsx(Na,{})}):null;function Sa(s){return s}const De="Execution on Local Computer",ia="Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.";function da(){return da}',
   );
   assert.equal(containsUnquotedCodexIdentifier(patched), false);
   assert.match(patched, /['"]codex['"]/);

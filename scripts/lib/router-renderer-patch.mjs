@@ -1840,6 +1840,8 @@ export function patchOriginalMainChrome(source) {
   return `${source}\n${MAIN_CHROME_SOURCE}`;
 }
 
+const EXECUTION_ROW_ANCHOR='const De="Execution on Local Computer",ia="Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.";function da(){';
+
 export function patchOriginalSettingsPanel(source) {
   if (containsUnquotedCodexIdentifier(COMPONENT_SOURCE)) {
     throw new SyntaxError("Router renderer patch must quote the string 'codex' (or \"codex\"). An unquoted codex identifier breaks npm run package.");
@@ -1847,6 +1849,17 @@ export function patchOriginalSettingsPanel(source) {
   let patched = replaceExactlyOnce(source, COMPONENT_ANCHOR, `${COMPONENT_SOURCE}${COMPONENT_ANCHOR}`, "component insertion");
   patched = replaceExactlyOnce(patched, GENERAL_BEFORE, GENERAL_AFTER, "Router panel switch");
   patched = replaceExactlyOnce(patched, USAGE_BEFORE, USAGE_AFTER, "Usage panel switch");
+  // The machine execution permission is set in one place only - Settings >
+  // Computer > This computer. This General-tab twin let the two drift apart on
+  // screen (the user hit exactly that: General said Never while Computer said
+  // Ask), and the latest Grok Bot deleted its copy too. The row is one
+  // self-contained component, so it is excised by making it render nothing.
+  patched = replaceExactlyOnce(
+    patched,
+    EXECUTION_ROW_ANCHOR,
+    `${EXECUTION_ROW_ANCHOR}return null;`,
+    "General-tab execution row excision",
+  );
   return patched;
 }
 
