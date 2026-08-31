@@ -1476,6 +1476,12 @@ export function patchOriginalViewFallback(source) {
  * view already holds the box status, so the message can be chosen from it.
  */
 export function patchOriginalComputerPlaceholder(source) {
+  source = replaceExactlyOnce(
+    source,
+    "This agent runs on your machine. There's no separate desktop to stream.",
+    "This computer has no graphical screen. It runs shell commands and files for this bot.",
+    "headless computer copy",
+  );
   return replaceExactlyOnce(
     source,
     "emptyMessage:void 0,isEmptyLoading:A,pullPercent:e.pullPercent",
