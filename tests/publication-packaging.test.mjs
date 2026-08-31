@@ -465,3 +465,38 @@ test("Collections ships its page assets and its own preload in the packaged layo
   // rejected by Cursor's in-box gateway for remote agents.
   assert.match(coordinatorMainTable, /getAgentTranscriptWindow: \{ args: "object" \}/);
 });
+
+// Each provider's login page is its own page: its own accent, its own opening
+// line, and a sentence saying what pressing Sign in will actually do. Upstream
+// ships one line about Grok Bot, which is simply wrong over somebody else's
+// sign-in, and says nothing about a terminal being about to open.
+test("every provider's login page has its own colour and its own words", async () => {
+  const rendererPatch = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+
+  const providers = [...rendererPatch.matchAll(/\{id:"([a-z-]+)",label:"[^"]+",title:"([^"]+)",lede:"([^"]+)",how:"([^"]+)",[^}]*?accent:"(#[0-9a-f]{6})"/g)]
+    .map(([, id, title, lede, how, accent]) => ({ id, title, lede, how, accent }));
+  assert.equal(providers.length, 4, "all four providers must carry their own page content");
+  assert.deepEqual(providers.map((p) => p.id).sort(), ["claude-code", "codex", "cursor", "opengrok"]);
+
+  // No two providers may share a colour, or the page is not theirs.
+  assert.equal(new Set(providers.map((p) => p.accent)).size, 4, "each provider needs its own accent");
+  assert.equal(new Set(providers.map((p) => p.lede)).size, 4, "each provider needs its own opening line");
+
+  for (const provider of providers) {
+    // The CLI providers open a terminal; saying so is the whole point.
+    if (provider.id === "codex" || provider.id === "claude-code") {
+      assert.match(provider.how, /terminal/i, `${provider.id} must say a terminal opens`);
+    } else {
+      assert.match(provider.how, /browser/i, `${provider.id} must say the browser opens`);
+    }
+    assert.doesNotMatch(provider.lede, /Grok Bot/, `${provider.id} must not be sold as Grok Bot`);
+  }
+
+  // And the page must actually use them, not merely carry them.
+  assert.match(rendererPatch, /root\.style\.setProperty\("--lp-accent",p\.accent\)/);
+  assert.match(rendererPatch, /lede\.textContent=p\.lede/);
+  assert.match(rendererPatch, /how\.textContent=p\.how/);
+  // The CLI state is shown so pressing Sign in is not a guess.
+  assert.match(rendererPatch, /Already signed in on this Mac/);
+  assert.match(rendererPatch, /Not installed yet/);
+});
