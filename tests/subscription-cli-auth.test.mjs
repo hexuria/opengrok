@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -390,5 +390,53 @@ test("coordinator Cursor path is unchanged and does not consult Claude/Codex log
   } finally {
     await loaded.dispose();
     await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+test("interactive logins get a real terminal on Windows and Linux", async () => {
+  const loaded = await loadModule("source/shared/node/subscription-cli-auth.ts", "subscription-cli-auth.mjs");
+  try {
+    const { terminalLaunchCommands } = loaded.module;
+    const win = terminalLaunchCommands("win32", "C:\\Users\\dev\\.local\\bin\\claude.exe", ["/login"]);
+    assert.equal(win.length, 1);
+    assert.equal(win[0].file, "cmd.exe");
+    // start's quoted-title slot must be filled, or a quoted executable path
+    // would be consumed as the window title and nothing would launch.
+    assert.deepEqual([...win[0].args], ["/c", "start", "", "C:\\Users\\dev\\.local\\bin\\claude.exe", "/login"]);
+    const linux = terminalLaunchCommands("linux", "/usr/local/bin/claude", ["/login"]);
+    assert.ok(linux.length >= 3);
+    assert.equal(linux[0].file, "x-terminal-emulator");
+    assert.ok(linux.some((attempt) => attempt.file === "gnome-terminal" && attempt.args[0] === "--"));
+    assert.ok(linux.every((attempt) => attempt.args.includes("/login")));
+    assert.deepEqual([...terminalLaunchCommands("darwin", "/bin/claude", ["/login"])], []);
+  } finally {
+    await loaded.dispose();
+  }
+});
+
+test("codex auth.json privacy bits are POSIX-only and CLI names gain Windows suffixes", async () => {
+  const loaded = await loadModule("source/shared/node/inference-router-local.ts", "inference-router-local.mjs");
+  const dir = await mkdtemp(path.join(os.tmpdir(), "grok-codex-auth-"));
+  try {
+    const { hasUsableCodexLogin, executableNameVariants } = loaded.module;
+    const authPath = path.join(dir, "auth.json");
+    const document = JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: "a", refresh_token: "r", id_token: "i", account_id: "acct" } });
+    await writeFile(authPath, document, { mode: 0o644 });
+    // Group/other-readable is rejected under POSIX rules but must be accepted
+    // under win32 rules: Node fabricates POSIX bits on Windows, so the mode
+    // check there would reject every valid auth.json.
+    if (process.platform !== "win32") assert.equal(hasUsableCodexLogin(authPath, "linux"), false);
+    assert.equal(hasUsableCodexLogin(authPath, "win32"), true);
+    await chmod(authPath, 0o600);
+    if (process.platform !== "win32") assert.equal(hasUsableCodexLogin(authPath, "linux"), true);
+    await writeFile(authPath, "not json", { mode: 0o600 });
+    assert.equal(hasUsableCodexLogin(authPath, "win32"), false);
+
+    assert.deepEqual(executableNameVariants("codex", "win32"), ["codex.exe", "codex.cmd", "codex"]);
+    assert.deepEqual(executableNameVariants("claude", "linux"), ["claude"]);
+    assert.deepEqual(executableNameVariants("claude", "darwin"), ["claude"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await loaded.dispose();
   }
 });
