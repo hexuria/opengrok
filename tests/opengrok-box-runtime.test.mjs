@@ -495,3 +495,47 @@ test("an unrecognised failure shows what the server said, not that it said nothi
   // And the message must not be printed twice once it has become the description.
   assert.match(component, /detail&&known\?a\.jsx\(se,/);
 });
+
+// The main process holds both tokens and they answer different questions: the
+// bearer says which gateway may be spoken to, the account token says whose
+// account the call is for. Sending only the bearer would let the server fall
+// back to its configured account and act on somebody else's computer.
+test("a gateway call from the main process names both the gateway and the account", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-gw-call-"));
+  try {
+    const outfile = path.join(temporary, "call.mjs");
+    await build({
+      entryPoints: [path.join(repoRoot, "source/electron-main/box/opengrok-gateway-call.ts")],
+      outfile, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
+    });
+    const { callOpenGrokGateway } = await import(pathToFileURL(outfile).href);
+    const secrets = { readSecret: async (k) => (k === "opengrok-gateway-token" ? "gw-bearer" : "account-jwt") };
+
+    let seen = null;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => { seen = { url: String(url), init }; return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } }); };
+    try {
+      const out = await callOpenGrokGateway(secrets, "http://server.test:1447/", "resetForeverBox", { agentId: "cw_1" });
+      assert.deepEqual(out, { ok: true });
+      assert.equal(seen.url, "http://server.test:1447/api/resetForeverBox", "a trailing slash must not double up");
+      assert.equal(seen.init.headers.authorization, "Bearer gw-bearer");
+      assert.equal(seen.init.headers["x-opengrok-account"], "account-jwt");
+      assert.equal(seen.init.body, JSON.stringify({ agentId: "cw_1" }));
+
+      // The server's own words beat a bare status code.
+      globalThis.fetch = async () => new Response(JSON.stringify({ error: "that coworker already has a computer" }), { status: 409 });
+      await assert.rejects(() => callOpenGrokGateway(secrets, "http://server.test:1447", "resetForeverBox"), /already has a computer/);
+
+      // A method name is never interpolated into a path unchecked.
+      await assert.rejects(() => callOpenGrokGateway(secrets, "http://server.test:1447", "../../etc/passwd"), /Refusing to call/);
+
+      // Without a bearer there is nothing to call, and it says so rather than 401ing.
+      const noBearer = { readSecret: async () => null };
+      await assert.rejects(() => callOpenGrokGateway(noBearer, "http://server.test:1447", "resetForeverBox"), /Sign in to your OpenGrok server/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
