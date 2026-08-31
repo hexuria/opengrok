@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { OPENGROK_DAEMON_TOKEN_SECRET } from "../../shared/box-runtime.js";
 
 import type {
   ProductionCoordinatorService,
@@ -447,6 +448,15 @@ export function createProductionCoordinatorAdapter<
             openFullDiskAccessPaneOnce();
           }
           return result;
+        },
+        // The local-exec daemon speaks to /local-exec/* on our own server,
+        // which accepts only the token minted when this machine enrolled.
+        readOpenGrokDaemonIdentity: async () => {
+          const store = context.settings.settingsStore;
+          const gatewayUrl = store.getBoxRuntime() === "opengrok" ? store.getOpenGrokGatewayUrl() ?? null : null;
+          if (gatewayUrl == null) return { gatewayUrl: null, token: null };
+          const { readSecret } = await import("../secrets/secret-store.js");
+          return { gatewayUrl, token: await readSecret(OPENGROK_DAEMON_TOKEN_SECRET) };
         },
         native: ports.localExecNative,
       });
