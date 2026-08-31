@@ -93,3 +93,50 @@ test("headers the gateway set survive the swap", async () => {
     await cleanup();
   }
 });
+
+async function loadDaemonModule() {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "local-exec-daemon-handoff-"));
+  const outfile = path.join(temporary, "daemon.mjs");
+  await build({
+    entryPoints: [path.join(repoRoot, "source/host/local-exec/local-exec-daemon.ts")],
+    outfile,
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    external: ["electron"],
+  });
+  const loaded = await import(pathToFileURL(outfile).href);
+  return { loaded, cleanup: () => rm(temporary, { recursive: true, force: true }) };
+}
+
+test("a credential issued by another backend is never spent against the one in use", async () => {
+  const { loaded, cleanup } = await loadDaemonModule();
+  try {
+    const { localExecHandoffServesConnection: serves } = loaded;
+    // The shape that cost 2439 posts into a 404: a Cursor-era credential left
+    // behind after the app was pointed at an OpenGrok server.
+    assert.equal(
+      serves({ backendUrl: "https://api2.cursor.sh/" }, { baseUrl: "http://192.168.100.21:1447" }),
+      false,
+    );
+    assert.equal(
+      serves({ backendUrl: "http://192.168.100.21:1447" }, { baseUrl: "http://192.168.100.21:1447/" }),
+      true,
+      "the backend that issued it is the one in use",
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("with no connection yet the handoff stands, and an unreadable address never does", async () => {
+  const { loaded, cleanup } = await loadDaemonModule();
+  try {
+    const { localExecHandoffServesConnection: serves } = loaded;
+    assert.equal(serves({ backendUrl: "https://api2.cursor.sh/" }, null), true, "bootstrap is what the handoff is for");
+    assert.equal(serves({ backendUrl: "not a url" }, { baseUrl: "http://192.168.100.21:1447" }), false);
+    assert.equal(serves({ backendUrl: "https://api2.cursor.sh/" }, { baseUrl: "" }), false);
+  } finally {
+    await cleanup();
+  }
+});
