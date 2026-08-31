@@ -539,3 +539,27 @@ test("a gateway call from the main process names both the gateway and the accoun
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+// Reset destroys a box and everything on it. Where the computer belongs to the
+// whole organisation, that is not one person's to throw away from a settings
+// panel — and the control must be absent rather than present-and-refused,
+// because offering an action and then declining the click is worse than never
+// offering it.
+test("reset is offered for your own computer and withheld for a shared one", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const component = eval(/const COMPONENT_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  // per-org renders an admin-only note and never the button.
+  assert.match(component, /if\(mode==="per-org"\)return a\.jsx\(ie,/);
+  assert.match(component, /Admin only/);
+  // The confirmation names what is lost; a bare "are you sure" would not.
+  assert.match(component, /destroys the computer and everything saved on it/);
+  assert.match(component, /cannot be undone/);
+  assert.match(component, /Reset and lose the files/);
+  // It asks before it acts: the first press only opens the question.
+  assert.match(component, /onClick:\(\)=>e\(i=>\(\{\.\.\.i,asking:!0/);
+
+  // And the main process refuses it too, so the guard does not live only in
+  // copy that a future edit could quietly drop.
+  const mainEdge = await readFile(path.join(repoRoot, "source", "electron-main", "main-edge.ts"), "utf8");
+  assert.match(mainEdge, /invariant\(listed\.sharingMode !== "per-org"/);
+});
