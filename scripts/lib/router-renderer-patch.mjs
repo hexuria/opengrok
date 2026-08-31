@@ -1412,6 +1412,19 @@ const A11Y_ANNOUNCE_HELPER = ';(()=>{try{'
 const LOCAL_TOOL_TITLE_BEFORE = 'hideBadge:!0,leading:Y,title:TLn,...U}';
 const LOCAL_TOOL_TITLE_AFTER = 'hideBadge:!0,leading:Y,title:(self.__sandLocalToolAskTitle&&self.__sandLocalToolAskTitle(s.action)||TLn),...U}';
 
+const CARD_LOCAL_FLIP_BEFORE = 'if(e==="always"||e==="never")try{await n.setPermission(e)!==e&&(e=e==="always"?"allow-once":"deny")}catch{e=e==="always"?"allow-once":"deny"}';
+// One consent model: the card's Always/Never write a SERVER standing rule and
+// nothing else. Upstream also flipped the Mac's own permission here - which in
+// the on/off world meant a single command's "Never" turned the whole machine
+// off, and "Always" reached across to the local switch. Both are wrong now:
+// the switch is set only in Settings. Drop the flip; the resolution still goes
+// to resolveLocalToolPermission (the server makes the rule) and allow-once
+// still records the local approval the Cursor route reads.
+const CARD_LOCAL_FLIP_AFTER = '';
+export function patchOriginalCardLocalFlip(source) {
+  return replaceExactlyOnce(source, CARD_LOCAL_FLIP_BEFORE, CARD_LOCAL_FLIP_AFTER, "card local-permission flip removal");
+}
+
 export function patchOriginalLocalToolAsk(source) {
   return replaceExactlyOnce(source, LOCAL_TOOL_TITLE_BEFORE, LOCAL_TOOL_TITLE_AFTER, "local tool ask title");
 }
@@ -1694,6 +1707,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalGallerySizes(patched);
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
+  patched = patchOriginalCardLocalFlip(patched);
   return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ACCOUNT_CARD_HELPER + patched;
 }
 
