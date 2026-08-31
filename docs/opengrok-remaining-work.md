@@ -18,12 +18,34 @@ VM, Docker) become the common case.
 
 ## 1. A bot wedged on "working", with no way out
 
-**Owner: this repo, entirely. No server dependency.**
+**Owner: split. The flag is the server's; surfacing a long turn is ours; the
+stop control cannot be built until the server has a verb for it.**
 
 A bot can show "working" — three dots, indefinitely — while the server has no
-record of any turn for it: no run, no transcript row, no accepted nonce. The
-flag is set optimistically, before any confirmed accept. While it is set the
-person is stuck, because there is no stop control anywhere in the app.
+record of any turn for it: no run, no transcript row, no accepted nonce. While
+it is set the person is stuck, because there is no stop control anywhere in the
+app.
+
+**This was first written down as "entirely ours, no server dependency", and that
+was wrong.** Tracing it through the pinned renderer:
+
+```
+isWorking = isHostReachable && (agent.isRunning || agent.isComposingMessage)
+            // when agent.awaitingUserResponse == null
+```
+
+Both fields come from the **agent record the server sends**. Nothing in the
+client sets them optimistically; the renderer only reads what it was given. So a
+bot wedged on "working" with no run behind it is a stale flag on the server, and
+the app was faithfully rendering it — the same shape as the ascii probe that
+reported every running box stopped.
+
+**And there is no way to stop a turn at all.** No `stopAgent`, `interruptAgent`,
+`cancelRun` or `stopTurn` exists in the coordinator contract or the renderer
+bundle. `cancelQueued` cancels a message that has not been sent yet and cannot
+touch a running turn. So anyone whose bot is working — correctly, on a long
+task — has no way to interrupt it short of quitting the app. A server verb is
+needed before the control can exist.
 
 Half of this is already fixed: a send that cannot be delivered used to vanish
 silently, and now says so. What remains is the flag itself and the way out.
