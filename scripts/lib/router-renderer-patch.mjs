@@ -194,6 +194,55 @@ function ROpenGrokReset({mode,onDone}){
     s.note?a.jsx(se,{as:"p",color:"secondary",size:"sm",style:{marginTop:8},children:s.note}):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]})}
 function ROpenGrokRows(list,activeKind){return a.jsx("div",{children:list.map((c,i)=>{const kindName=ROpenGrokKind[c.kind]||(c.kind?String(c.kind):""),ready=c.configured!==!1,mine=c.active===!0||(activeKind!=null&&c.kind===activeKind),detail=[kindName,c.state?String(c.state):null].filter(Boolean).join(" \u00b7 ")||"On your OpenGrok server.",right=mine?"Your computer":ready?"Available to your org":"Set up by your org admin";return a.jsx(ie,{divided:i>0,description:detail,label:String(c.label||c.name||kindName||c.id),variant:"card",children:a.jsx(se,{as:"span",color:mine?"green":"secondary",size:"sm",children:right})},String(c.id))})})}
+const RRemoteModes=[
+  {value:"never",label:"Never"},
+  {value:"ask",label:"Ask every time"},
+  {value:"bypass",label:"Always allow"}];
+function RRemoteControl(){
+  const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:!1});
+  const load=()=>window.desktop.agent.getRemoteControl().then(r=>{if(r==null)return;
+    e(i=>({...i,loaded:!0,available:!!r.available,enrolled:!!r.enrolled,machineId:r.machineId||null,
+      mode:typeof r.mode==="string"?r.mode:"never",allow:r.allow||[],deny:r.deny||[],error:r.error||null}))})
+    .catch(err=>e(i=>({...i,loaded:!0,error:String(err&&err.message||err)})));
+  de.useEffect(()=>{load()},[]);
+  if(!s.loaded)return null;
+  if(!s.available)return null;
+  const turnOn=async()=>{e(i=>({...i,busy:!0,error:null}));
+    try{const name=(await window.desktop.agent.getLocalComputer().catch(()=>null))||{};
+      await window.desktop.agent.enrolRemoteControl(String(name.name||name.hostname||"This computer"));
+      await load();e(i=>({...i,busy:!1}))}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+  const turnOff=async()=>{e(i=>({...i,busy:!0,error:null,confirming:!1}));
+    try{await window.desktop.agent.revokeRemoteControl();await load();e(i=>({...i,busy:!1}))}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+  const setMode=async v=>{const was=s.mode;e(i=>({...i,mode:v,error:null}));
+    try{await window.desktop.agent.setRemoteControlMode(v)}
+    catch(err){e(i=>({...i,mode:was,error:String(err&&err.message||err)}))}};
+  if(!s.enrolled)return a.jsxs("div",{children:[
+    a.jsx(ie,{variant:"card",label:"Let your bots use this computer",
+      description:"Off. A bot on your server cannot reach this Mac at all. Turn this on and it can ask to run commands here — useful for reaching this machine from your phone, and worth understanding before you do it.",
+      children:a.jsx(oe,{disabled:s.busy,onClick:turnOn,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning on…":"Turn on…"})}),
+    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
+  return a.jsxs("div",{children:[
+    a.jsx(ie,{variant:"card",label:"Bots using this computer",
+      description:s.mode==="never"?"On, but nothing may run: every request is refused."
+        :s.mode==="ask"?"You are asked before anything runs here."
+        :"Anything a bot asks for runs here without asking you first.",
+      children:a.jsx(ye,{"aria-label":"Bots using this computer",onValueChange:setMode,options:RRemoteModes,
+        placement:"bottom-end",size:"lg",value:s.mode,variant:"filled"})}),
+    s.deny.length>0||s.allow.length>0?a.jsx(ie,{divided:!0,variant:"card",label:"Standing rules",
+      description:"Commands you have already answered for. Managed from the prompt when it appears.",
+      children:a.jsx(se,{as:"span",color:"secondary",size:"sm",
+        children:String(s.allow.length)+" allowed, "+String(s.deny.length)+" denied"})}):null,
+    a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
+      description:s.confirming?"This computer stops being reachable and its credential is destroyed. You can turn it on again later.":"Stop your bots reaching this computer.",
+      children:s.confirming
+        ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
+            a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,confirming:!1})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
+            a.jsx(oe,{disabled:s.busy,onClick:turnOff,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning off…":"Turn off"})]})
+        :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
+    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
+}
 const RLocalPerm=[{value:"always",label:"Always allow"},{value:"ask",label:"Ask every time"},{value:"never",label:"Never allow"}];
 function RLocalComputer(){
   const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null});
@@ -241,7 +290,7 @@ if(s.computers.length===0)return a.jsx(ie,{description:"A computer is added for 
 return a.jsxs("div",{children:[ROpenGrokRows(s.computers,s.activeKind),a.jsx(ROpenGrokReset,{mode:s.sharingMode,onDone:load})]})}
 
 function RBoxRuntime(){const all=[{value:"remote",label:"Grok VM"},{value:"local-docker",label:"Local VM"},{value:"windows365",label:"Windows 365"},{value:"opengrok",label:"OpenGrok Server"}];const[s,e]=de.useState(()=>RBoxLast??{mode:ROpenGrokSeeded()?"opengrok":null,provider:null,status:null,error:null,busy:!1,windows365:null,account:null});de.useEffect(()=>{let t=!0;const apply=r=>{if(!t||r==null)return;e(i=>{const next={...i,mode:i.busy?i.mode:typeof r.mode==="string"?r.mode:i.mode,status:r.status??null,windows365:r.windows365??null,account:r.account??null,error:null};RBoxLast=next;return next})};const load=()=>window.desktop.agent.getBoxRuntime().then(apply).catch(r=>{t&&e(i=>({...i,error:String(r&&r.message||r)}))});window.desktop.agent.getInferenceRouter().then(r=>{if(!t||r==null)return;e(i=>{const next={...i,provider:typeof r.provider==="string"?r.provider:i.provider};RBoxLast=next;return next})}).catch(()=>{});const onProvider=n=>{const p=n&&n.detail&&n.detail.provider;if(typeof p==="string")e(i=>({...i,provider:p}))};window.addEventListener("sand-router-provider-changed",onProvider);load();const id=setInterval(load,15e3);return()=>{t=!1;clearInterval(id);window.removeEventListener("sand-router-provider-changed",onProvider)}},[]);const RBoxOptions=s.provider==="cursor"?all:all.filter(n=>n.value!=="remote"||n.value==="opengrok");const t=async n=>{if(n==null)return;if(n==="remote"&&s.provider!=="cursor")n="local-docker";e(i=>({...i,mode:n,busy:!0,error:null}));try{const r=await window.desktop.agent.setBoxRuntime(n);try{if(self.__sandSetOpenGrokMode)self.__sandSetOpenGrokMode(n==="opengrok")}catch(_){}e(i=>({...i,mode:n,status:r&&r.status||null,windows365:r&&r.windows365||null,account:r&&r.account||null,busy:!1}));window.dispatchEvent(new CustomEvent("sand-box-runtime-changed",{detail:{mode:n}}))}catch(r){e(i=>({...i,mode:n,busy:!1,error:String(r&&r.message||r)}))}};const n=s.mode==="opengrok"?"Your OpenGrok server holds the bots and runs their work.":s.mode==="windows365"?"Enter Windows 365 credentials below, then Save and Connect.":s.mode==="remote"?(s.account&&s.account.detail||"Uses the Cursor account already signed into Grok Bot."):(s.status&&s.status.detail||"A Linux desktop in Docker on this Mac.");if(s.mode==="opengrok")return a.jsx(ROpenGrokComputers,{});return a.jsxs("div",{children:[a.jsx(ie,{description:n,label:"Computer for this account",variant:"card",children:a.jsx(ye,{"aria-label":"Computer for this account",onValueChange:t,options:RBoxOptions,placement:"bottom-end",size:"lg",value:s.mode==null?null:RBoxOptions.some(r=>r.value===s.mode)?s.mode:"local-docker",variant:"filled"})}),s.mode==="windows365"?a.jsxs("div",{style:{marginTop:8},children:[a.jsx(se,{as:"p",size:"sm",children:"Windows 365 credentials"}),a.jsx(RW365Setup,{})]}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:String(s.error)}):null]})}
-function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"This computer",children:a.jsx(RLocalComputer,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
+function RRouterPanel(){const[s,e,g,u]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Official Codex/ChatGPT login on this Mac.":r.kind==="local"?"Official Claude login on this Mac.":r.kind==="key"?"Stored with your other Grok Bot secrets.":"Uses the account already connected to Grok Bot.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:"This computer",children:a.jsx(RLocalComputer,{})}),a.jsx(re,{title:"Remote control",children:a.jsx(RRemoteControl,{})}),a.jsx(re,{title:"Performance",children:a.jsx(RHardwareAcceleration,{})}),r.kind==="key"?a.jsx(re,{title:"Model",children:a.jsx(ie,{description:"Any OpenRouter model id, including :free models.",label:"Model",variant:"card",children:a.jsx(ROpenRouterModel,{model:s.openRouterModel,onSaved:l=>u(c=>({...c,openRouterModel:l.openRouterModel??l.model??c.openRouterModel,error:null}))})})}):null,s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})})}
 function RHardwareAcceleration(){
   const[t,n]=de.useState({enabled:!0,restartRequired:!1,changed:!1});
   de.useEffect(()=>{let c=!0;window.desktop.getHardwareAcceleration().then(d=>{if(c&&d)n(h=>({...h,enabled:d.enabled===!0}))}).catch(()=>{});return()=>{c=!1}},[]);

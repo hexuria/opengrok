@@ -647,3 +647,37 @@ test("a bot with no computer says so, in the same words as the panel", async () 
   // And an unrecognised code still shows the server's own words.
   assert.match(chrome, /RAgentIssueCopy\[issue\.code\]\|\|issue\.message\|\|RAgentIssueCopy\.unknown/);
 });
+
+// A capability that lets a remote server run commands on somebody's laptop is
+// off until they turn it on, and the words have to say what is being turned on
+// rather than name a feature.
+test("remote control is off by default and says what it is", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const component = eval(/const COMPONENT_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+
+  // Three modes, and "never" first — the default the server also holds.
+  assert.match(component, /\{value:"never",label:"Never"\}/);
+  assert.match(component, /\{value:"ask",label:"Ask every time"\}/);
+  assert.match(component, /\{value:"bypass",label:"Always allow"\}/);
+  const modes = /const RRemoteModes=\[\s*\{value:"([a-z]+)"/.exec(component);
+  assert.equal(modes?.[1], "never", "never must be the first and safest option offered");
+
+  // The off state says what turning it on would allow, in plain terms.
+  assert.match(component, /cannot reach this Mac at all/);
+  assert.match(component, /run commands here/);
+  // Each mode states its consequence rather than repeating its name.
+  assert.match(component, /every request is refused/);
+  assert.match(component, /asked before anything runs here/);
+  assert.match(component, /without asking you first/);
+  // Turning it off asks first and says what is destroyed.
+  assert.match(component, /its credential is destroyed/);
+
+  // The daemon credential is its own secret, never the account token.
+  const runtime = await readFile(path.join(repoRoot, "source", "shared", "box-runtime.ts"), "utf8");
+  assert.match(runtime, /OPENGROK_DAEMON_TOKEN_SECRET = "opengrok-daemon-token"/);
+  const mainEdge = await readFile(path.join(repoRoot, "source", "electron-main", "main-edge.ts"), "utf8");
+  // Revoking clears this machine first, so a failed server call still disarms it.
+  const revoke = mainEdge.slice(mainEdge.indexOf("revokeRemoteControl:"));
+  assert.ok(revoke.indexOf("deleteSecret(OPENGROK_DAEMON_TOKEN_SECRET)") < revoke.indexOf("/local-exec/daemon/"),
+    "the local credential must be destroyed before the server is told, not after");
+});

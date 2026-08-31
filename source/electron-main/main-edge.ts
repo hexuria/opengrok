@@ -10,7 +10,7 @@ import { sandWebauthnProxyMirroredEnablement } from "../shared/webauthn-proxy-av
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
 import { isSandInferenceProvider, parseOpenRouterModelId } from "../shared/inference-router.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
-import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
+import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_DAEMON_MACHINE_SECRET, OPENGROK_DAEMON_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
 import { getOpenGrokServerStatus, noteOpenGrokServerStatus } from "./box/opengrok-server-status.js";
 import { getLocalDockerStatus, startLocalDockerBox } from "./box/local-docker-host-connector.js";
 import { transcribeWithLocalWhisper } from "./account/local-whisper-transcribe.js";
@@ -453,6 +453,78 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     },
     getBoxRuntime: async () => { const mode = invoke(deps.settingsStore, "getBoxRuntime"); invariant(isSandBoxRuntime(mode), "Unknown box runtime."); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
     setBoxRuntime: async (raw) => { const requested = req(raw).mode; invariant(isSandBoxRuntime(requested), "Unknown box runtime."); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const mode = coerceBoxRuntimeForProvider(requested, isSandInferenceProvider(provider) ? provider : "cursor"); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); const previous = invoke(deps.settingsStore, "getBoxRuntime"); invoke(deps.settingsStore, "setBoxRuntime", mode); /* Crossing between backends changes who the account belongs to, so the old session cannot survive it: signing in to an OpenGrok server must sign you out of Cursor, and leaving must sign you out of the server. One account, never two. */ if ((previous === "opengrok") !== (mode === "opengrok")) { try { await Promise.resolve(invoke(deps.cursorAccount, "logout")); } catch { /* already signed out */ } } try { if (mode === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(settingsPath); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", previous); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
+    getRemoteControl: async () => {
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { available: false, enrolled: false };
+      const secrets = await import("./secrets/secret-store.js");
+      const machineId = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
+      const hasToken = ((await secrets.readSecret(OPENGROK_DAEMON_TOKEN_SECRET)) ?? "").length > 0;
+      if (machineId.length === 0 || !hasToken) return { available: true, enrolled: false };
+      try {
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const policy = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: "/local-exec/policy", query: { machine: machineId },
+        }) as Record<string, unknown> | undefined;
+        const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+        return {
+          available: true, enrolled: true, machineId,
+          mode: typeof policy?.mode === "string" ? policy.mode : "never",
+          allow: strings(policy?.allow), deny: strings(policy?.deny),
+        };
+      } catch (error) {
+        return { available: true, enrolled: true, machineId, error: String(error instanceof Error ? error.message : error) };
+      }
+    },
+    enrolRemoteControl: async (raw) => {
+      const label = req(raw).label;
+      invariant(typeof label === "string" && label.length > 0 && label.length <= 120, "enrolRemoteControl requires a bounded label.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
+      const secrets = await import("./secrets/secret-store.js");
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      const reply = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: "/local-exec/daemon", method: "POST", body: { label },
+      }) as Record<string, unknown> | undefined;
+      const machineId = typeof reply?.machineId === "string" ? reply.machineId : "";
+      const token = typeof reply?.token === "string" ? reply.token : "";
+      invariant(machineId.length > 0 && token.length > 0, "The server did not return a machine and a token.");
+      // Shown once by the server, so it is stored here and never asked for again.
+      await secrets.writeSecret(OPENGROK_DAEMON_TOKEN_SECRET, token);
+      await secrets.writeSecret(OPENGROK_DAEMON_MACHINE_SECRET, machineId);
+      return { machineId };
+    },
+    revokeRemoteControl: async () => {
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      const secrets = await import("./secrets/secret-store.js");
+      const machineId = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
+      // The local credential goes first: if the server call fails, this machine
+      // has still stopped being able to act, which is the safer half to lose.
+      await secrets.deleteSecret(OPENGROK_DAEMON_TOKEN_SECRET);
+      await secrets.deleteSecret(OPENGROK_DAEMON_MACHINE_SECRET);
+      if (typeof gatewayUrl === "string" && gatewayUrl.length > 0 && machineId.length > 0) {
+        try {
+          const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+          await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+            path: `/local-exec/daemon/${encodeURIComponent(machineId)}`, method: "DELETE",
+          });
+        } catch { /* the credential is already gone from this machine */ }
+      }
+      return { enrolled: false };
+    },
+    setRemoteControlMode: async (raw) => {
+      const mode = req(raw).mode;
+      invariant(mode === "never" || mode === "ask" || mode === "bypass", "Unknown remote control mode.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
+      const secrets = await import("./secrets/secret-store.js");
+      const machineId = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
+      invariant(machineId.length > 0, "This computer is not enrolled for remote control.");
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: "/local-exec/policy", method: "PUT", body: { machineId, mode },
+      });
+      return { mode };
+    },
     getOpenGrokAgentIssues: async () => {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
       if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { issues: [] };

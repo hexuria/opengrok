@@ -5,6 +5,8 @@ export const OPENGROK_GATEWAY_TOKEN_SECRET = "opengrok-gateway-token";
 
 /** Account token from the server sign-in. Separate from the gateway bearer by design. */
 export const OPENGROK_ACCESS_TOKEN_SECRET = "opengrok-access-token";
+export const OPENGROK_DAEMON_TOKEN_SECRET = "opengrok-daemon-token";
+export const OPENGROK_DAEMON_MACHINE_SECRET = "opengrok-daemon-machine";
 
 export const DEFAULT_SAND_BOX_RUNTIME: SandBoxRuntime = "remote";
 
