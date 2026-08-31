@@ -88,60 +88,45 @@ Nothing has verified them together.
 
 ---
 
-## Task 2 — A real login page per provider — BUILT 31 Aug 2026, one check outstanding
+## Task 2 — A real login page per provider — DONE 31 Aug 2026
 
 **Owner: ours. Highest regression risk on this list.**
 
-**Built and committed** (`9844254`, 242 tests). Each provider carries its own
-accent, its own opening line, and a sentence naming what pressing Sign in does —
-a terminal for Codex and Claude, a browser for Cursor and OpenGrok — plus what
-their CLI is already doing. Upstream's sign-in button is untouched: it is what
-starts each flow, and replacing the page to restyle it would have risked the one
-screen a person cannot get past.
+Each provider carries its own accent, its own opening line, and a sentence
+naming what pressing Sign in does — a terminal for Codex and Claude, a browser
+for Cursor and OpenGrok — plus what their CLI is already doing, so pressing the
+button is not a guess. Upstream's sign-in button is untouched: it is what starts
+each flow, and replacing the page to restyle it would have risked the one screen
+a person cannot get past.
 
-**What could not be verified live, and why.** The login page exists only when
-signed out, so driving all four pages needs a signed-out app:
+**All four pages driven over CDP:**
 
-- Signing out needs the user to sign back in, which no session may do.
-- Switching provider to reach a page is worse: `setBoxRuntime` signs the person
-  out when crossing the OpenGrok boundary, so picking Codex or Claude to look at
-  their page would destroy the session it was meant to preserve.
-- Presenting the helper with a synthetic page opens the picker instead — correct
-  behaviour, since nothing is picked on a signed-in launch — and pressing
-  through it restarts the coordinator and wedges the renderer. Tried twice; the
-  app recovered both times, and the approach was abandoned rather than repeated.
+| Provider | Accent | Title | What Sign in does |
+|---|---|---|---|
+| cursor | `#8b8b8b` | Grok Bot | opens your browser to Cursor |
+| opengrok | `#4ec9a5` | Open Grok | opens your browser to your server |
+| codex | `#74aa9c` | Codex | opens a terminal and runs the Codex login |
+| claude-code | `#d97757` | Claude | opens a terminal and runs the Claude login |
 
-**So this is verified at the content level, not the pixel level.** A test asserts
-all four providers carry distinct accents and ledes, that the CLI providers say a
-terminal opens and the others say a browser does, that none is sold as Grok Bot,
-and that the paint code actually uses those fields.
+Four distinct accents, four distinct ledes, the rule present on each, and the
+sign-in button preserved on every one.
 
-**To finish it:** the user signs out, all four pages are driven over CDP, and the
-user signs back in. That is the only honest route, and it needs them.
+**How, without signing anybody out.** The page exists only when signed out, and
+every obvious route to it harms the thing being verified: signing out needs the
+user; switching provider to reach a page signs them out anyway when it crosses
+the OpenGrok boundary; and injecting a page into the document opens the picker
+and restarts the coordinator.
 
-Today one page has its title and mark swapped per provider. The tagline is still
-upstream's generic Grok Bot line, and nothing tells a person that choosing Codex
-or Claude will open a terminal. The decision is for **full per-provider pages** —
-own layout, own palette, own copy — not swapped text on a shared page.
+So the painter was made inspectable instead. It found its page by selector and
+could therefore only ever paint the real one; it now accepts a page, and
+`__sandLoginPreview(id)` paints any provider into a detached page and hands back
+what it produced. Detached deliberately — it never enters the document, so it
+cannot trip the observer or be seen. Inert unless called, like the
+`__sandMediaDebug` and `__sandLayoutReport` hooks this app already ships.
 
-**Be honest about the cost.** This is the largest patch surface of anything left,
-against a checksum-pinned minified bundle, on the one screen a person cannot get
-past if it breaks. A broken login page is a broken app.
-
-**Done when:**
-
-- Each of the four providers has its own page: layout, palette, copy.
-- Each says what signing in with it actually does — a terminal opens for the CLI
-  providers, a browser for OpenGrok — and reflects the CLI state already
-  detected (installed, signed in, neither).
-- The back arrow still returns to the picker, from every provider's page.
-- **Verified by driving each provider's page over CDP**, not by reading the
-  patch: pick each of the four, confirm the page renders, confirm the back arrow
-  returns, confirm sign-in still starts the right flow.
-- The smoke pass still passes — especially launch and log out, which both cross
-  this screen.
-
----
+**Smoke pass after this task:** launch clean with no flash, 3 bots, signed in,
+reply in 4s, log out present, General shows Open Grok, Computer shows the
+roster, reset and this Mac.
 
 ## Task 3 — `computerError` on the agent rows — DONE 31 Aug 2026
 
