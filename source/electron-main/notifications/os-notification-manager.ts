@@ -20,6 +20,16 @@ export interface NotificationWindowPort {
   restore(): void;
   show(): void;
   focus(): void;
+  /**
+   * A window can be torn down while events are still in flight towards it.
+   * Optional so existing doubles keep working; a window that cannot say is
+   * assumed to be alive.
+   */
+  isDestroyed?(): boolean;
+}
+
+function windowIsFocused(window: NotificationWindowPort): boolean | null {
+  try { return window.isFocused(); } catch { return null; }
 }
 
 export class SandOsNotificationManager {
@@ -41,9 +51,11 @@ export class SandOsNotificationManager {
   }) {}
 
   handleAgentsEvent(event: { readonly agents: readonly NotificationAgent[] }): void {
-    const window = this.deps.getWindow();
+    const window = this.liveWindow();
     if (window == null || !this.deps.isSupported()) return;
-    const transitions = this.decider.decide({ agents: event.agents.map(toNotificationSnapshot), isWindowFocused: window.isFocused(), nowMs: (this.deps.now ?? Date.now)() });
+    const focused = windowIsFocused(window);
+    if (focused == null) return;
+    const transitions = this.decider.decide({ agents: event.agents.map(toNotificationSnapshot), isWindowFocused: focused, nowMs: (this.deps.now ?? Date.now)() });
     this.flushPreSeedDeltas();
     for (const transition of transitions) this.show(transition);
   }
@@ -68,11 +80,21 @@ export class SandOsNotificationManager {
     this.active.clear();
   }
 
+  /** The window, if there is one and it has not been torn down. */
+  private liveWindow(): NotificationWindowPort | null {
+    let window: NotificationWindowPort | null;
+    try { window = this.deps.getWindow(); } catch { return null; }
+    if (window == null) return null;
+    try { if (window.isDestroyed?.() === true) return null; } catch { return null; }
+    return window;
+  }
+
   private processDelta(event: { readonly agent: NotificationAgent }): void {
     const snapshot = toNotificationSnapshot(event.agent);
-    const window = this.deps.getWindow();
-    if (window == null || !this.deps.isSupported()) { this.decider.observeAgent(snapshot); return; }
-    for (const transition of this.decider.decideAgent(snapshot, { isWindowFocused: window.isFocused(), nowMs: (this.deps.now ?? Date.now)() })) this.show(transition);
+    const window = this.liveWindow();
+    const focused = window == null ? null : windowIsFocused(window);
+    if (window == null || focused == null || !this.deps.isSupported()) { this.decider.observeAgent(snapshot); return; }
+    for (const transition of this.decider.decideAgent(snapshot, { isWindowFocused: focused, nowMs: (this.deps.now ?? Date.now)() })) this.show(transition);
   }
 
   private flushPreSeedDeltas(): void {

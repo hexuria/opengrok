@@ -312,6 +312,19 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     setTimeZoneOverride: (raw) => { const { timeZone } = req(raw); if (timeZone === null) invoke(deps.settingsStore, "setUserTimeZoneOverride", undefined); else if (typeof timeZone === "string" && isValidIanaTimeZone(timeZone)) invoke(deps.settingsStore, "setUserTimeZoneOverride", timeZone); const detected = (deps.detectTimeZone ?? detectTimeZone)(); void deps.syncHostSettingsToBox({ ...(detected == null ? {} : { userTimeZone: detected }), userTimeZoneOverride: invoke(deps.settingsStore, "getUserTimeZoneOverride") ?? "" }); return { detectedTimeZone: (deps.detectTimeZone ?? detectTimeZone)() ?? null, overrideTimeZone: invoke(deps.settingsStore, "getUserTimeZoneOverride") ?? null }; },
     getAutoReviewInstructions: () => invoke(deps.settingsStore, "getAutoReviewInstructions"),
     setAutoReviewInstructions: async (raw) => { const value = req(raw).instructions; const instructions = typeof value === "object" && value != null && !Array.isArray(value) ? value as { isEnabled?: unknown; allowInstructions?: unknown; blockInstructions?: unknown } : undefined; const normalized = normalizeSandAutoReviewInstructions(instructions); invoke(deps.settingsStore, "setAutoReviewInstructions", normalized); try { await deps.syncHostSettingsToBox({ autoReviewInstructions: normalized }); } catch (error) { reportDesktopEdgeFailure("host-settings", "auto-review", error); } return invoke(deps.settingsStore, "getAutoReviewInstructions"); },
+    getLocalComputer: async () => {
+      const { hostname } = await import("node:os");
+      let machine = "";
+      try { machine = hostname(); } catch { machine = ""; }
+      const chosen = invoke(deps.settingsStore, "getLocalComputerName");
+      return { name: typeof chosen === "string" && chosen.length > 0 ? chosen : machine, hostname: machine, isCustom: typeof chosen === "string" && chosen.length > 0 };
+    },
+    setLocalComputerName: (raw) => {
+      const name = req(raw).name;
+      invariant(typeof name === "string" && name.length <= 120, "setLocalComputerName requires a bounded name.");
+      invoke(deps.settingsStore, "setLocalComputerName", name);
+      return { ok: true };
+    },
     getLocalToolPermission: () => invoke(deps.settingsStore, "getLocalToolPermission"),
     getLocalToolPermissionCeiling: () => invoke(deps.settingsStore, "getLocalToolPermissionCeiling") ?? null,
     setLocalToolPermission: async (raw) => { invoke(deps.settingsStore, "setLocalToolPermission", normalizeSandLocalToolPermission(req(raw).permission)); for (let attempt = 0; attempt < 3; attempt += 1) { const permission = invoke(deps.settingsStore, "getLocalToolPermission"); try { const applied = await deps.syncHostSettingsToBox({ localToolPermission: permission }); if (applied?.localToolPermission === permission) break; } catch (error) { reportDesktopEdgeFailure("host-settings", "local-tool-retry", error); } await (deps.delay ?? sleep)(250 * (attempt + 1)); } return invoke(deps.settingsStore, "getLocalToolPermission"); },
@@ -440,13 +453,40 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     },
     getBoxRuntime: async () => { const mode = invoke(deps.settingsStore, "getBoxRuntime"); invariant(isSandBoxRuntime(mode), "Unknown box runtime."); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
     setBoxRuntime: async (raw) => { const requested = req(raw).mode; invariant(isSandBoxRuntime(requested), "Unknown box runtime."); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const mode = coerceBoxRuntimeForProvider(requested, isSandInferenceProvider(provider) ? provider : "cursor"); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); const previous = invoke(deps.settingsStore, "getBoxRuntime"); invoke(deps.settingsStore, "setBoxRuntime", mode); /* Crossing between backends changes who the account belongs to, so the old session cannot survive it: signing in to an OpenGrok server must sign you out of Cursor, and leaving must sign you out of the server. One account, never two. */ if ((previous === "opengrok") !== (mode === "opengrok")) { try { await Promise.resolve(invoke(deps.cursorAccount, "logout")); } catch { /* already signed out */ } } try { if (mode === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(settingsPath); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", previous); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
+    resetOpenGrokComputer: async () => {
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
+      const secrets = await import("./secrets/secret-store.js");
+      const { callOpenGrokGateway } = await import("./box/opengrok-gateway-call.js");
+      const { listOpenGrokComputers } = await import("./box/opengrok-signin.js");
+      const access = (await secrets.readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) ?? "";
+      invariant(access.length > 0, "Sign in to your OpenGrok server first.");
+
+      const listed = await listOpenGrokComputers(gatewayUrl, access);
+      invariant(listed.sharingMode !== "per-org", "This computer belongs to your whole organisation. An admin can reset it from the server's admin dashboard.");
+
+      // Reset is scoped by agent, and for a shared computer any of the account's
+      // agents names the same box.
+      const agents = await callOpenGrokGateway(secrets, gatewayUrl, "listAgents", {});
+      const rows = Array.isArray(agents) ? agents : [];
+      const agentId = rows.map((row) => (typeof row === "object" && row != null ? (row as Record<string, unknown>).id : undefined))
+        .find((id): id is string => typeof id === "string" && id.length > 0);
+      invariant(agentId != null, "There is no bot yet, so there is no computer to reset.");
+
+      const status = await callOpenGrokGateway(secrets, gatewayUrl, "resetForeverBox", { agentId });
+      const record = typeof status === "object" && status != null ? (status as Record<string, unknown>) : {};
+      return {
+        state: typeof record.state === "string" ? record.state : null,
+        computerError: typeof record.computerError === "object" && record.computerError != null ? record.computerError : null,
+      };
+    },
     listOpenGrokComputers: async () => {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
-      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { computers: [], computerError: null, signedIn: false };
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { computers: [], computerError: null, activeKind: null, sharingMode: null, signedIn: false };
       try {
         const secretStore = await import("./secrets/secret-store.js");
         const stored = (await secretStore.readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) ?? "";
-        if (stored.length === 0) return { computers: [], computerError: null, signedIn: false };
+        if (stored.length === 0) return { computers: [], computerError: null, activeKind: null, sharingMode: null, signedIn: false };
         let access = stored;
         try {
           const fresh = await Promise.resolve(invoke(deps.cursorAccount, "getValidAccessToken", { backendUrl: gatewayUrl }));
@@ -455,9 +495,9 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         if (access !== stored) await secretStore.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, access);
         const { listOpenGrokComputers } = await import("./box/opengrok-signin.js");
         const listed = await listOpenGrokComputers(gatewayUrl, access);
-        return { computers: listed.computers, computerError: listed.computerError, signedIn: true };
+        return { computers: listed.computers, computerError: listed.computerError, activeKind: listed.activeKind, sharingMode: listed.sharingMode, signedIn: true };
       } catch (error) {
-        return { computers: [], computerError: null, signedIn: true, error: String(error instanceof Error ? error.message : error) };
+        return { computers: [], computerError: null, activeKind: null, sharingMode: null, signedIn: true, error: String(error instanceof Error ? error.message : error) };
       }
     },
     signInToOpenGrokServer: async (raw) => {

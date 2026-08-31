@@ -177,6 +177,8 @@ export interface OpenGrokComputer {
   readonly state?: string;
   /** False when the organisation has not set this kind up yet. */
   readonly configured?: boolean;
+  /** True for the one computer this account is actually using. */
+  readonly active?: boolean;
 }
 
 /**
@@ -198,6 +200,10 @@ export interface OpenGrokComputerError {
 export interface OpenGrokComputerList {
   readonly computers: readonly OpenGrokComputer[];
   readonly computerError: OpenGrokComputerError | null;
+  /** The kind this account's own computer is, when the server names one. */
+  readonly activeKind: string | null;
+  /** Who a computer belongs to: the organisation, the account, or one bot. */
+  readonly sharingMode: string | null;
 }
 
 function parseComputerError(value: unknown): OpenGrokComputerError | null {
@@ -215,6 +221,9 @@ export async function listOpenGrokComputers(baseUrl: string, accessToken: string
     const body = await postJson(joinUrl(baseUrl.replace(/\/+$/, ""), LIST_COMPUTERS_PATH), accessToken, controller.signal);
     const rows = Array.isArray(body.computers) ? body.computers : [];
     const computerError = parseComputerError(body.computerError);
+    const activeKind = typeof body.activeKind === "string" && body.activeKind.length > 0 ? body.activeKind : null;
+    const sharingMode = typeof body.sharingMode === "string" && body.sharingMode.length > 0 ? body.sharingMode
+      : typeof body.mode === "string" && body.mode.length > 0 ? body.mode : null;
     const computers = rows.flatMap((row) => {
       if (typeof row !== "object" || row == null) return [];
       const record = row as Record<string, unknown>;
@@ -228,9 +237,10 @@ export async function listOpenGrokComputers(baseUrl: string, accessToken: string
         ...(typeof record.kind === "string" ? { kind: record.kind } : {}),
         ...(typeof record.state === "string" ? { state: record.state } : {}),
         ...(typeof record.configured === "boolean" ? { configured: record.configured } : {}),
+        ...(typeof record.active === "boolean" ? { active: record.active } : {}),
       }];
     });
-    return { computers, computerError };
+    return { computers, computerError, activeKind, sharingMode };
   } finally {
     clearTimeout(timer);
   }
