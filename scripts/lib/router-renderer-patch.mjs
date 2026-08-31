@@ -257,6 +257,48 @@ function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.val
 `;
 
 export const MAIN_CHROME_SOURCE = String.raw`
+const RAgentIssueCopy={
+  no_org_key:"No computer is set up for your organisation, so this bot has none.",
+  invalid_key:"Your organisation\u2019s box.ascii.dev key was rejected, so this bot has no computer.",
+  quota_exceeded:"Your organisation has no capacity left at box.ascii.dev, so this bot has no computer.",
+  provider_unreachable:"The computer provider could not be reached, so this bot has no computer yet.",
+  provider_error:"The computer provider refused, so this bot has no computer.",
+  not_supported:"This server does not offer the computer this bot asked for.",
+  unknown:"This bot has no computer."};
+const RAgentIssues={map:{},at:0};
+function RAgentIssueBar(){
+  try{
+    const row=document.querySelector(".sand-agent-item[data-agent-id][data-active=\"true\"]");
+    const id=row?row.getAttribute("data-agent-id"):null;
+    const existing=document.querySelector("[data-sand-agent-issue]");
+    const issue=id?RAgentIssues.map[id]:null;
+    if(!issue){if(existing)existing.remove();return}
+    if(!document.querySelector("[data-sand-agent-issue-style]")){
+      const st=document.createElement("style");st.setAttribute("data-sand-agent-issue-style","1");
+      st.textContent="[data-sand-agent-issue]{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);z-index:2147483400;max-width:min(520px,92vw);padding:9px 14px;border-radius:10px;font-size:12.5px;line-height:1.5;text-align:center;border:1px solid var(--sand-border-default,rgba(128,128,128,.3));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 10px 28px rgba(0,0,0,.24)}";
+      document.head.appendChild(st);
+    }
+    const said=RAgentIssueCopy[issue.code]||issue.message||RAgentIssueCopy.unknown;
+    const detail=RAgentIssueCopy[issue.code]&&issue.message?" "+issue.message:"";
+    const text=said+detail;
+    let bar=existing;
+    if(!bar){bar=document.createElement("div");bar.setAttribute("data-sand-agent-issue","1");
+      bar.setAttribute("role","status");bar.setAttribute("aria-live","polite");document.body.appendChild(bar)}
+    if(bar.textContent!==text)bar.textContent=text;
+  }catch{}
+}
+function RInstallAgentIssues(){
+  try{
+    if(typeof document==="undefined")return;
+    const load=function(){
+      try{Promise.resolve(window.desktop.agent.getOpenGrokAgentIssues()).then(function(r){
+        const next={};(r&&r.issues||[]).forEach(function(i){next[i.agentId]=i});
+        RAgentIssues.map=next;RAgentIssues.at=Date.now();RAgentIssueBar();
+      }).catch(function(){})}catch(_){}
+    };
+    load();setInterval(load,60000);setInterval(RAgentIssueBar,3000);
+  }catch{}
+}
 const RTurnStop={since:0,agent:null,busy:!1};
 function RTurnStopBar(){
   const dot=document.querySelector(".sand-kit-status-dot");
@@ -366,6 +408,7 @@ function ROpenRouterSettings(){const labeled=n=>(n.getAttribute("aria-label")||n
 async function RSkipLoginWall(){RRememberLoginWallSkip();try{sessionStorage.setItem("sand-open-router-settings","1")}catch{}const agent=window.desktop&&window.desktop.agent;if(agent&&agent.skipCursorLoginWall)try{await agent.skipCursorLoginWall({})}catch{}window.location.reload()}
 function RInstallFirstRunLogins(){if(RLoginWallSkipped()){try{if(sessionStorage.getItem("sand-open-router-settings")==="1"){sessionStorage.removeItem("sand-open-router-settings");ROpenRouterSettings()}}catch{}}const hide=()=>{if(!RLoginWallSkipped())return;document.querySelectorAll(".sand-onboarding").forEach(n=>n.style.setProperty("display","none","important"))};hide();new MutationObserver(hide).observe(document.documentElement,{childList:!0,subtree:!0})}
 RInstallTurnStop();
+RInstallAgentIssues();
 function RInstallScreenSwitcher(){const labels={"local-docker":"Local Docker VM","grok-vm":"Grok VM","windows-365":"Windows 365",box:"box (Linux VM)"};const mount=s=>{if(!s||s.querySelector("[data-computer-screen-switcher]"))return;const e=document.createElement("div");e.className="sand-computer-screen-switcher";e.setAttribute("data-computer-screen-switcher","1");const t=async()=>{try{const n=window.desktop.agent.getProviderComputers?await window.desktop.agent.getProviderComputers():await window.desktop.agent.getInferenceRouter(),r=n.computers??n,i=Array.isArray(r.activated)?r.activated:[],o=r.selectedScreen??i[0]??null;e.replaceChildren();if(i.length<=1){e.style.display="none";if(i[0])s.setAttribute("data-active-computer-screen",i[0]);return}e.style.display="";{const l=document.createElement("div");l.setAttribute("role","tablist");l.setAttribute("aria-label","Computer screen");i.forEach(c=>{const d=document.createElement("button");d.type="button";d.setAttribute("role","tab");d.setAttribute("data-computer-screen",c);d.setAttribute("aria-selected",c===o?"true":"false");d.textContent=labels[c]??c;d.addEventListener("click",()=>{void window.desktop.agent.setComputerScreen(c).then(()=>{window.dispatchEvent(new CustomEvent("sand-computer-screen-changed",{detail:{screen:c}}));void t()})});l.append(d)});e.append(l)}if(o)s.setAttribute("data-active-computer-screen",o)}catch{}};s.prepend(e);void t();window.addEventListener("sand-router-provider-changed",t);window.addEventListener("sand-computer-screen-changed",t)};const scan=()=>{const target=document.querySelector(".sand-computer-preview")??document.querySelector(".sand-info-pane")??document.querySelector("[aria-label='Conversation details']");if(target)mount(target)};scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0})}
 if(typeof document!=="undefined"){const RBootProviderChrome=()=>{RInstallFirstRunLogins();RInstallScreenSwitcher()};if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",RBootProviderChrome);else RBootProviderChrome()}
 `;

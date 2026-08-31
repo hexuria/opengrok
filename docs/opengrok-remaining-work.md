@@ -143,9 +143,27 @@ past if it breaks. A broken login page is a broken app.
 
 ---
 
-## Task 3 — `computerError` on the agent rows
+## Task 3 — `computerError` on the agent rows — DONE 31 Aug 2026
 
 **Owner: ours. The server already sends it.**
+
+**Result.** A bot whose own computer could not be provisioned now says so, in the
+same seven codes as the Computer panel but worded about the bot rather than the
+organisation. An unrecognised code still shows the server's own words.
+
+Verified live: the route answers against the real roster with `issues: []` — all
+three bots share one working box — and **no bar is shown**. That is the property
+worth proving, because a bar claiming a broken computer when nothing is wrong
+would be worse than none at all. A roster that cannot be read returns no issues
+rather than inventing one.
+
+The positive case was not forced. Producing a real failure means breaking the
+organisation's box key, which is the user's credential and their working setup.
+The wording and the fallback are covered by tests instead.
+
+Smoke pass after this task: launch clean, 3 bots, signed in, reply in 2s, log
+out present, General shows Open Grok, Computer shows the roster, reset and this
+Mac.
 
 `computerError` was agreed on two surfaces. The account-level one is rendered;
 the per-agent one on `listAgents` rows is not read at all.

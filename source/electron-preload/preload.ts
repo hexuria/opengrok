@@ -301,6 +301,7 @@ export function createDesktopPreloadBridge(options: {
       listOpenGrokComputers: () => edge("listOpenGrokComputers"),
       resetOpenGrokComputer: () => edge("resetOpenGrokComputer"),
       stopOpenGrokAgentTurn: (agentId: string) => edge("stopOpenGrokAgentTurn", { agentId }),
+      getOpenGrokAgentIssues: () => edge("getOpenGrokAgentIssues"),
       getLocalComputer: () => edge("getLocalComputer"),
       setLocalComputerName: (name: string) => edge("setLocalComputerName", { name }),
       setOpenGrokServer: (gatewayUrl: string, token?: string) => edge("setOpenGrokServer", { gatewayUrl, ...(token === undefined ? {} : { token }) }),

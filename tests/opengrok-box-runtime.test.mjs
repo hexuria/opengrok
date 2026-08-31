@@ -622,3 +622,28 @@ test("evaluating the renderer source starts nothing outside a browser", async ()
   assert.match(chrome, /function RInstallTurnStop\(\)/);
   assert.match(chrome, /if\(typeof document==="undefined"\)return/);
 });
+
+// The server reports a per-bot provisioning failure on that bot's own row. It
+// was never read, so a bot whose computer could not be made looked exactly like
+// one whose computer is fine — which is the failure the field exists to prevent.
+test("a bot with no computer says so, in the same words as the panel", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+
+  const copy = new Function(`${chrome}\nreturn RAgentIssueCopy;`)();
+  // Every code the server can send needs words here too, not only in Settings.
+  for (const code of ["no_org_key", "invalid_key", "quota_exceeded", "provider_unreachable", "provider_error", "not_supported", "unknown"]) {
+    assert.equal(typeof copy[code], "string", `no wording for "${code}" on the agent surface`);
+    assert.ok(copy[code].length > 0);
+  }
+  // It must talk about the bot, not the organisation's roster.
+  assert.match(copy.no_org_key, /this bot/i);
+  assert.match(copy.invalid_key, /this bot/i);
+
+  // Reading the roster must never invent a failure: a roster we cannot read is
+  // not a bot with a broken computer.
+  const mainEdge = await readFile(path.join(repoRoot, "source", "electron-main", "main-edge.ts"), "utf8");
+  assert.match(mainEdge, /catch \{\s*\n\s*\/\/ A roster we cannot read is not a bot with a broken computer\.\s*\n\s*return \{ issues: \[\] \};/);
+  // And an unrecognised code still shows the server's own words.
+  assert.match(chrome, /RAgentIssueCopy\[issue\.code\]\|\|issue\.message\|\|RAgentIssueCopy\.unknown/);
+});

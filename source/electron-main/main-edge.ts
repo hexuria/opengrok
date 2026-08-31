@@ -453,6 +453,33 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     },
     getBoxRuntime: async () => { const mode = invoke(deps.settingsStore, "getBoxRuntime"); invariant(isSandBoxRuntime(mode), "Unknown box runtime."); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
     setBoxRuntime: async (raw) => { const requested = req(raw).mode; invariant(isSandBoxRuntime(requested), "Unknown box runtime."); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const mode = coerceBoxRuntimeForProvider(requested, isSandInferenceProvider(provider) ? provider : "cursor"); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); const previous = invoke(deps.settingsStore, "getBoxRuntime"); invoke(deps.settingsStore, "setBoxRuntime", mode); /* Crossing between backends changes who the account belongs to, so the old session cannot survive it: signing in to an OpenGrok server must sign you out of Cursor, and leaving must sign you out of the server. One account, never two. */ if ((previous === "opengrok") !== (mode === "opengrok")) { try { await Promise.resolve(invoke(deps.cursorAccount, "logout")); } catch { /* already signed out */ } } try { if (mode === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(settingsPath); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", previous); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await (deps.getLocalDockerStatus ?? getLocalDockerStatus)(settingsPath), windows365: await describeWindows365Session(settingsPath), account: getAccountComputerStatus(), openGrok: { ...getOpenGrokServerStatus(), configuredUrl: invoke(deps.settingsStore, "getOpenGrokGatewayUrl") ?? null } }; },
+    getOpenGrokAgentIssues: async () => {
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return { issues: [] };
+      try {
+        const secrets = await import("./secrets/secret-store.js");
+        const { callOpenGrokGateway } = await import("./box/opengrok-gateway-call.js");
+        const agents = await callOpenGrokGateway(secrets, gatewayUrl, "listAgents", {});
+        const rows = Array.isArray(agents) ? agents : [];
+        const issues = rows.flatMap((row) => {
+          if (typeof row !== "object" || row == null) return [];
+          const record = row as Record<string, unknown>;
+          const id = typeof record.id === "string" ? record.id : "";
+          const failure = record.computerError;
+          if (id.length === 0 || typeof failure !== "object" || failure == null) return [];
+          const detail = failure as Record<string, unknown>;
+          return [{
+            agentId: id,
+            code: typeof detail.code === "string" && detail.code.length > 0 ? detail.code : "unknown",
+            message: typeof detail.message === "string" ? detail.message : "",
+          }];
+        });
+        return { issues };
+      } catch {
+        // A roster we cannot read is not a bot with a broken computer.
+        return { issues: [] };
+      }
+    },
     stopOpenGrokAgentTurn: async (raw) => {
       const agentId = req(raw).agentId;
       invariant(typeof agentId === "string" && agentId.length > 0, "stopOpenGrokAgentTurn requires an agent id.");
