@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -288,6 +288,36 @@ test("the account header is sent to our own server and to no one else", async ()
     const noToken = await new mod.BrokeredHostConnector({ getAccessToken: async () => { throw new Error("no token"); } }, client).connect();
     assert.equal(noToken.headers?.[mod.OPENGROK_ACCOUNT_HEADER], undefined);
     assert.equal(noToken.baseUrl, "http://server.test:1447", "the connection still stands without the header");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+// Someone signing in to their own server was told "Grok Bot couldn't confirm
+// your Cursor sign-in" — naming a product they were not using and an account
+// they had never had. The wording must follow the backend actually configured,
+// and it is read at use time because that backend changes while the app runs.
+test("a signed-out message names the backend the person actually used", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-signin-msg-"));
+  try {
+    const entry = path.join(temporary, "entry.ts");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(entry, [
+      `export { SandCursorAuthService } from ${JSON.stringify(path.join(repoRoot, "source/electron-main/account/cursor-auth.ts"))};`,
+      `export { setBackendUrlResolver, DEFAULT_CURSOR_BACKEND_URL } from ${JSON.stringify(path.join(repoRoot, "source/shared/node/cursor-token.ts"))};`,
+    ].join("\n"), "utf8");
+    const outfile = path.join(temporary, "auth.mjs");
+    await build({ entryPoints: [entry], outfile, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent" });
+    const mod = await import(pathToFileURL(outfile).href);
+
+    const source = await readFile(path.join(repoRoot, "source/electron-main/account/cursor-auth.ts"), "utf8");
+    // No signed-out message may hard-code one backend's wording any more.
+    for (const [, line] of source.matchAll(/^const [A-Z_]+_STATUS = \{ kind: "logged-out", errorMessage: "([^"]+)"/gm)) {
+      assert.fail(`a signed-out message is still fixed to one backend: ${line}`);
+    }
+    assert.match(source, /function loggedOut\(cursorText: string, openGrokText: string\)/);
+    // Read at use time, not at module load, or the wording freezes at startup.
+    assert.match(source, /get errorMessage\(\): string/);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

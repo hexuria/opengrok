@@ -50,14 +50,54 @@ export type SessionSettlement =
   | { readonly kind: "signed_out"; readonly cause: SessionSignoutCause; readonly durable: boolean; readonly accessToken: string }
   | { readonly kind: "keychain_unavailable"; readonly accessToken: string };
 
-const RETAINED_AFTER_FAILED_LOGOUT_STATUS = { kind: "logged-out", errorMessage: "Grok Bot couldn't remove the saved Cursor sign-in. The account may return after Grok Bot restarts. Sign in to try again." } as const;
+/**
+ * A signed-out message that names the backend the person actually used.
+ *
+ * These read "Grok Bot couldn't confirm your Cursor sign-in" whatever they
+ * signed into, so someone signing in to their own OpenGrok server was told
+ * about a Cursor account they had never had. The message is chosen when it is
+ * read rather than when the module loads, because the backend can change while
+ * the app is running.
+ */
+function loggedOut(cursorText: string, openGrokText: string): { readonly kind: "logged-out"; readonly errorMessage: string } {
+  return {
+    kind: "logged-out",
+    get errorMessage(): string {
+      try {
+        return new URL(getConfiguredBackendUrl()).origin === new URL(DEFAULT_CURSOR_BACKEND_URL).origin ? cursorText : openGrokText;
+      } catch {
+        return cursorText;
+      }
+    },
+  } as const;
+}
+
+const RETAINED_AFTER_FAILED_LOGOUT_STATUS = loggedOut(
+  "Grok Bot couldn't remove the saved Cursor sign-in. The account may return after Grok Bot restarts. Sign in to try again.",
+  "Open Grok couldn't remove the saved sign-in. The account may come back after a restart. Sign in to try again.",
+);
 const LOGGED_OUT_STATUS = { kind: "logged-out" } as const;
-const SIGN_IN_CONFIRMATION_FAILED_STATUS = { kind: "logged-out", errorMessage: "Grok Bot couldn't confirm your Cursor sign-in. Restart Grok Bot or sign in again." } as const;
-const SIGN_IN_EXPIRED_STATUS = { kind: "logged-out", errorMessage: "Cursor sign-in expired. Sign in again to run Grok Bot." } as const;
+const SIGN_IN_CONFIRMATION_FAILED_STATUS = loggedOut(
+  "Grok Bot couldn't confirm your Cursor sign-in. Restart Grok Bot or sign in again.",
+  "Open Grok couldn't confirm your sign-in with your server. Sign in again.",
+);
+const SIGN_IN_EXPIRED_STATUS = loggedOut(
+  "Cursor sign-in expired. Sign in again to run Grok Bot.",
+  "Your sign-in expired. Sign in again to keep working.",
+);
 const SIGN_IN_POLICY_VIOLATION_STATUS = { kind: "logged-out", errorMessage: SIGN_IN_POLICY_VIOLATION_MESSAGE } as const;
-const LOGIN_DID_NOT_FINISH_STATUS = { kind: "logged-out", errorMessage: "Cursor sign-in did not finish. Try again." } as const;
-const ACCOUNT_REFUSED_STATUS = { kind: "logged-out", errorMessage: "This computer is linked to another Cursor account. Sign in with that account to continue." } as const;
-const ACCOUNT_REFUSED_CREDENTIALS_RETAINED_STATUS = { kind: "logged-out", errorMessage: "This computer is linked to another Cursor account. Grok Bot couldn't remove the saved Cursor sign-in, so the account may return after restart. Sign in with the linked account to continue." } as const;
+const LOGIN_DID_NOT_FINISH_STATUS = loggedOut(
+  "Cursor sign-in did not finish. Try again.",
+  "Sign-in did not finish. Try again.",
+);
+const ACCOUNT_REFUSED_STATUS = loggedOut(
+  "This computer is linked to another Cursor account. Sign in with that account to continue.",
+  "This computer is linked to another account. Sign in with that account to continue.",
+);
+const ACCOUNT_REFUSED_CREDENTIALS_RETAINED_STATUS = loggedOut(
+  "This computer is linked to another Cursor account. Grok Bot couldn't remove the saved Cursor sign-in, so the account may return after restart. Sign in with the linked account to continue.",
+  "This computer is linked to another account, and the saved sign-in could not be removed, so it may come back after a restart. Sign in with that account to continue.",
+);
 
 function base64UrlEncode(bytes: Uint8Array): string { return Buffer.from(bytes).toString("base64url"); }
 export function createLoginMetadata(): { challenge: string; metadata: LoginMetadata } {
