@@ -43,9 +43,35 @@ Run after every task. This is the regression guard.
 
 ---
 
-## Task 1 — Regression pass, and prove the flag leak is closed
+## Task 1 — Regression pass, and prove the flag leak is closed — DONE 31 Aug 2026
 
 **Owner: ours. Nothing needed from the server.**
+
+**Result.** The whole smoke pass passed against the live server, and the leak
+fix is proven rather than trusted:
+
+| Path | Observed |
+|---|---|
+| Launch | `["\|app"]` — no frame where the sign-in page is visible |
+| Roster | 3 bots, `signin@acme.test` |
+| Send | composer cleared 2s, real answer (42) painted 4s |
+| Long turn | bar absent at 20s and 40s, present at 48s, torn down when work ends |
+| Stop | `isRunning` true → `stopAgentTurn` → false at +3/5/10/15s, bot usable in 3s, no reload |
+| Settings ▸ General | `O ǀ Open Grok ǀ signin@acme.test ǀ Sign Out` |
+| Settings ▸ Computer | roster with box.ascii.dev "Your computer", Reset present, this Mac named with its permission |
+| Computer view | `state: running`, real `vnc.html` URL, no placeholder |
+| Log out | present in the menu — **not pressed**, because signing back in needs the user |
+
+**One thing ruled out rather than assumed.** The transcript appeared to show
+prompts concatenated together, which would have been a serious send bug. It is
+not: the composer was empty before typing, took only the new text, and the
+message was sent alone. The app groups consecutive messages from the same sender
+into one bubble for display.
+
+**Turns now finish in seconds**, so the 45s bar could not be reached by asking
+for a long answer. It was verified directly instead, by holding a working
+indicator up and watching the bar's own timing — which tests the bar rather than
+the model's speed.
 
 Around twenty-five commits landed in a day, several touching the same paths.
 Nothing has verified them together.
