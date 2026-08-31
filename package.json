@@ -15,7 +15,7 @@
     "frontend:recover": "node scripts/recover-frontend.mjs",
     "native:patch": "node scripts/apply-third-party-patches.mjs",
     "native:build:electron": "node scripts/build-tree-sitter-electron.mjs",
-    "package": "npm run check && node scripts/package-macos.mjs",
+    "package": "npm run frontend:build && npm run check && node scripts/package-macos.mjs",
     "package:diagnostic": "npm run check && node scripts/package-fidelity-diagnostic.mjs",
     "publication:check": "node scripts/verify-publication-tree.mjs",
     "postinstall": "node scripts/apply-third-party-patches.mjs",
