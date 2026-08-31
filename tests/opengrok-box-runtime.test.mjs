@@ -483,3 +483,15 @@ test("the account's own computer is named, by row flag or by kind", async () => 
     await cleanup();
   }
 });
+
+// Saying "the server did not say why" directly above the server's own words is
+// a plain contradiction. A code we do not recognise is not a failure nobody
+// explained: when a message came with it, that message IS the explanation.
+test("an unrecognised failure shows what the server said, not that it said nothing", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const component = eval(/const COMPONENT_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  // The unknown fallback may only be reached when there is nothing else to say.
+  assert.match(component, /c=known\|\|\(detail\?\["A computer could not be set up",detail\]:ROpenGrokErrorCopy\.unknown\)/);
+  // And the message must not be printed twice once it has become the description.
+  assert.match(component, /detail&&known\?a\.jsx\(se,/);
+});

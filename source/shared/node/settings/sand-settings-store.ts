@@ -43,6 +43,7 @@ export interface SandStoredSettings {
   boxRuntime?: SandBoxRuntime;
   /** Base URL of the user's own OpenGrok server. The bearer lives in the secret store, never here. */
   openGrokGatewayUrl?: string;
+  localComputerName?: string;
   providerComputers?: ProviderComputerMap;
   mcpCustomInstructionsAccountScope?: string; pinnedAgentIds?: string[]; sidebarSections?: SidebarSection[];
 }
@@ -117,6 +118,7 @@ function parseSettings(value: unknown): SandStoredSettings | null {
   if (transcribeLanguages.length > 0) result.geminiTranscribeLanguages = transcribeLanguages;
   if (isSandBoxRuntime(raw.boxRuntime)) result.boxRuntime = raw.boxRuntime;
   if (typeof raw.openGrokGatewayUrl === "string" && raw.openGrokGatewayUrl.trim().length > 0) result.openGrokGatewayUrl = raw.openGrokGatewayUrl.trim();
+  if (typeof raw.localComputerName === "string" && raw.localComputerName.trim().length > 0) result.localComputerName = raw.localComputerName.trim();
   if (typeof raw.providerComputers === "object" && raw.providerComputers != null && !Array.isArray(raw.providerComputers)) {
     result.providerComputers = parseProviderComputerMap(raw.providerComputers);
   }
@@ -176,6 +178,20 @@ export class SandSettingsStore {
       const next = { ...s };
       if (trimmed.length === 0) delete next.openGrokGatewayUrl;
       else next.openGrokGatewayUrl = trimmed;
+      return next;
+    });
+  }
+  /** What this machine is called when an agent is told about it. */
+  getLocalComputerName(): string | undefined {
+    const raw = this.load().localComputerName;
+    return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : undefined;
+  }
+  setLocalComputerName(value: string): void {
+    const trimmed = value.trim().slice(0, 120);
+    this.update((s) => {
+      const next = { ...s };
+      if (trimmed.length === 0) delete next.localComputerName;
+      else next.localComputerName = trimmed;
       return next;
     });
   }

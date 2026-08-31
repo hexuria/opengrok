@@ -33,6 +33,8 @@ export const MAIN_METHOD_TABLE = {
   setTimeZoneOverride: { args: "object" },
   getAutoReviewInstructions: { args: "none" },
   setAutoReviewInstructions: { args: "object" },
+  getLocalComputer: { args: "none" },
+  setLocalComputerName: { args: "object" },
   getLocalToolPermission: { args: "none" },
   getLocalToolPermissionCeiling: { args: "none" },
   setLocalToolPermission: { args: "object" },
