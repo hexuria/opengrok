@@ -100,6 +100,27 @@ none of them were where either side first looked:
   account token does but now refreshes. Both were disproven by asking rather
   than by building on them.
 
+## A bot uses its computer, and you can watch it
+
+31 Aug 2026. A bot runs commands on its own box, and a box.ascii.dev box has a
+real graphical screen the app draws — the desktop, not a terminal. Confirmed by
+asking a bot to open a browser on YouTube and watching it happen.
+
+Two things had to be true first, and both were wrong in ways that looked like
+each other:
+
+- **Every running ascii box reported itself stopped.** The status probe inferred
+  liveness by reading a file, and box.ascii.dev permits reads only under
+  `/home/user` and `/tmp`, so it failed on every system path. The panel then
+  faithfully rendered a false status — as "booting", then "asleep", then
+  "waking" — three rounds of making a wrong answer more precise.
+- **The screen was never asked for.** `POST /boxes/{id}/desktop?vnc=1` returns a
+  real noVNC URL; nothing called it. It now rides `vncUrl` on the box status,
+  and the existing stage draws it unchanged.
+
+A headless box (Local VM, Docker) still reports `vncUrl: null` and says so. The
+distinction is per provider, not a guess.
+
 ## Still wrong, and whose
 
 - **A bot can wedge showing "working" with nothing behind it.** The server has
@@ -110,7 +131,12 @@ none of them were where either side first looked:
 - **There is no stop control anywhere.** A turn that will never finish cannot
   be abandoned.
 - **A server-run bot cannot act on the user's machine.** `/local-exec/*` 404s.
-  This is the reverse exec channel, now wanted deliberately — see below.
+  Wanted deliberately, security shape agreed in writing, and **not built**: it
+  is gated on the server owner's explicit decision, because a capability that
+  lets a remote drive somebody's laptop should not exist because two agents
+  agreed it was reasonable.
+- **There is no terminal in the app.** An ascii box's graphical desktop carries
+  one; a headless box has neither. A dedicated terminal panel is unbuilt.
 
 ## What the server must implement, in the order we need it
 
