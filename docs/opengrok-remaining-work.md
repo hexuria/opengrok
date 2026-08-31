@@ -52,20 +52,19 @@ silently, and now says so. What remains is the flag itself and the way out.
 
 **Done when:**
 
-- The "working" state follows a confirmed accept, not an optimistic guess, and
-  clears itself when no accept arrives.
-- A turn in flight can be abandoned. There is no stop control in the app today,
-  so this is new UI; `cancelQueued({nonce})` exists in the renderer bundle and
-  is the likely seam.
-- A turn running implausibly long says so rather than spinning.
+- *(server)* `isRunning` and `isComposingMessage` cannot be set and left set. An
+  agent with no live run does not report itself as running, and something
+  reconciles the flags rather than relying on every clearing event arriving.
+- *(server)* A verb exists to stop an in-flight turn — shape to be agreed, and
+  safe to call when nothing is running, since the UI will offer it precisely
+  when the app's belief may be wrong.
+- *(ours)* That verb is wired to a stop control, once it exists.
+- *(ours, no dependency)* A turn in flight implausibly long says so, rather than
+  three dots forever.
 - Verified by driving the app over CDP: a wedged bot recovers without a reload.
 
-**Where to start.** Do not wait for it to recur. The send journal
-(`sendJournal.sendPrompt`, and the nonce begun at `UY.begin({nonce, agentId…})`)
-is where a message is recorded before the server answers; find what marks the
-agent busy off the back of it. `sendPrompt` returning `{accepted: true}` for a
-message the server never received is the tell — the client trusts its own
-optimism rather than the server's acceptance.
+**Already fixed:** a send that could not be delivered used to vanish silently
+and now says so.
 
 ---
 
