@@ -18,14 +18,20 @@ function pathCandidates(name: string): string[] {
   return (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(directory => join(directory, name));
 }
 
+/** Version-manager shim dirs; a Finder-launched app never has these on PATH. */
+function shimCandidates(name: string): string[] {
+  const home = homedir();
+  return [join(home, ".nodenv", "shims", name), join(home, ".asdf", "shims", name), join(home, ".volta", "bin", name)];
+}
+
 export function resolveCodexCliPath(): string | null {
   const home = homedir();
-  return firstExecutable([process.env.CODEX_PATH, join(home, ".local", "bin", "codex"), join(home, ".codex", "bin", "codex"), ...pathCandidates("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex"]);
+  return firstExecutable([process.env.CODEX_PATH, join(home, ".local", "bin", "codex"), join(home, ".codex", "bin", "codex"), ...pathCandidates("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex", ...shimCandidates("codex")]);
 }
 
 export function resolveClaudeCodeCliPath(): string | null {
   const home = homedir();
-  return firstExecutable([process.env.CLAUDE_CODE_PATH, join(home, ".local", "bin", "claude"), join(home, ".claude", "local", "claude"), ...pathCandidates("claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]);
+  return firstExecutable([process.env.CLAUDE_CODE_PATH, join(home, ".local", "bin", "claude"), join(home, ".claude", "local", "claude"), ...pathCandidates("claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude", ...shimCandidates("claude")]);
 }
 
 function hasUsableCodexLogin(path: string): boolean {
