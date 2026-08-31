@@ -1,11 +1,10 @@
 # OpenGrok server integration — state, split, and what is left
 
-The desktop app can sign in to an `opengrok-server`, be told which computers
-that server offers, and report why there is none. It **cannot yet create a bot,
-send it a message, or receive a reply.** This document is the shared picture of
-why, who owns which half, and what has to land next.
+The desktop app signs in to an `opengrok-server`, creates a bot on it, sends it
+a message and reads a real answer back. This document is the shared picture of
+how the two halves meet, who owns which, and what is still wrong.
 
-Last updated 31 Aug 2026, after the first end-to-end attempt from the desktop.
+Last updated 31 Aug 2026, after the first end-to-end message worked.
 
 The server lives in the separate private repo `opengrok-server` and is built by
 a peer session. Nothing here is a contract we may change unilaterally; the
@@ -118,7 +117,9 @@ none of them were where either side first looked:
 Exact client method names. Seam A unless marked. The client already calls all of
 these; nothing new is needed here.
 
-**P0 — make one message work end to end**
+**P0 — make one message work end to end. DONE 31 Aug 2026.** Kept because the
+list is what the critical path actually is, and a regression in any one of them
+breaks the whole thing.
 
 | Method | Why it is on the critical path |
 |---|---|
@@ -130,10 +131,15 @@ these; nothing new is needed here.
 | `getAgentThread`, `getAgentTranscriptTail`, `openAgentTail` | the transcript the reply is painted into |
 | `promptAcceptanceStatus` | the client asks whether a prompt was taken |
 
-A **real model door** is required for this tier to mean anything — the server is
-on `OG_MODEL_DOOR=mock`, which echoes rather than answers.
+A real model door is required for this tier to mean anything. It is live
+(`gpt-5.6-terra`); while it was `OG_MODEL_DOOR=mock` every reply was an echo,
+which is indistinguishable from a working model if the only test is
+"reply with exactly X". Test with a question whose answer is not in the prompt.
 
-**P1 — the bot can use its computer**
+**P1 — the bot can use its computer. Mostly done.** `getForeverBoxStatus`
+reports real state; `ensureForeverBox`, `handBackForeverBox` and a reset verb
+act on the box. The reset verb is **absent from the client contract** — its
+name, arguments and reply are still to be confirmed.
 
 | Method | Why |
 |---|---|
