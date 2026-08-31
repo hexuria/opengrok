@@ -44,6 +44,37 @@ export interface RunLocalExecDaemonOptions {
   readonly entryRealpath?: string; readonly generationToken?: string;
 }
 
+function gatewayOrigin(url: string): string | null {
+  try { return new URL(url).origin; } catch { return null; }
+}
+
+/**
+ * Whether the handed-off credential belongs to the backend now in use.
+ *
+ * The desktop writes this credential once, naming the backend that issued it,
+ * and the daemon spends it whenever its connection goes stale - asking that
+ * backend for a fresh one. Crossing backends leaves the old file behind, and
+ * spending it then does real damage: the previous backend answers with a
+ * perfectly valid connection to a computer this account no longer uses, that
+ * answer overwrites the descriptor the desktop just wrote, and every frame
+ * after it is posted into a 404. Nothing recovers, because each stale refresh
+ * repeats the substitution.
+ *
+ * So a credential is spent only when the backend that issued it is the one the
+ * current connection already points at. With no connection yet there is nothing
+ * to contradict - that is the bootstrap the handoff exists for, and it stands.
+ */
+export function localExecHandoffServesConnection(
+  handoff: { readonly backendUrl: string },
+  connection: { readonly baseUrl: string } | null,
+): boolean {
+  if (connection == null) return true;
+  const issued = gatewayOrigin(handoff.backendUrl);
+  const inUse = gatewayOrigin(connection.baseUrl);
+  if (issued == null || inUse == null) return false;
+  return issued === inUse;
+}
+
 export async function runLocalExecDaemon(options: RunLocalExecDaemonOptions = {}): Promise<{ close(): Promise<void> }> {
   const connectionPath = options.connectionPath ?? getLocalExecDaemonConnectionPath(); const credentialPath = options.credentialPath ?? getLocalExecDaemonCredentialPath(); const heartbeatPath = options.supervisorHeartbeatPath ?? getLocalExecSupervisorHeartbeatPath();
   const discoveryPath = options.discoveryPath ?? getLocalExecDaemonDiscoveryPath(); const publishDiscovery = options.publishDiscovery !== false; const backendResolver = options.resolveConnectionFromBackend ?? resolveLocalExecConnectionFromBackend;
@@ -55,7 +86,7 @@ export async function runLocalExecDaemon(options: RunLocalExecDaemonOptions = {}
   const providerOptions: SandLocalExecProviderOptions = {
     executor,
     resolveConnection: async () => { const connection = await readLocalExecDaemonConnection(connectionPath); if (connection == null) throw new SandLocalExecConnectionError(NO_LOCAL_EXEC_CONNECTION_MESSAGE); return connection; },
-    onConnectionStale: async () => { const handoff = await readLocalExecDaemonCredential(credentialPath); if (handoff == null) return; const fresh = await backendResolver({ backendUrl: handoff.backendUrl, credential: handoff.credential }); if (fresh != null) await writeLocalExecDaemonConnection(fresh, connectionPath); },
+    onConnectionStale: async () => { const handoff = await readLocalExecDaemonCredential(credentialPath); if (handoff == null) return; const current = await readLocalExecDaemonConnection(connectionPath); if (!localExecHandoffServesConnection(handoff, current)) return; const fresh = await backendResolver({ backendUrl: handoff.backendUrl, credential: handoff.credential }); if (fresh != null) await writeLocalExecDaemonConnection(fresh, connectionPath); },
     isLocalUseBlocked: async ({ approvalId, describes, terminalsFolder }) => { const permission = settingsStore.getLocalToolPermission(); if (permission === "never") return SAND_LOCAL_TOOLS_DISABLED_MESSAGE; if (permission === "always") return undefined; if (approvalId == null || approvalId.length === 0 || describes == null) return SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE; const approval = (await readLiveLocalToolApprovals(approvalsPath, retirementsPath)).get(approvalId); if (approval == null) return SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE; return localToolApprovalCovers({ ...approval, ...(approval.action === "run-command" ? { resourcePath: terminalsFolder } : {}) }, describes) ? undefined : SAND_LOCAL_TOOLS_UNAPPROVED_MESSAGE; },
     onApprovalRetired: async (approvalId) => { await retireLocalToolApproval(approvalId, approvalsPath, retirementsPath).catch((error) => console.error(`[local-exec-daemon] failed to retire approval ${approvalId}: ${errorLogTag(error)}`)); },
     ...(publishDiscovery ? { onInflightChange: (count: number) => { lastInflightCount = count; void publishDaemonDiscovery(); } } : {}),
