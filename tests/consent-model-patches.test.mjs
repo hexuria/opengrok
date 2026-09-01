@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,10 @@ try { pinned = await readFile(pinnedPath, "utf8"); } catch { /* recovered bundle
 test("the Mac switch is a single On/Off toggle, not a three-way ask control", () => {
   const src = patch.COMPONENT_SOURCE;
   assert.match(src, /This computer accepts bot commands/);
-  assert.match(src, /RLocalPerm=\[\{value:"always",label:"On"\},\{value:"never",label:"Off"\}\]/);
+  // Binary by construction: the row drives the bundle's own role="switch"
+  // component, mapping anything that is not "never" to on.
+  assert.match(src, /checked:s\.permission!=null&&s\.permission!=="never"/);
+  assert.match(src, /onToggle:\(\)=>setPerm\(s\.permission==="never"\?"always":"never"\)/);
   // The old three-way execution control and its copy are gone. ("Ask every
   // time" / value:"ask" legitimately remain in the remote-control mode picker.)
   assert.doesNotMatch(src, /Execution on this computer/);
@@ -69,4 +72,30 @@ test("the per-agent auto-review widget is injected and is valid JS", async () =>
   assert.match(js, /aria-current/);
   // And it is actually wired into the shipped prepend chain.
   assert.match(src, /\+ AGENT_AUTOREVIEW_HELPER \+ patched;/);
+});
+
+test("injected settings components only reference symbols that exist in the panel chunk", async () => {
+  // COMPONENT_SOURCE is spliced into the chunk holding the settings panel,
+  // which is NOT the main index chunk. Referencing a helper that lives in
+  // another chunk yields `undefined` at render and takes the whole app down
+  // with it, so every bundle symbol used here must be resolvable there.
+  const assetsRoot = path.join(repoRoot, "src/app/dist/renderer/assets");
+  const names = (await readdir(assetsRoot)).filter((n) => n.endsWith(".js"));
+  let panel = null;
+  for (const name of names) {
+    const source = await readFile(path.join(assetsRoot, name), "utf8");
+    if (source.includes("function Sa(s){")) { panel = source; break; }
+  }
+  assert.ok(panel, "settings panel chunk not found");
+
+  const src = patch.COMPONENT_SOURCE;
+  const referenced = new Set();
+  for (const m of src.matchAll(/a\.jsxs?\(\s*([A-Za-z_$][\w$]*)/g)) referenced.add(m[1]);
+  const declaredHere = new Set();
+  for (const m of src.matchAll(/(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/g)) declaredHere.add(m[1]);
+
+  const missing = [...referenced]
+    .filter((id) => !declaredHere.has(id))
+    .filter((id) => !new RegExp(`\\b${id}\\b`).test(panel));
+  assert.deepEqual(missing, [], `these symbols are not in the settings panel chunk: ${missing.join(", ")}`);
 });

@@ -253,15 +253,25 @@ function RRemoteControl(){
         :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
-const RLocalPerm=[{value:"always",label:"On"},{value:"never",label:"Off"}];
-// One fingerprint mark serves both platforms: Windows Hello also covers
-// fingerprint, and the print glyph is the universally read "biometric" sign.
-// The icon set ships no fingerprint, so this is our own simple mark.
-const RFingerprint=()=>a.jsxs("svg",{"aria-hidden":"true",viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",style:{width:15,height:15,flex:"none"},children:[
-  a.jsx("path",{d:"M12 10.6v4.9"}),
-  a.jsx("path",{d:"M9 12.1a3 3 0 0 1 6 0v3.1"}),
-  a.jsx("path",{d:"M6.1 11.6a5.9 5.9 0 0 1 11.8 0v2.6"}),
-  a.jsx("path",{d:"M3.7 11.1a8.3 8.3 0 0 1 16.6 0"})]});
+// Our own marks: the bundle's 1282-icon set ships no fingerprint. One
+// fingerprint serves mac and Windows (Hello covers fingerprint too, and the
+// print is the universally read biometric sign); machines with no enrolled
+// sensor get a key instead, because promising biometrics you do not have is
+// worse than showing none. Shield marks the armed state.
+const RMark=d=>a.jsx("svg",{"aria-hidden":"true",viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round",style:{width:17,height:17,flex:"none",opacity:.75},children:d});
+const RFingerprint=()=>RMark([a.jsx("path",{d:"M12 10.6v4.9"},"a"),a.jsx("path",{d:"M9 12.1a3 3 0 0 1 6 0v3.1"},"b"),a.jsx("path",{d:"M6.1 11.6a5.9 5.9 0 0 1 11.8 0v2.6"},"c"),a.jsx("path",{d:"M3.7 11.1a8.3 8.3 0 0 1 16.6 0"},"d")]);
+const RKeyMark=()=>RMark([a.jsx("circle",{cx:"9.2",cy:"9.2",r:"3.4"},"a"),a.jsx("path",{d:"M11.7 11.7 19 19"},"b"),a.jsx("path",{d:"m16.3 16.3 1.7-1.7"},"c")]);
+const RShieldMark=()=>RMark(a.jsx("path",{d:"M12 3.6 19 6.1v5.4c0 4.2-2.9 7.2-7 8.5-4.1-1.3-7-4.3-7-8.5V6.1z"}));
+const RTerminalMark=()=>RMark([a.jsx("rect",{x:"3.2",y:"4.6",width:"17.6",height:"14.8",rx:"2.2"},"a"),a.jsx("path",{d:"m7.6 10 2.4 2.2-2.4 2.2"},"b"),a.jsx("path",{d:"M12.6 14.6h4"},"c")]);
+// A fixed slot so showing or clearing a message never shifts the rows.
+const RRowNote=(text,tone)=>a.jsx("div",{style:{minHeight:16,paddingBottom:8,paddingTop:2},children:text?a.jsx(se,{as:"p",color:tone||"red",size:"sm",children:text}):null});
+// The bundle's own switch lives in another chunk and is not in scope where
+// this panel is spliced, so the switch is ours: a real button with
+// role="switch", sized and coloured from the same tokens as the rest.
+const RSwitch=({checked,disabled,label,onToggle})=>a.jsx("button",{type:"button",role:"switch","aria-checked":!!checked,"aria-label":label,disabled:!!disabled,onClick:()=>{if(!disabled)onToggle(!checked)},
+  style:{position:"relative",width:38,height:22,flex:"none",padding:0,borderRadius:999,cursor:disabled?"default":"pointer",opacity:disabled?.5:1,border:"1px solid "+(checked?"transparent":"var(--sand-border-default,rgba(128,128,128,.34))"),background:checked?"var(--sand-fill-accent,#1084fe)":"var(--sand-fill-neutral-subtle,rgba(128,128,128,.18))",transition:"background .16s ease,border-color .16s ease"},
+  children:a.jsx("span",{"aria-hidden":"true",style:{position:"absolute",top:2,left:checked?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 2px rgba(0,0,0,.3)",transition:"left .16s cubic-bezier(.2,.8,.3,1)"}})});
+const RToggleRow=(icon,node)=>a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:10,alignItems:"center"},children:[icon,node]});
 const RSudoBioLabel=k=>k==="windows-hello"?"Windows Hello":k==="touch-id"?"Touch ID":null;
 function RLocalComputer(){
   const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null,sudoEnabled:!1,sudoAvail:!1,sudoBiometric:null,sudoBusy:!1,sudoError:null});
@@ -304,22 +314,15 @@ function RLocalComputer(){
           placeholder:s.hostname||"This computer",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:230},value:s.draft}),
         a.jsx(oe,{disabled:s.saving||!dirty,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.saving?"Saving…":"Save"})]})}),
     a.jsx(ie,{divided:!0,description:"When on, bots on your server can run commands on this computer. Turn it off to stop them, whatever a rule or the server says. Per-command consent still happens on the server.",label:"This computer accepts bot commands",variant:"card",
-      children:a.jsx(ye,{"aria-label":"This computer accepts bot commands",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
-        value:s.permission==null?null:s.permission==="never"?"never":"always",variant:"filled"})}),
+      children:RToggleRow(a.jsx(RTerminalMark,{}),a.jsx(RSwitch,{label:"This computer accepts bot commands",checked:s.permission!=null&&s.permission!=="never",disabled:s.permission==null,onToggle:()=>setPerm(s.permission==="never"?"always":"never")}))}),
     s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
     s.sudoAvail?a.jsx(ie,{divided:!0,description:s.sudoEnabled
       ?"Bots can run administrator (sudo) commands here. You still get a password card each time; nothing runs as administrator without it."
       :"Let bots run administrator (sudo) commands here. You get a password card each time; nothing runs as administrator without it."+(RSudoBioLabel(s.sudoBiometric)?" Unlock with "+RSudoBioLabel(s.sudoBiometric)+", or your password if that fails.":" You will be asked for your password to turn it on."),
       label:"Allow administrator (sudo) commands",variant:"card",
-      children:s.sudoEnabled
-        ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8,alignItems:"center"},children:[
-          a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"On"}),
-          a.jsx(oe,{disabled:s.sudoBusy,onClick:()=>setSudo("off"),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off"})]})
-        :a.jsx(oe,{disabled:s.sudoBusy,onClick:()=>setSudo("on"),shape:"rectangular",size:"sm",variant:"secondary",
-          children:a.jsxs("span",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:6,alignItems:"center"},children:[
-            a.jsx(RFingerprint,{}),
-            s.sudoBusy?"Waiting…":(RSudoBioLabel(s.sudoBiometric)?"Unlock with "+RSudoBioLabel(s.sudoBiometric):"Turn on")]})})}):null,
-    s.sudoError?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.sudoError}):null,
+      children:RToggleRow(s.sudoEnabled?a.jsx(RShieldMark,{}):(RSudoBioLabel(s.sudoBiometric)?a.jsx(RFingerprint,{}):a.jsx(RKeyMark,{})),
+        a.jsx(RSwitch,{label:"Allow administrator (sudo) commands",checked:s.sudoEnabled,disabled:s.sudoBusy,onToggle:()=>setSudo(s.sudoEnabled?"off":"on")}))}):null,
+    s.sudoAvail?RRowNote(s.sudoBusy?(RSudoBioLabel(s.sudoBiometric)?"Waiting for "+RSudoBioLabel(s.sudoBiometric)+"\u2026":"Waiting for your password\u2026"):s.sudoError,s.sudoBusy?"secondary":"red"):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
 function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null,computerError:null,activeKind:null,sharingMode:null});
