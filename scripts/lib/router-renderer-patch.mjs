@@ -261,7 +261,7 @@ const RRowNote=(text,tone)=>a.jsx("div",{style:{minHeight:16,paddingBottom:8,pad
 // here from the same atomic classes: identical to the Auto-review toggle,
 // both themes included, with no cross-chunk dependency.
 const RSwitchTrackOff="sand-9f619 sand-1n2onr6 sand-1c4vz4f sand-2lah0s sand-dl72j9 sand-exx8yu sand-1xpa7k sand-18d9i69 sand-1uhho1l sand-qjedn3 sand-1y0btm7 sand-1atdlfd sand-149ho13 sand-25lytf sand-1d60hup sand-1ypdohk sand-1s07b3s sand-omy3lu sand-23j0i4 sand-lup9mm";
-const RSwitchTrackOn="sand-9f619 sand-1n2onr6 sand-1c4vz4f sand-2lah0s sand-dl72j9 sand-exx8yu sand-1xpa7k sand-18d9i69 sand-1uhho1l sand-qjedn3 sand-1y0btm7 sand-1atdlfd sand-149ho13 sand-1ypdohk sand-1s07b3s sand-omy3lu sand-1td3qas sand-1qx5ct2 sand-1jq8sgu sand-uacy2o sand-1pux4jt";
+const RSwitchTrackOn="sand-9f619 sand-1n2onr6 sand-1c4vz4f sand-2lah0s sand-dl72j9 sand-exx8yu sand-1xpa7k sand-18d9i69 sand-1uhho1l sand-qjedn3 sand-1y0btm7 sand-1atdlfd sand-149ho13 sand-1ypdohk sand-1s07b3s sand-omy3lu sand-23j0i4 sand-lup9mm sand-1jq8sgu sand-uacy2o sand-1pux4jt";
 const RSwitchKnob="sand-9f619 sand-10l6tqk sand-17wnkk5 sand-1yso4iu sand-qjedn3 sand-1y0btm7 sand-q03nf1 sand-16rqkct sand-khjh7l sand-12sv23o sand-ddwdes sand-smyaan sand-1kpxq89";
 const RSwitchKnobOn="sand-hco33r";
 const RSwitch=({checked,disabled,label,onToggle})=>a.jsx("button",{type:"button",role:"switch","aria-checked":!!checked,"aria-label":label,disabled:!!disabled,
