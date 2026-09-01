@@ -161,6 +161,7 @@ export function isSandboxHelperSupported(ctx?: Context): boolean {
       timeout: PREFLIGHT_PROBE_TIMEOUT_MS,
       env,
       shell: false,
+      windowsHide: true,
     });
     const preflightMs = Date.now() - preflightStart;
     lastSandboxFailureReason = null;
@@ -221,7 +222,7 @@ export function spawnWithSandboxHelper(
     throw new Error(`Sandbox binary not available: ${getErrorMessage(binaryCheckError) ?? "binary not configured"}. Please build the binary or use 'insecure_none' policy.`);
   }
   if (sandboxPolicy.type === "insecure_none") {
-    return spawn(command, args, options);
+    return spawn(command, args, { windowsHide: true, ...options });
   }
   if (sandboxPolicy.type === "workspace_readwrite" || sandboxPolicy.type === "workspace_readonly") {
     return spawnWithSandboxHelperPolicy(command, args, options, sandboxPolicy);
@@ -279,6 +280,7 @@ export function spawnWithSandboxHelperPolicy(
     cwd: options.cwd || executionCwd,
     env: mergedEnv,
     stdio: options.stdio || ["pipe", "pipe", "pipe"],
+    windowsHide: true,
   };
   try {
     const startTime = new Date();

@@ -34,7 +34,10 @@ test("default computer is the account's remote Grok VM, not Docker", async () =>
   assert.doesNotMatch(patch, /Use local Docker VM/);
 
   const connector = await readFile(path.join(repoRoot, "source/electron-main/box/local-docker-host-connector.ts"), "utf8");
-  assert.match(connector, /if \(runtime === "local-docker"\) return await localConnect\(\)/);
+  // local-docker still reaches localConnect for cursor; subscription
+  // providers branch to the desktop host first.
+  assert.match(connector, /return await localConnect\(\);/);
+  assert.match(connector, /return await desktopConnect\(\);/);
   assert.doesNotMatch(connector, /await stopLocalDockerBox\(\)\.catch/);
   assert.match(connector, /Leave grok-bot-local-vm running/);
   assert.match(connector, /formatAccountComputerError/);

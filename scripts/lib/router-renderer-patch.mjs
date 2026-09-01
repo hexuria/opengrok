@@ -130,7 +130,7 @@ function RTranscribe({keys:s,onSaved:e}){
   const u=s.includes("GEMINI_API_KEY")||t.geminiKeySet;
   const f=async()=>{const c=r.trim();if(c.length===0){q("Paste your Google AI Studio API key first.");return}l(!0);q(null);try{await window.desktop.secrets.upsert({GEMINI_API_KEY:c});i("");if(e)e();const d=await window.desktop.getTranscribeSettings().catch(()=>null);if(d)n(h=>({...h,...d}))}catch(c){q(String(c&&c.message||c))}finally{l(!1)}};
   return a.jsxs("div",{children:[
-    a.jsx(ie,{description:"Dictation through Google's gemini-3.5-transcribe with your own AI Studio key (the free tier works). When off, dictation uses the Cursor account or a local whisper-cpp install.",label:"Gemini transcription",variant:"card",children:a.jsx(ye,{"aria-label":"Gemini transcription",onValueChange:c=>{if(c!=null)void g(c==="on")},options:[{value:"off",label:"Off"},{value:"on",label:"On"}],placement:"bottom-end",size:"lg",value:t.geminiEnabled?"on":"off",variant:"filled"})}),
+    a.jsx(ie,{description:"Dictation through Google's gemini-3.5-transcribe with your own AI Studio key (the free tier works). When off, dictation uses the Cursor account or a local whisper-cpp install.",label:"Gemini transcription",variant:"card",children:a.jsx(RSwitch,{label:"Gemini transcription",checked:!!t.geminiEnabled,onToggle:v=>{void g(v)}})}),
     t.geminiEnabled?a.jsx(ie,{divided:!0,description:u?"A key is saved. Paste a new one to replace it.":"From aistudio.google.com → Get API key.",label:"Google API key",variant:"card",children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4 sand-h8yej3",style:{width:360,flexWrap:"wrap",gap:8},children:[a.jsx("input",{"aria-label":"GEMINI_API_KEY",className:RRouterInputClass,disabled:o,onChange:c=>i(c.currentTarget.value),onInput:c=>i(c.currentTarget.value),placeholder:u?"Replace saved key":"Paste Google AI Studio key",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:270},type:"password",value:r}),a.jsx(oe,{disabled:o,onClick:f,shape:"rectangular",size:"sm",variant:"secondary",children:o?"Saving…":"Save"}),p?a.jsx(se,{as:"span",color:"red",size:"sm",children:p}):null]})}):null,
     t.geminiEnabled?a.jsx(ie,{divided:!0,description:"English is always understood — add the other language(s) you speak (like Filipino) and mixed speech keeps both.",label:"Languages",variant:"card",children:a.jsxs("div",{style:{position:"relative",width:360,maxWidth:"100%"},children:[
       a.jsxs("div",{style:{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",minHeight:38,padding:"5px 8px",boxSizing:"border-box",background:"var(--cursor-bg-secondary,#292929)",border:"1px solid var(--cursor-stroke-tertiary,#3a3a3a)",borderRadius:8},children:[
@@ -253,18 +253,36 @@ function RRemoteControl(){
         :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
-const RLocalPerm=[{value:"always",label:"On"},{value:"never",label:"Off"}];
+// A fixed slot so showing or clearing a message never shifts the rows.
+const RRowNote=(text,tone)=>a.jsx("div",{style:{minHeight:16,paddingBottom:8,paddingTop:2},children:text?a.jsx(se,{as:"p",color:tone||"red",size:"sm",children:text}):null});
+// The bundle's own switch component (Hlt) lives in the main index chunk and
+// is out of scope where this panel is spliced - referencing it takes the
+// renderer down. Its CSS is not chunked, though, so the switch is rebuilt
+// here from the same atomic classes: identical to the Auto-review toggle,
+// both themes included, with no cross-chunk dependency.
+const RSwitchTrackOff="sand-9f619 sand-1n2onr6 sand-1c4vz4f sand-2lah0s sand-dl72j9 sand-exx8yu sand-1xpa7k sand-18d9i69 sand-1uhho1l sand-qjedn3 sand-1y0btm7 sand-1atdlfd sand-149ho13 sand-25lytf sand-1d60hup sand-1ypdohk sand-1s07b3s sand-omy3lu sand-23j0i4 sand-lup9mm";
+const RSwitchTrackOn="sand-9f619 sand-1n2onr6 sand-1c4vz4f sand-2lah0s sand-dl72j9 sand-exx8yu sand-1xpa7k sand-18d9i69 sand-1uhho1l sand-qjedn3 sand-1y0btm7 sand-1atdlfd sand-149ho13 sand-1ypdohk sand-1s07b3s sand-omy3lu sand-23j0i4 sand-lup9mm sand-1jq8sgu sand-uacy2o sand-1pux4jt";
+const RSwitchKnob="sand-9f619 sand-10l6tqk sand-17wnkk5 sand-1yso4iu sand-qjedn3 sand-1y0btm7 sand-q03nf1 sand-16rqkct sand-khjh7l sand-12sv23o sand-ddwdes sand-smyaan sand-1kpxq89";
+const RSwitchKnobOn="sand-hco33r";
+const RSwitch=({checked,disabled,label,onToggle})=>a.jsx("button",{type:"button",role:"switch","aria-checked":!!checked,"aria-label":label,disabled:!!disabled,
+  className:checked?RSwitchTrackOn:RSwitchTrackOff,
+  onClick:()=>{if(!disabled)onToggle(!checked)},
+  ...(disabled?{style:{opacity:.5,cursor:"default"}}:{}),
+  children:a.jsx("span",{"aria-hidden":!0,className:checked?RSwitchKnob+" "+RSwitchKnobOn:RSwitchKnob})});
+const RSudoBioLabel=k=>k==="windows-hello"?"Windows Hello":k==="touch-id"?"Touch ID":null;
 function RLocalComputer(){
-  const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null});
+  const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null,sudoEnabled:!1,sudoAvail:!1,sudoBiometric:null,sudoBusy:!1,sudoError:null});
   de.useEffect(()=>{let alive=!0;
     Promise.all([
       window.desktop.agent.getLocalComputer().catch(()=>null),
       window.desktop.localToolPermission.get().catch(()=>null),
-      window.desktop.localToolPermission.ceiling?window.desktop.localToolPermission.ceiling().catch(()=>null):Promise.resolve(null)
-    ]).then(r=>{if(!alive)return;const c=r[0]||{},p=r[1];
+      window.desktop.localToolPermission.ceiling?window.desktop.localToolPermission.ceiling().catch(()=>null):Promise.resolve(null),
+      window.desktop.sudoAskpass?window.desktop.sudoAskpass.get().catch(()=>null):Promise.resolve(null)
+    ]).then(r=>{if(!alive)return;const c=r[0]||{},p=r[1],sp=r[3];
       e(i=>({...i,name:c.name||"",hostname:c.hostname||"",isCustom:!!c.isCustom,draft:c.name||"",
         permission:typeof p==="string"?p:(p&&typeof p.permission==="string"?p.permission:null),
         ceiling:typeof r[2]==="string"?r[2]:(r[2]&&typeof r[2].permission==="string"?r[2].permission:null),
+        sudoEnabled:!!(sp&&sp.enabled),sudoAvail:!!(sp&&sp.available),sudoBiometric:(sp&&sp.biometric)||null,
         loaded:!0}))}).catch(()=>{alive&&e(i=>({...i,loaded:!0}))});
     return()=>{alive=!1}},[]);
   const save=async()=>{const next=s.draft.trim();e(i=>({...i,saving:!0,error:null}));
@@ -275,6 +293,14 @@ function RLocalComputer(){
   const setPerm=async v=>{const was=s.permission;e(i=>({...i,permission:v,error:null}));
     try{await window.desktop.localToolPermission.set(v)}
     catch(err){e(i=>({...i,permission:was,error:String(err&&err.message||err)}))}};
+  const setSudo=async v=>{
+    if(v==="off"){const was=s.sudoEnabled;e(i=>({...i,sudoEnabled:!1,sudoError:null}));
+      try{await window.desktop.sudoAskpass.set(!1)}catch(err){e(i=>({...i,sudoEnabled:was,sudoError:String(err&&err.message||err)}))}return}
+    // Enabling is authenticated in the main process (Touch ID or your password);
+    // it is not optimistic — the row reflects the verified result.
+    e(i=>({...i,sudoBusy:!0,sudoError:null}));
+    try{const r=await window.desktop.sudoAskpass.set(!0);e(i=>({...i,sudoBusy:!1,sudoEnabled:!!(r&&r.enabled),sudoBiometric:(r&&r.biometric)||i.sudoBiometric,sudoError:r&&r.error?r.error:null}))}
+    catch(err){e(i=>({...i,sudoBusy:!1,sudoError:String(err&&err.message||err)}))}};
   if(!s.loaded)return a.jsx(ie,{description:"The computer you are using now.",label:"This computer",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Loading…"})});
   const dirty=s.draft.trim()!==(s.name||"").trim();
   return a.jsxs("div",{children:[
@@ -285,9 +311,14 @@ function RLocalComputer(){
           placeholder:s.hostname||"This computer",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:230},value:s.draft}),
         a.jsx(oe,{disabled:s.saving||!dirty,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.saving?"Saving…":"Save"})]})}),
     a.jsx(ie,{divided:!0,description:"When on, bots on your server can run commands on this computer. Turn it off to stop them, whatever a rule or the server says. Per-command consent still happens on the server.",label:"This computer accepts bot commands",variant:"card",
-      children:a.jsx(ye,{"aria-label":"This computer accepts bot commands",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
-        value:s.permission==null?null:s.permission==="never"?"never":"always",variant:"filled"})}),
+      children:a.jsx(RSwitch,{label:"This computer accepts bot commands",checked:s.permission!=null&&s.permission!=="never",disabled:s.permission==null,onToggle:()=>setPerm(s.permission==="never"?"always":"never")})}),
     s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
+    s.sudoAvail?a.jsx(ie,{divided:!0,description:s.sudoEnabled
+      ?"Bots can run administrator (sudo) commands here. You still get a password card each time; nothing runs as administrator without it."
+      :"Let bots run administrator (sudo) commands here. You get a password card each time; nothing runs as administrator without it."+(RSudoBioLabel(s.sudoBiometric)?" Unlock with "+RSudoBioLabel(s.sudoBiometric)+", or your password if that fails.":" You will be asked for your password to turn it on."),
+      label:"Allow administrator (sudo) commands",variant:"card",
+      children:a.jsx(RSwitch,{label:"Allow administrator (sudo) commands",checked:s.sudoEnabled,disabled:s.sudoBusy,onToggle:()=>setSudo(s.sudoEnabled?"off":"on")})}):null,
+    s.sudoAvail?RRowNote(s.sudoBusy?(RSudoBioLabel(s.sudoBiometric)?"Waiting for "+RSudoBioLabel(s.sudoBiometric)+"\u2026":"Waiting for your password\u2026"):s.sudoError,s.sudoBusy?"secondary":"red"):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
 function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null,computerError:null,activeKind:null,sharingMode:null});
@@ -306,7 +337,7 @@ function RHardwareAcceleration(){
   de.useEffect(()=>{let c=!0;window.desktop.getHardwareAcceleration().then(d=>{if(c&&d)n(h=>({...h,enabled:d.enabled===!0}))}).catch(()=>{});return()=>{c=!1}},[]);
   const g=async c=>{n(d=>({...d,enabled:c}));try{await window.desktop.setHardwareAcceleration(c);n(d=>({...d,changed:!0}))}catch{}};
   return a.jsxs("div",{children:[
-    a.jsx(ie,{description:"Uses the Mac's GPU for rendering (Metal), like official Grok Bot 0.29. Turn off only if you see visual glitches.",label:"Hardware acceleration",variant:"card",children:a.jsx(ye,{"aria-label":"Hardware acceleration",onValueChange:c=>{if(c!=null)void g(c==="on")},options:[{value:"on",label:"On"},{value:"off",label:"Off"}],placement:"bottom-end",size:"lg",value:t.enabled?"on":"off",variant:"filled"})}),
+    a.jsx(ie,{description:"Uses the Mac's GPU for rendering (Metal), like official Grok Bot 0.29. Turn off only if you see visual glitches.",label:"Hardware acceleration",variant:"card",children:a.jsx(RSwitch,{label:"Hardware acceleration",checked:!!t.enabled,onToggle:v=>{void g(v)}})}),
     t.changed?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Takes effect after quitting and reopening Grok Bot."}):null
   ]})
 }
@@ -1219,21 +1250,23 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'if(!lede){var ps=root.querySelectorAll("p,span,div");'
   + 'for(var q=0;q<ps.length;q++){var n2=ps[q];if(n2.children.length)continue;'
   + 'if(/always-on agents/i.test(n2.textContent||"")){n2.setAttribute("data-lp-lede","1");lede=n2;break}}}'
-  + 'if(lede)lede.textContent=p.lede;'
+  + 'if(lede&&lede.textContent!==p.lede)lede.textContent=p.lede;'
   + 'if(lede&&lede.parentElement&&!root.querySelector("[data-lp-rule]")){'
   + 'var rule=document.createElement("div");rule.setAttribute("data-lp-rule","1");rule.className="sand-lp-rule";'
   + 'lede.parentElement.insertBefore(rule,lede);}'
   + 'var how=root.querySelector("[data-lp-how]");'
   + 'if(!how&&lede&&lede.parentElement){how=document.createElement("p");how.setAttribute("data-lp-how","1");how.className="sand-lp-how";'
   + 'lede.parentElement.insertBefore(how,lede.nextSibling);}'
-  + 'if(how)how.textContent=p.how;'
+  + 'if(how&&how.textContent!==p.how)how.textContent=p.how;'
   + 'var cli=root.querySelector("[data-lp-cli]");'
   + 'if(!cli&&how&&how.parentElement){cli=document.createElement("p");cli.setAttribute("data-lp-cli","1");cli.className="sand-lp-cli";'
   + 'how.parentElement.insertBefore(cli,how.nextSibling);}'
-  + 'if(cli){cli.textContent="";'
+  + 'if(cli&&cli.getAttribute("data-lp-for")!==p.id){cli.setAttribute("data-lp-for",p.id);'
+  + 'if(cli.textContent!=="")cli.textContent="";'
   + 'if(p.id==="codex"||p.id==="claude-code"){try{window.desktop.agent.getInferenceRouter().then(function(r){'
   + 'var c=(r&&r.local&&r.local[p.id])||{};'
-  + 'cli.textContent=c.authenticated?"\\u2713 Already signed in on this Mac":c.installed?"Installed, not signed in yet":"Not installed yet";'
+  + 'var t=c.authenticated?"\\u2713 Already signed in on this Mac":c.installed?"Installed, not signed in yet":"Not installed yet";'
+  + 'if(cli.getAttribute("data-lp-for")===p.id&&cli.textContent!==t)cli.textContent=t;'
   + '}).catch(function(){})}catch(_){}}}'
   + 'if(h.getAttribute("data-lp-title")===p.id)return;'
   + 'h.setAttribute("data-lp-title",p.id);h.textContent=p.title;'
@@ -1287,12 +1320,20 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   +   '};'
   +   'use.addEventListener("click",function(){if(busy)return;busy=!0;use.disabled=!0;msg.textContent="Switching\\u2026";'
   +     'cur=pick;markPicked(!0);chrome(byId(pick));'
-  +     'var a=window.desktop.agent;var done=function(){busy=!1;use.disabled=!1;cur=pick;markPicked(!0);chrome(byId(pick));close();mount()};'
+  +     'var a=window.desktop.agent;var done=function(){busy=!1;use.disabled=!1;cur=pick;markPicked(!0);'
+  +     'try{sessionStorage.setItem("sand-lp-choice",pick)}catch(_){}'
+  // Picking from inside the app (no onboarding page mounted) must land on the
+  // picked provider's sign-in wall, and only a reload re-runs the login gate.
+  +     'if(!document.querySelector(".sand-onboarding")){location.reload();return}'
+  +     'chrome(byId(pick));close();mount()};'
   +     'var fail=function(e){busy=!1;use.disabled=!1;msg.textContent=String(e&&e.message||e)};'
   +     'if(pick==="opengrok"){var u=(urlIn&&urlIn.value||"").trim();if(!u){fail(new Error("Add your server URL first."));return}'
   +       'a.setOpenGrokServer(u).then(function(){return a.setBoxRuntime("opengrok")}).then(function(){try{localStorage.setItem(MODE_K,"1")}catch(_){}done()}).catch(fail);return}'
   +     'try{localStorage.removeItem(MODE_K);localStorage.removeItem("sand-cursor-login-skip")}catch(_){}'
-  +     'a.setBoxRuntime("local-docker").catch(function(){}).then(function(){'
+  // Cursor runs on its own remote computer (the only provider allowed to);
+  // Claude/Codex run against the local VM. Forcing local-docker on Cursor
+  // leaves a signed-in account pointed at a box with no account context.
+  +     'a.setBoxRuntime(pick==="cursor"?"remote":"local-docker").catch(function(){}).then(function(){'
   +       'return a.setInferenceRouter?a.setInferenceRouter(pick):Promise.resolve()}).then(done).catch(fail);'
   +   '});'
   +   'draw();scrim.appendChild(sheet);document.body.appendChild(scrim);'
@@ -1331,13 +1372,7 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'if(!n){n=document.createElement("p");n.setAttribute("data-lp-note","1");'
   + 'n.style.cssText="position:absolute;left:0;right:0;bottom:26px;margin:0;text-align:center;font-size:13px;opacity:.8";root.appendChild(n)}'
   + 'n.textContent=msg}catch(_){}};'
-  + 'document.addEventListener("click",function(ev){'
-  + 'var b=ev.target&&ev.target.closest?ev.target.closest("button"):null;if(!b)return;'
-  + 'if(b.classList&&b.classList.contains("sand-lp-back"))return;'
-  + 'if(b.closest&&b.closest(".sand-lp-sheet"))return;'
-  + 'if(!/^Sign in/i.test((b.innerText||"").trim()))return;'
-  + 'if(!cur||cur==="cursor")return;'
-  + 'ev.preventDefault();ev.stopPropagation();'
+  + 'var goSign=function(){'
   + 'var a=window.desktop&&window.desktop.agent;if(!a)return;'
   + 'if(cur==="opengrok"){a.getOpenGrokServer().then(function(r){var u=r&&r.gatewayUrl;'
   + 'if(!u){markPicked(!1);open();return}note("Opening your browser to sign in\\u2026");'
@@ -1359,8 +1394,21 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'note(c.installed?"Opening a terminal to sign in\\u2026":"Opening a terminal to install it\\u2026");'
   + 'return a.startSubscriptionLogin(cur).then(function(){watch(60)})'
   + '}).catch(function(e){note(String(e&&e.message||e)+" \\u2014 try another provider.")})'
+  + '};'
+  + 'document.addEventListener("click",function(ev){'
+  + 'var b=ev.target&&ev.target.closest?ev.target.closest("button"):null;if(!b)return;'
+  + 'if(b.classList&&b.classList.contains("sand-lp-back"))return;'
+  + 'if(b.closest&&b.closest(".sand-lp-sheet"))return;'
+  + 'if(!/^Sign in/i.test((b.innerText||"").trim()))return;'
+  + 'if(b.getAttribute("data-lp-pass")==="1"){b.removeAttribute("data-lp-pass");return}'
+  + 'if(cur==="cursor")return;'
+  + 'ev.preventDefault();ev.stopPropagation();'
+  + 'if(!cur){read().then(function(id){return id||"cursor"}).catch(function(){return "cursor"}).then(function(id){cur=id;'
+  + 'if(cur==="cursor"){b.setAttribute("data-lp-pass","1");b.click()}else goSign()});return}'
+  + 'goSign();'
   + '},!0);'
-  + 'var boot=function(){mount();read().then(function(id){cur=id||"cursor"}).catch(function(){cur="cursor"}).then(function(){ready=!0;'
+  + 'var boot=function(){try{var sc=sessionStorage.getItem("sand-lp-choice");if(sc){chose=!0;cur=sc}}catch(_){}'
+  + 'mount();read().then(function(id){cur=id||"cursor"}).catch(function(){cur="cursor"}).then(function(){ready=!0;'
   + 'if(openRows)openRows.forEach(function(r){r.el.setAttribute("aria-checked",r.id===cur?"true":"false")});'
   + 'mount()})};'
   + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
@@ -1373,13 +1421,74 @@ const LOGIN_PROVIDER_HELPER = ';(()=>{try{'
   + 'var lbl=Array.from(mi.querySelectorAll("*")).filter(function(n){return n.childElementCount===0&&(n.textContent||"").trim()==="Sign in"}).pop()||mi;'
   + 'lbl.textContent="Log out";'
   + 'mi.addEventListener("click",function(ev){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();'
-  + 'try{localStorage.removeItem("sand-cursor-login-skip")}catch(_){}'
+  + 'try{localStorage.removeItem("sand-cursor-login-skip");sessionStorage.removeItem("sand-lp-choice")}catch(_){}'
   + 'markPicked(!1);'
   + 'document.querySelectorAll(".sand-onboarding").forEach(function(n){n.removeAttribute("data-lp-show")});'
   + 'try{document.body.click()}catch(_){}'
   + 'setTimeout(open,60)},!0)})};'
   + 'relabel();new MutationObserver(relabel).observe(document.documentElement,{childList:!0,subtree:!0});'
   + 'new MutationObserver(function(){if(document.querySelector(".sand-onboarding"))mount()}).observe(document.documentElement,{childList:!0,subtree:!0});'
+  + '}catch(_){}})();\n';
+
+// The sudo password card. `sudo -A` on the user's machine reaches the app
+// through the askpass service; electron-main pushes a "sand:askpass-prompt"
+// IPC event, this renders a masked-input overlay, and the answer (or a deny)
+// goes straight back over window.desktop.askpass.respond — the password never
+// enters the transcript, localStorage, or any log. Event-driven only: no
+// MutationObserver touches it, so it cannot re-enter the way the login sheet
+// once did.
+const ASKPASS_CARD_HELPER = ';(()=>{try{'
+  + 'var api=self.desktop&&self.desktop.askpass;if(!api)return;'
+  + 'var css=".sand-ap-scrim{position:fixed;inset:0;z-index:2147483400;display:flex;align-items:center;justify-content:center;padding:24px;background:color-mix(in srgb,var(--sand-bg-base,#000) 30%,rgba(0,0,0,.55));-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:sand-ap-fade .16s ease-out}"'
+  + '+"@keyframes sand-ap-fade{from{opacity:0}to{opacity:1}}"'
+  + '+"@keyframes sand-ap-rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}"'
+  + '+".sand-ap-sheet{width:min(420px,100%);border-radius:16px;padding:22px;border:1px solid var(--sand-border-default,rgba(128,128,128,.24));background:var(--sand-bg-elevated,Canvas);color:var(--sand-text-primary,CanvasText);box-shadow:0 1px 2px var(--sand-shadow-popover-key,rgba(0,0,0,.1)),0 18px 48px var(--sand-shadow-popover-ambient,rgba(0,0,0,.2));animation:sand-ap-rise .22s cubic-bezier(.2,.8,.3,1)}"'
+  + '+".sand-ap-top{display:flex;align-items:center;gap:11px;margin:0 0 13px}"'
+  + '+".sand-ap-badge{flex:none;width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--sand-fill-accent,#1084fe);background:color-mix(in srgb,var(--sand-fill-accent,#1084fe) 13%,transparent)}"'
+  + '+".sand-ap-badge svg{width:18px;height:18px}"'
+  + '+".sand-ap-h{font-size:15px;font-weight:600;margin:0;line-height:1.3}"'
+  + '+".sand-ap-sub{font-size:12.5px;color:var(--sand-text-secondary,#5a5a5a);margin:0 0 15px;line-height:1.5}"'
+  + '+".sand-ap-prompt{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--sand-text-secondary,#5a5a5a);margin:0 0 7px}"'
+  + '+".sand-ap-in{width:100%;box-sizing:border-box;height:38px;padding:0 12px;font:inherit;font-size:14px;border-radius:10px;border:1px solid var(--sand-border-default,rgba(128,128,128,.3));background:var(--sand-bg-base,transparent);color:var(--sand-text-primary,inherit);outline:none;transition:border-color .12s,box-shadow .12s}"'
+  + '+".sand-ap-in:focus{border-color:var(--sand-fill-accent,#1084fe);box-shadow:0 0 0 3px color-mix(in srgb,var(--sand-fill-accent,#1084fe) 22%,transparent)}"'
+  + '+".sand-ap-foot{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}"'
+  + '+".sand-ap-btn{height:34px;padding:0 15px;font:inherit;font-size:13px;font-weight:550;border-radius:9px;cursor:pointer;border:1px solid transparent;transition:background .12s,border-color .12s}"'
+  + '+".sand-ap-btn.s{background:transparent;border-color:var(--sand-border-default,rgba(128,128,128,.3));color:var(--sand-text-primary,inherit)}"'
+  + '+".sand-ap-btn.s:hover{background:var(--sand-fill-ghost-hover,rgba(128,128,128,.1))}"'
+  + '+".sand-ap-btn.p{background:var(--sand-fill-accent,#1084fe);color:var(--sand-text-on-color,#fff)}"'
+  + '+".sand-ap-btn.p:hover{background:var(--sand-fill-accent-hover,#0c64c1)}";'
+  + 'var styled=!1,style=function(){if(styled)return;styled=!0;var t=document.createElement("style");t.setAttribute("data-sand-askpass","1");t.textContent=css;document.head.appendChild(t)};'
+  + 'var LOCK=\'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>\';'
+  + 'var current=null;'
+  + 'var close=function(){var s=document.querySelector(".sand-ap-scrim");if(s)s.remove();current=null};'
+  + 'var answer=function(id,password){if(!id)return;try{api.respond(id,password)}catch(_){}};'
+  + 'var render=function(p){if(!p||!p.id)return;'
+  // A newer prompt supersedes an older card; deny the one being replaced.
+  + 'if(current&&current!==p.id)answer(current,null);'
+  + 'close();current=p.id;style();'
+  + 'var scrim=document.createElement("div");scrim.className="sand-ap-scrim";scrim.setAttribute("role","dialog");scrim.setAttribute("aria-modal","true");scrim.setAttribute("aria-label","Administrator password needed");'
+  + 'var sheet=document.createElement("div");sheet.className="sand-ap-sheet";'
+  + 'var top=document.createElement("div");top.className="sand-ap-top";'
+  + 'var badge=document.createElement("span");badge.className="sand-ap-badge";badge.innerHTML=LOCK;'
+  + 'var h=document.createElement("p");h.className="sand-ap-h";h.textContent="Administrator password needed";'
+  + 'top.append(badge,h);'
+  + 'var sub=document.createElement("p");sub.className="sand-ap-sub";sub.textContent=p.reason?p.reason+". Enter your password to confirm \\u2014 it is sent only to sudo on this machine, never to the chat or the cloud.":"A command an agent is running on this computer needs your macOS password to continue. It is sent only to sudo on this machine \\u2014 never to the chat or the cloud.";'
+  + 'var pr=document.createElement("p");pr.className="sand-ap-prompt";pr.textContent=p.prompt||"Password:";'
+  + 'var input=document.createElement("input");input.className="sand-ap-in";input.type="password";input.autocomplete="off";input.setAttribute("aria-label","Password");'
+  + 'var foot=document.createElement("div");foot.className="sand-ap-foot";'
+  + 'var deny=document.createElement("button");deny.type="button";deny.className="sand-ap-btn s";deny.textContent="Deny";'
+  + 'var ok=document.createElement("button");ok.type="button";ok.className="sand-ap-btn p";ok.textContent="Authorize";'
+  + 'var id=p.id;'
+  + 'var submit=function(){var v=input.value;input.value="";answer(id,v);v=null;if(current===id)current=null;close()};'
+  + 'var cancel=function(){input.value="";answer(id,null);if(current===id)current=null;close()};'
+  + 'deny.addEventListener("click",cancel);ok.addEventListener("click",submit);'
+  + 'input.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();submit()}else if(e.key==="Escape"){e.preventDefault();cancel()}});'
+  + 'scrim.addEventListener("mousedown",function(e){if(e.target===scrim)cancel()});'
+  + 'foot.append(deny,ok);sheet.append(top,sub,pr,input,foot);scrim.appendChild(sheet);document.body.appendChild(scrim);'
+  + 'setTimeout(function(){try{input.focus()}catch(_){}} ,30)};'
+  + 'try{api.onPrompt(function(p){render(p)})}catch(_){}'
+  // A prompt raised before this window mounted is read back once on boot.
+  + 'try{Promise.resolve(api.pending()).then(function(p){if(p&&p.id&&!current)render(p)}).catch(function(){})}catch(_){}'
   + '}catch(_){}})();\n';
 
 const A11Y_ANNOUNCE_HELPER = ';(()=>{try{'
@@ -1765,7 +1874,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
   patched = patchOriginalCardLocalFlip(patched);
-  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ACCOUNT_CARD_HELPER + AGENT_AUTOREVIEW_HELPER + patched;
+  return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ASKPASS_CARD_HELPER + ACCOUNT_CARD_HELPER + AGENT_AUTOREVIEW_HELPER + patched;
 }
 
 

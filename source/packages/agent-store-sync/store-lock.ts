@@ -320,6 +320,7 @@ function defaultStoreLockFs(): StoreLockFs {
 
 function readCurrentWindowsUserSid(): string {
   const output = String(execFileSync("whoami", ["/user", "/fo", "csv", "/nh"], {
+    windowsHide: true,
     encoding: "utf8",
   })).trim();
   const sid = output.split(",").map((field) => field.replace(/^"|"$/g, "")).at(-1);

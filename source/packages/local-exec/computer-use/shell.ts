@@ -10,7 +10,7 @@ export function exec(command: string, args: readonly (string | number)[], option
       timeout: options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       env: options?.env ? { ...process.env, ...options.env } : undefined,
     };
-    execFile(command, args.map(String), { ...opts, encoding: "utf8" }, (error, stdout) => {
+    execFile(command, args.map(String), { windowsHide: true, ...opts, encoding: "utf8" }, (error, stdout) => {
       if (error) reject(error);
       else resolve(stdout);
     });

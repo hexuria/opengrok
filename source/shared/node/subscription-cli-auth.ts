@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 
 import type { SandInferenceProvider } from "../inference-router.js";
 import { getLocalInferenceCliStatus, resolveClaudeCodeCliPath, resolveCodexCliPath } from "./inference-router-local.js";
@@ -67,7 +68,7 @@ export async function openCodexInstallTerminal(options: { readonly platform?: No
       return { opened: opened.ok };
     }
     if (platform === "win32") {
-      const child = spawn("cmd.exe", ["/c", "start", "powershell", "-NoExit", "-ExecutionPolicy", "ByPass", "-c", "irm https://chatgpt.com/codex/install.ps1 | iex"], { detached: true, stdio: "ignore", env });
+      const child = spawn("cmd.exe", ["/c", "start", "powershell", "-NoExit", "-ExecutionPolicy", "ByPass", "-c", "irm https://chatgpt.com/codex/install.ps1 | iex"], { detached: true, stdio: "ignore", env, windowsHide: true });
       child.unref();
       return { opened: true };
     }
@@ -174,16 +175,64 @@ export function subscriptionAuthPrompt(status: Pick<SubscriptionCliAuthStatus, "
     : `Claude is not signed in. Run \`${command}\` and complete the official Claude Pro/Max login.`;
 }
 
+/**
+ * Terminal-emulator launch attempts for an interactive CLI login, in
+ * preference order. macOS is handled separately (osascript + Terminal.app).
+ */
+export function terminalLaunchCommands(platform: NodeJS.Platform, file: string, args: readonly string[]): ReadonlyArray<{ readonly file: string; readonly args: readonly string[] }> {
+  if (platform === "win32") {
+    // `start` consumes a quoted first argument as the window title, so an
+    // explicit empty title keeps a quoted executable path from vanishing.
+    return [{ file: "cmd.exe", args: ["/c", "start", "", file, ...args] }];
+  }
+  if (platform === "linux") {
+    return [
+      { file: "x-terminal-emulator", args: ["-e", file, ...args] },
+      { file: "gnome-terminal", args: ["--", file, ...args] },
+      { file: "konsole", args: ["-e", file, ...args] },
+      { file: "xfce4-terminal", args: ["-x", file, ...args] },
+      { file: "xterm", args: ["-e", file, ...args] },
+    ];
+  }
+  return [];
+}
+
+/** True once the process actually spawned; false when the binary is absent. */
+function spawnDetachedSurvives(file: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<boolean> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(file, [...args], { detached: true, stdio: "ignore", env, cwd: homedir(), windowsHide: true });
+    } catch {
+      resolve(false);
+      return;
+    }
+    child.once("error", () => resolve(false));
+    child.once("spawn", () => { child.unref(); resolve(true); });
+  });
+}
+
+/** Windows npm shims are batch files, and Node refuses to exec those without a shell. */
+function windowsBatchInvocation(file: string): { readonly file: string; readonly shell: boolean } {
+  const viaShell = /\.(cmd|bat)$/i.test(file);
+  return { file: viaShell ? `"${file}"` : file, shell: viaShell };
+}
+
 export function defaultSubscriptionCliRunner(
   file: string,
   args: readonly string[],
   options: SubscriptionCliRunnerOptions,
 ): Promise<SubscriptionCliRunResult> {
   return new Promise((resolve) => {
-    execFile(file, [...args], {
+    const invocation = windowsBatchInvocation(file);
+    // cwd is the home dir so a version-manager shim (nodenv/asdf) resolves the
+    // user's global toolchain instead of whatever directory the app started in.
+    execFile(invocation.file, [...args], {
       timeout: options.timeoutMs,
       env: options.env,
+      cwd: homedir(),
       windowsHide: true,
+      shell: invocation.shell,
       maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
       resolve({
@@ -203,26 +252,51 @@ export async function defaultSubscriptionCliLoginStarter(
   // `codex login` runs its own localhost callback server and opens the browser,
   // so it launches silently in the background; `claude /login` is an interactive
   // TUI and still needs a real terminal.
-  if (options.mode !== "background" && options.platform === "darwin") {
-    const command = [file, ...args].map(shellSingleQuote).join(" ");
-    const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`;
-    const opened = await defaultSubscriptionCliRunner("/usr/bin/osascript", ["-e", script], {
-      timeoutMs: SUBSCRIPTION_CLI_STATUS_TIMEOUT_MS,
-      env: options.env,
-    });
-    if (opened.ok) return { started: true };
-  }
+  const openInTerminal = async (): Promise<boolean> => {
+    if (options.platform === "darwin") {
+      const command = [file, ...args].map(shellSingleQuote).join(" ");
+      const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`;
+      const opened = await defaultSubscriptionCliRunner("/usr/bin/osascript", ["-e", script], {
+        timeoutMs: SUBSCRIPTION_CLI_STATUS_TIMEOUT_MS,
+        env: options.env,
+      });
+      return opened.ok;
+    }
+    for (const attempt of terminalLaunchCommands(options.platform, file, args)) {
+      if (await spawnDetachedSurvives(attempt.file, attempt.args, options.env)) return true;
+    }
+    return false;
+  };
+  if (options.mode !== "background" && await openInTerminal()) return { started: true };
   try {
-    const child = spawn(file, [...args], {
+    const invocation = windowsBatchInvocation(file);
+    const child = spawn(invocation.file, [...args], {
       detached: true,
       stdio: "ignore",
       env: options.env,
+      cwd: homedir(),
+      shell: invocation.shell,
+      windowsHide: true,
     });
-    child.unref();
-    return { started: true };
+    // A login that dies within the grace window never opened its browser (bad
+    // PATH, version-manager shim on the wrong runtime, missing binary). Its
+    // stdio is discarded, so the only honest recovery is a visible terminal
+    // where the user's own shell runs the same command.
+    const diedEarly = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => { settle(false); }, 1_500);
+      const settle = (value: boolean) => { clearTimeout(timer); child.off("exit", onExit); child.off("error", onExit); resolve(value); };
+      const onExit = () => { settle(true); };
+      child.once("exit", onExit);
+      child.once("error", onExit);
+    });
+    if (!diedEarly) {
+      child.unref();
+      return { started: true };
+    }
   } catch {
-    return { started: false };
+    // fall through to the terminal below
   }
+  return { started: await openInTerminal() };
 }
 
 export function createSubscriptionCliAuthPort(deps: {
@@ -337,15 +411,11 @@ export async function logoutPreviousInferenceProvider(input: {
   if (input.previous === input.next) {
     return { previous: input.previous, next: input.next, loggedOut: "none", sessionCleared: false };
   }
-  if (isSubscriptionInferenceProvider(input.previous)) {
-    const result = await input.auth.logout(input.previous);
-    return {
-      previous: input.previous,
-      next: input.next,
-      loggedOut: input.previous,
-      sessionCleared: result.loggedOut,
-    };
-  }
+  // A Claude/Codex CLI login belongs to the user's machine, not to this app:
+  // running `claude /logout` / `codex logout` on a router switch destroys the
+  // user's own CLI session (deletes ~/.codex/auth.json), and the way back is a
+  // full browser login. Each provider keeps its own login; only the app-owned
+  // Cursor session is cleared, and only when a policy hands us the logout.
   if (input.previous === "cursor" && input.logoutCursor != null) {
     await input.logoutCursor();
     return { previous: input.previous, next: input.next, loggedOut: "cursor", sessionCleared: true };

@@ -37,6 +37,7 @@ export async function gitExecFile(
 ): Promise<{ stdout: string; stderr: string }> {
   const { env, encoding = "utf8", ...rest } = options ?? {};
   const result = await execFileAsync(file, [...args], {
+    windowsHide: true,
     ...rest,
     encoding,
     env: withGitEnv(args, env),

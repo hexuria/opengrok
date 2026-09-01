@@ -93,6 +93,7 @@ export function runCommand(command: string, args: readonly string[], options: { 
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       env: options.env ?? process.env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     let output = "";
     const append = (chunk: Buffer): void => { output += chunk.toString(); if (output.length > 200_000) output = output.slice(-200_000); };
