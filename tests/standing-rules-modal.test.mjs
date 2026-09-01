@@ -25,7 +25,7 @@ test("the rules list lives in the app's own dialog, not a hand-rolled one", () =
   // component may use the settings page pane, whatever shape it takes.
   const modal = src.slice(src.indexOf("function RStandingRules("), src.indexOf("function RRemoteControl("));
   assert.ok(modal.length > 500, "RStandingRules body must be locatable");
-  assert.doesNotMatch(modal, /a\.jsx\(Te,/, "the rules modal must not use the settings page pane anywhere");
+  assert.doesNotMatch(modal, /a\.jsxs?\(Te,/, "the rules modal must not use the settings page pane anywhere");
   // No bespoke surface: no invented radius, shadow or backdrop for this modal.
   assert.doesNotMatch(src, /sand-standing-rules[\s\S]{0,200}box-shadow/);
 });
