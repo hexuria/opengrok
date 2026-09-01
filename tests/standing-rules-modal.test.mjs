@@ -14,8 +14,15 @@ test("the rules list lives in the app's own dialog, not a hand-rolled one", () =
   // its scroll pane. Reusing them is what makes the modal match the app in
   // both themes with no new CSS - the whole point of this change.
   assert.match(src, /a\.jsx\(Os,\{"aria-label":"Standing rules"/);
-  assert.match(src, /size:"md"/, "md keeps it non-fullscreen; Settings itself uses xxl");
-  assert.match(src, /a\.jsx\(Te,\{children:a\.jsx\("div",\{role:"rowgroup"/);
+  assert.match(src, /a\.jsx\(Os,\{"aria-label":"Standing rules",open:!!open,onOpenChange:[^,]+,size:"md"/,
+    "md must be the dialog's size (Settings uses xxl); a bare /size:\"md\"/ also matches the title text");
+  // Te is the settings *page* pane: it only constrains height as a flex
+  // child and carries page padding, so with 40 rules the list overflowed
+  // instead of scrolling. The dialog owns its scroll box now.
+  assert.match(src, /id:panelId,role:"tabpanel"[\s\S]{0,320}overflowY:"auto"/,
+    "the rules panel itself must be the scroll box");
+  assert.doesNotMatch(src, /a\.jsx\(Te,\{children:a\.jsx\("div",\{role:"(rowgroup|list)"/,
+    "the rules list must not be wrapped in the settings page pane");
   // No bespoke surface: no invented radius, shadow or backdrop for this modal.
   assert.doesNotMatch(src, /sand-standing-rules[\s\S]{0,200}box-shadow/);
 });
@@ -29,14 +36,15 @@ test("tabs are real tabs and the close control is the app's icon button", () => 
 });
 
 test("the filter reuses the shared input styling and narrows the list", () => {
-  assert.match(src, /className:RRouterInputClass/);
+  assert.match(src, /"aria-label":"Filter commands",className:RRouterInputClass/,
+    "must be the filter input reusing the shared styling, not any input in the file");
   assert.match(src, /placeholder:"Filter commands…"/);
   assert.match(src, /"aria-label":"Filter commands"/);
   assert.match(src, /rules\.filter\(function\(p\)\{return p\.toLowerCase\(\)\.includes\(needle\)\}\)/);
   // Height derives from the tab's UNFILTERED count, so typing cannot resize
   // the dialog, and a two-rule list does not leave a tall empty well.
-  assert.match(src, /height:"min\(38vh, "\+Math\.max\(96,rules\.length\*34\)\+"px\)"/);
-  assert.doesNotMatch(src, /height:"min\(38vh, "\+Math\.max\(96,shown\.length/, "must not depend on the filtered count");
+  assert.match(src, /height:"min\(38vh, "\+Math\.max\(96,rules\.length\*38\)\+"px\)"/);
+  assert.doesNotMatch(src, /Math\.max\(96,shown\.length/, "must not depend on the filtered count");
 });
 
 test("the settings row is a summary plus Manage…, not the whole list", () => {
@@ -52,7 +60,8 @@ test("summary counts read naturally and delete keeps its contract", () => {
   assert.match(src, /" allow, "\+deny\+" never/);
   // Same backend call and (kind, pattern) pair as before - no new semantics.
   assert.match(src, /window\.desktop\.agent\.deleteRemoteControlRule\(kind,pattern\)/);
-  assert.match(src, /empty|No rules match that filter/);
+  assert.match(src, /:"No rules match that filter\."/);
+  assert.match(src, /"No commands are always allowed yet\."/);
 });
 
 test("boolean settings use the bundle's Switch rather than a copy of it", async () => {
