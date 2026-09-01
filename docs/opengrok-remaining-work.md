@@ -34,7 +34,8 @@ Run after every task. This is the regression guard.
 |---|---|
 | Launch | Loading page → app. No Grok Bot sign-in page flashes. |
 | Roster | Bots listed, correct account |
-| Send | Message sends, reply paints live, composer clears |
+| Send | Message sends, reply paints live, composer clears. In `~/Library/Application Support/OpenGrok/sand-data/telemetry-log.jsonl` the send shows `echo-coordinator-sse`, then (unless the replica already had an epoch) `getAgentTranscriptTail` + `replica.resync transcript covered`, then `send_ack` within a second. No `echo-coordinator-sse-missing`. |
+| Send after reload | Cmd+R, then send: exactly one `coordinator_handoff adopted renderer_port` after the reload, and the same chain as Send. This is the "reply only after Cmd+R" class fixed 2 Sep 2026 (hexuria/opengrok#17); a page that shows "…" and no reply here has a replica that never re-fetched — see `docs/local-telemetry-log.md`. |
 | Long turn | Stop bar appears, Stop ends the turn |
 | Settings ▸ General | Provider named "Open Grok", address shown |
 | Settings ▸ Computer | Roster with the active one marked "Your computer"; this Mac named; Reset present |
