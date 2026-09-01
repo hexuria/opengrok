@@ -11,6 +11,7 @@ import { attachShellOutputStreams } from "./output-limiter.js";
 import { getPowerShellExecutable } from "./platform-shell.js";
 import { resolveSandboxPolicyForWorkspace } from "./sandbox/policy-merge.js";
 import { shouldEnableSudoAskpass, transformSudoCommand } from "./sudo.js";
+import { findWindowsSudo, planWindowsElevation, windowsElevationFailureCommand } from "./windows-elevation.js";
 import { SHELL_ENV_OVERRIDES } from "./types.js";
 import { splitPwdAndState, createShellExitEvent } from "./core.js";
 import { spawnWithSignal } from "./core.js";
@@ -73,7 +74,16 @@ class PowerShellState {
       ...SHELL_ENV_OVERRIDES,
       ...options?.env,
     };
-    const transformedCommand = shouldEnableSudoAskpass(env) ? transformSudoCommand(command) : command;
+    // POSIX rewrites sudo to use the askpass card. Windows has no password
+    // to intercept - UAC owns that - so a `sudo ...` command is instead
+    // routed through Windows Sudo in inline mode, which is the only way an
+    // elevated child still returns its output. Gated on the same setting as
+    // the card: without it, `sudo` is left alone exactly as before.
+    let transformedCommand = shouldEnableSudoAskpass(env) ? transformSudoCommand(command) : command;
+    if (process.platform === "win32" && env.SAND_ELEVATION_ALLOWED === "1") {
+      const plan = planWindowsElevation(command, findWindowsSudo(env));
+      transformedCommand = plan.kind === "elevate" ? plan.command : windowsElevationFailureCommand(plan.reason);
+    }
     const tempDir = tmpdir();
     const stateOutFile = join(tempDir, `ps-state-out-${randomUUID()}.txt`);
     const commandScript = dumpPowerShellState(this.state, cwd, transformedCommand, stateOutFile);

@@ -53,7 +53,12 @@ export function askpassService(): AskpassService | null {
 
 /** SAND_ASKPASS_* env for the local-exec daemon; empty when unavailable. */
 export function askpassDaemonEnvironment(): Record<string, string> {
-  return askpassService()?.environment() ?? {};
+  // The master switch travels to the daemon on every platform. On POSIX it
+  // rides alongside the askpass trio; on Windows, where there is no socket,
+  // it is the whole signal that elevation is permitted.
+  const allowed = (() => { try { return readEnabled?.() === true; } catch { return false; } })();
+  const gate = allowed ? { SAND_ELEVATION_ALLOWED: "1" } : {};
+  return { ...(askpassService()?.environment() ?? {}), ...gate };
 }
 
 export function closeAskpassRuntime(): void {

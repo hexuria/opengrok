@@ -7,10 +7,14 @@
  * exactly as it did before this feature.
  */
 export function askpassShellEnv(source: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv | undefined {
-  if (platform === "win32") return undefined;
+  // Windows has no askpass socket - UAC owns authentication - but the shell
+  // still needs to know elevation is permitted, so it gets the flag alone.
+  if (platform === "win32") {
+    return source.SAND_ELEVATION_ALLOWED === "1" ? { SAND_ELEVATION_ALLOWED: "1" } : undefined;
+  }
   const helperPath = source.SAND_ASKPASS_HELPER;
   const socketPath = source.SAND_ASKPASS_SOCKET;
   const secret = source.SAND_ASKPASS_SECRET;
   if (!helperPath || !socketPath || !secret) return undefined;
-  return { SUDO_ASKPASS: helperPath, CURSOR_ASKPASS_SOCKET: socketPath, CURSOR_ASKPASS_SECRET: secret };
+  return { SUDO_ASKPASS: helperPath, CURSOR_ASKPASS_SOCKET: socketPath, CURSOR_ASKPASS_SECRET: secret, SAND_ELEVATION_ALLOWED: "1" };
 }
