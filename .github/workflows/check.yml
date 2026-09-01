@@ -45,16 +45,20 @@ jobs:
           ssh-key: ${{ secrets.STOW_DEPLOY_KEY }}
           path: .stow-protos
 
-      - name: Stage the protos into the source tree
+      - name: Stage the recovered packages into the source tree
         if: steps.protos.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          src=".stow-protos/source/packages/proto/generated"
-          test -d "$src" || { echo "archive has no $src"; exit 1; }
-          mkdir -p source/packages/proto
-          cp -R "$src" source/packages/proto/generated
-          echo "staged $(find source/packages/proto/generated -name '*.ts' | wc -l) proto files"
+          # Both gitignored package trees, copied by name so a third one
+          # added later fails loudly here instead of as a wall of TS2307.
+          for pkg in proto redacted-protos; do
+            src=".stow-protos/source/packages/$pkg/generated"
+            test -d "$src" || { echo "archive is missing $src"; exit 1; }
+            mkdir -p "source/packages/$pkg"
+            cp -R "$src" "source/packages/$pkg/generated"
+            echo "staged $pkg: $(find "source/packages/$pkg/generated" -name "*.ts" | wc -l | tr -d " ") files"
+          done
 
       - uses: actions/setup-node@v4
         with:
