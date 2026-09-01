@@ -130,7 +130,7 @@ function RTranscribe({keys:s,onSaved:e}){
   const u=s.includes("GEMINI_API_KEY")||t.geminiKeySet;
   const f=async()=>{const c=r.trim();if(c.length===0){q("Paste your Google AI Studio API key first.");return}l(!0);q(null);try{await window.desktop.secrets.upsert({GEMINI_API_KEY:c});i("");if(e)e();const d=await window.desktop.getTranscribeSettings().catch(()=>null);if(d)n(h=>({...h,...d}))}catch(c){q(String(c&&c.message||c))}finally{l(!1)}};
   return a.jsxs("div",{children:[
-    a.jsx(ie,{description:"Dictation through Google's gemini-3.5-transcribe with your own AI Studio key (the free tier works). When off, dictation uses the Cursor account or a local whisper-cpp install.",label:"Gemini transcription",variant:"card",children:a.jsx(ye,{"aria-label":"Gemini transcription",onValueChange:c=>{if(c!=null)void g(c==="on")},options:[{value:"off",label:"Off"},{value:"on",label:"On"}],placement:"bottom-end",size:"lg",value:t.geminiEnabled?"on":"off",variant:"filled"})}),
+    a.jsx(ie,{description:"Dictation through Google's gemini-3.5-transcribe with your own AI Studio key (the free tier works). When off, dictation uses the Cursor account or a local whisper-cpp install.",label:"Gemini transcription",variant:"card",children:a.jsx(RSwitch,{label:"Gemini transcription",checked:!!t.geminiEnabled,onToggle:v=>{void g(v)}})}),
     t.geminiEnabled?a.jsx(ie,{divided:!0,description:u?"A key is saved. Paste a new one to replace it.":"From aistudio.google.com → Get API key.",label:"Google API key",variant:"card",children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4 sand-h8yej3",style:{width:360,flexWrap:"wrap",gap:8},children:[a.jsx("input",{"aria-label":"GEMINI_API_KEY",className:RRouterInputClass,disabled:o,onChange:c=>i(c.currentTarget.value),onInput:c=>i(c.currentTarget.value),placeholder:u?"Replace saved key":"Paste Google AI Studio key",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:270},type:"password",value:r}),a.jsx(oe,{disabled:o,onClick:f,shape:"rectangular",size:"sm",variant:"secondary",children:o?"Saving…":"Save"}),p?a.jsx(se,{as:"span",color:"red",size:"sm",children:p}):null]})}):null,
     t.geminiEnabled?a.jsx(ie,{divided:!0,description:"English is always understood — add the other language(s) you speak (like Filipino) and mixed speech keeps both.",label:"Languages",variant:"card",children:a.jsxs("div",{style:{position:"relative",width:360,maxWidth:"100%"},children:[
       a.jsxs("div",{style:{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",minHeight:38,padding:"5px 8px",boxSizing:"border-box",background:"var(--cursor-bg-secondary,#292929)",border:"1px solid var(--cursor-stroke-tertiary,#3a3a3a)",borderRadius:8},children:[
@@ -253,25 +253,22 @@ function RRemoteControl(){
         :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
-// Our own marks: the bundle's 1282-icon set ships no fingerprint. One
-// fingerprint serves mac and Windows (Hello covers fingerprint too, and the
-// print is the universally read biometric sign); machines with no enrolled
-// sensor get a key instead, because promising biometrics you do not have is
-// worse than showing none. Shield marks the armed state.
-const RMark=d=>a.jsx("svg",{"aria-hidden":"true",viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round",style:{width:17,height:17,flex:"none",opacity:.75},children:d});
-const RFingerprint=()=>RMark([a.jsx("path",{d:"M12 10.6v4.9"},"a"),a.jsx("path",{d:"M9 12.1a3 3 0 0 1 6 0v3.1"},"b"),a.jsx("path",{d:"M6.1 11.6a5.9 5.9 0 0 1 11.8 0v2.6"},"c"),a.jsx("path",{d:"M3.7 11.1a8.3 8.3 0 0 1 16.6 0"},"d")]);
-const RKeyMark=()=>RMark([a.jsx("circle",{cx:"9.2",cy:"9.2",r:"3.4"},"a"),a.jsx("path",{d:"M11.7 11.7 19 19"},"b"),a.jsx("path",{d:"m16.3 16.3 1.7-1.7"},"c")]);
-const RShieldMark=()=>RMark(a.jsx("path",{d:"M12 3.6 19 6.1v5.4c0 4.2-2.9 7.2-7 8.5-4.1-1.3-7-4.3-7-8.5V6.1z"}));
-const RTerminalMark=()=>RMark([a.jsx("rect",{x:"3.2",y:"4.6",width:"17.6",height:"14.8",rx:"2.2"},"a"),a.jsx("path",{d:"m7.6 10 2.4 2.2-2.4 2.2"},"b"),a.jsx("path",{d:"M12.6 14.6h4"},"c")]);
 // A fixed slot so showing or clearing a message never shifts the rows.
 const RRowNote=(text,tone)=>a.jsx("div",{style:{minHeight:16,paddingBottom:8,paddingTop:2},children:text?a.jsx(se,{as:"p",color:tone||"red",size:"sm",children:text}):null});
-// The bundle's own switch lives in another chunk and is not in scope where
-// this panel is spliced, so the switch is ours: a real button with
-// role="switch", sized and coloured from the same tokens as the rest.
-const RSwitch=({checked,disabled,label,onToggle})=>a.jsx("button",{type:"button",role:"switch","aria-checked":!!checked,"aria-label":label,disabled:!!disabled,onClick:()=>{if(!disabled)onToggle(!checked)},
-  style:{position:"relative",width:38,height:22,flex:"none",padding:0,borderRadius:999,cursor:disabled?"default":"pointer",opacity:disabled?.5:1,border:"1px solid "+(checked?"transparent":"var(--sand-border-default,rgba(128,128,128,.34))"),background:checked?"var(--sand-fill-accent,#1084fe)":"var(--sand-fill-neutral-subtle,rgba(128,128,128,.18))",transition:"background .16s ease,border-color .16s ease"},
-  children:a.jsx("span",{"aria-hidden":"true",style:{position:"absolute",top:2,left:checked?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 2px rgba(0,0,0,.3)",transition:"left .16s cubic-bezier(.2,.8,.3,1)"}})});
-const RToggleRow=(icon,node)=>a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:10,alignItems:"center"},children:[icon,node]});
+// The bundle's own switch component (Hlt) lives in the main index chunk and
+// is out of scope where this panel is spliced - referencing it takes the
+// renderer down. Its CSS is not chunked, though, so the switch is rebuilt
+// here from the same atomic classes: identical to the Auto-review toggle,
+// both themes included, with no cross-chunk dependency.
+const RSwitchTrackOff="sand-9f619 sand-1n2onr6 sand-1c4vz4f sand-2lah0s sand-dl72j9 sand-exx8yu sand-1xpa7k sand-18d9i69 sand-1uhho1l sand-qjedn3 sand-1y0btm7 sand-1atdlfd sand-149ho13 sand-25lytf sand-1d60hup sand-1ypdohk sand-1s07b3s sand-omy3lu sand-23j0i4 sand-lup9mm";
+const RSwitchTrackOn="sand-9f619 sand-1n2onr6 sand-1c4vz4f sand-2lah0s sand-dl72j9 sand-exx8yu sand-1xpa7k sand-18d9i69 sand-1uhho1l sand-qjedn3 sand-1y0btm7 sand-1atdlfd sand-149ho13 sand-1ypdohk sand-1s07b3s sand-omy3lu sand-1td3qas sand-1qx5ct2 sand-1jq8sgu sand-uacy2o sand-1pux4jt";
+const RSwitchKnob="sand-9f619 sand-10l6tqk sand-17wnkk5 sand-1yso4iu sand-qjedn3 sand-1y0btm7 sand-q03nf1 sand-16rqkct sand-khjh7l sand-12sv23o sand-ddwdes sand-smyaan sand-1kpxq89";
+const RSwitchKnobOn="sand-hco33r";
+const RSwitch=({checked,disabled,label,onToggle})=>a.jsx("button",{type:"button",role:"switch","aria-checked":!!checked,"aria-label":label,disabled:!!disabled,
+  className:checked?RSwitchTrackOn:RSwitchTrackOff,
+  onClick:()=>{if(!disabled)onToggle(!checked)},
+  ...(disabled?{style:{opacity:.5,cursor:"default"}}:{}),
+  children:a.jsx("span",{"aria-hidden":!0,className:checked?RSwitchKnob+" "+RSwitchKnobOn:RSwitchKnob})});
 const RSudoBioLabel=k=>k==="windows-hello"?"Windows Hello":k==="touch-id"?"Touch ID":null;
 function RLocalComputer(){
   const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null,sudoEnabled:!1,sudoAvail:!1,sudoBiometric:null,sudoBusy:!1,sudoError:null});
@@ -314,14 +311,13 @@ function RLocalComputer(){
           placeholder:s.hostname||"This computer",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:230},value:s.draft}),
         a.jsx(oe,{disabled:s.saving||!dirty,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.saving?"Saving…":"Save"})]})}),
     a.jsx(ie,{divided:!0,description:"When on, bots on your server can run commands on this computer. Turn it off to stop them, whatever a rule or the server says. Per-command consent still happens on the server.",label:"This computer accepts bot commands",variant:"card",
-      children:RToggleRow(a.jsx(RTerminalMark,{}),a.jsx(RSwitch,{label:"This computer accepts bot commands",checked:s.permission!=null&&s.permission!=="never",disabled:s.permission==null,onToggle:()=>setPerm(s.permission==="never"?"always":"never")}))}),
+      children:a.jsx(RSwitch,{label:"This computer accepts bot commands",checked:s.permission!=null&&s.permission!=="never",disabled:s.permission==null,onToggle:()=>setPerm(s.permission==="never"?"always":"never")})}),
     s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
     s.sudoAvail?a.jsx(ie,{divided:!0,description:s.sudoEnabled
       ?"Bots can run administrator (sudo) commands here. You still get a password card each time; nothing runs as administrator without it."
       :"Let bots run administrator (sudo) commands here. You get a password card each time; nothing runs as administrator without it."+(RSudoBioLabel(s.sudoBiometric)?" Unlock with "+RSudoBioLabel(s.sudoBiometric)+", or your password if that fails.":" You will be asked for your password to turn it on."),
       label:"Allow administrator (sudo) commands",variant:"card",
-      children:RToggleRow(s.sudoEnabled?a.jsx(RShieldMark,{}):(RSudoBioLabel(s.sudoBiometric)?a.jsx(RFingerprint,{}):a.jsx(RKeyMark,{})),
-        a.jsx(RSwitch,{label:"Allow administrator (sudo) commands",checked:s.sudoEnabled,disabled:s.sudoBusy,onToggle:()=>setSudo(s.sudoEnabled?"off":"on")}))}):null,
+      children:a.jsx(RSwitch,{label:"Allow administrator (sudo) commands",checked:s.sudoEnabled,disabled:s.sudoBusy,onToggle:()=>setSudo(s.sudoEnabled?"off":"on")})}):null,
     s.sudoAvail?RRowNote(s.sudoBusy?(RSudoBioLabel(s.sudoBiometric)?"Waiting for "+RSudoBioLabel(s.sudoBiometric)+"\u2026":"Waiting for your password\u2026"):s.sudoError,s.sudoBusy?"secondary":"red"):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
@@ -341,7 +337,7 @@ function RHardwareAcceleration(){
   de.useEffect(()=>{let c=!0;window.desktop.getHardwareAcceleration().then(d=>{if(c&&d)n(h=>({...h,enabled:d.enabled===!0}))}).catch(()=>{});return()=>{c=!1}},[]);
   const g=async c=>{n(d=>({...d,enabled:c}));try{await window.desktop.setHardwareAcceleration(c);n(d=>({...d,changed:!0}))}catch{}};
   return a.jsxs("div",{children:[
-    a.jsx(ie,{description:"Uses the Mac's GPU for rendering (Metal), like official Grok Bot 0.29. Turn off only if you see visual glitches.",label:"Hardware acceleration",variant:"card",children:a.jsx(ye,{"aria-label":"Hardware acceleration",onValueChange:c=>{if(c!=null)void g(c==="on")},options:[{value:"on",label:"On"},{value:"off",label:"Off"}],placement:"bottom-end",size:"lg",value:t.enabled?"on":"off",variant:"filled"})}),
+    a.jsx(ie,{description:"Uses the Mac's GPU for rendering (Metal), like official Grok Bot 0.29. Turn off only if you see visual glitches.",label:"Hardware acceleration",variant:"card",children:a.jsx(RSwitch,{label:"Hardware acceleration",checked:!!t.enabled,onToggle:v=>{void g(v)}})}),
     t.changed?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Takes effect after quitting and reopening Grok Bot."}):null
   ]})
 }
