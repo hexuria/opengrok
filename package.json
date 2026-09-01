@@ -10,7 +10,7 @@
   "scripts": {
     "bootstrap": "node scripts/bootstrap-runtime.mjs",
     "build": "node scripts/build.mjs",
-    "check": "npm run typecheck && npm run source:typecheck && npm test",
+    "check": "npm run lint && npm run typecheck && npm run source:typecheck && npm test",
     "frontend:build": "vite build --config frontend/vite.config.ts",
     "frontend:recover": "node scripts/recover-frontend.mjs",
     "native:patch": "node scripts/apply-third-party-patches.mjs",
@@ -24,7 +24,8 @@
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --project frontend/tsconfig.json",
     "source:typecheck": "tsc --project source/tsconfig.json",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "lint": "oxlint scripts tests source"
   },
   "devDependencies": {
     "@electron/asar": "4.2.1",
@@ -40,6 +41,7 @@
     "node-addon-api": "8.5.0",
     "node-gyp": "12.1.0",
     "node-gyp-build": "4.8.4",
+    "oxlint": "^1.81.0",
     "sirv": "3.0.2",
     "typescript": "7.0.2",
     "vite": "8.2.1"
