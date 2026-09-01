@@ -95,6 +95,7 @@ export const MAIN_METHOD_TABLE = {
   stopRemoteControl: { args: "none" },
   revokeRemoteControl: { args: "none" },
   setRemoteControlMode: { args: "object" },
+  addRemoteControlRule: { args: "object" },
   deleteRemoteControlRule: { args: "object" },
   getAgentAutoReview: { args: "object" },
   setAgentAutoReview: { args: "object" },
