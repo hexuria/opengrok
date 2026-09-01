@@ -213,7 +213,7 @@ function entrySource(bindings) {
     : `import { ${binding.export} as binding${index} } from ${JSON.stringify(binding.resolvedModule)};`);
   const adapterKeys = requiredElectronMainProductionBindings.filter(key => key.startsWith("adapters.")).map(key => key.slice("adapters.".length));
   return `${imports.join("\n")}
-import { app, safeStorage, ipcMain, BrowserWindow, Menu, shell, screen } from "electron";
+import { app, safeStorage, ipcMain, BrowserWindow, Menu, shell, screen, systemPreferences } from "electron";
 import { startElectronMainProduction } from "./source/electron-main/main.ts";
 import { createElectronProductionNativeBindings } from "./source/electron-main/main-production-services.ts";
 import { createElectronProductionAvatarImagesBinding } from "./source/electron-main/adapters/avatar-images.ts";
@@ -238,7 +238,7 @@ ${adapterKeys.filter(key => key !== "coordinator" && key !== "ipc").map(key => `
 
 try {
   startElectronMainProduction({
-    native: createElectronProductionNativeBindings({ app, safeStorage, ipcMain, BrowserWindow, Menu, shell, screen }),
+    native: createElectronProductionNativeBindings({ app, safeStorage, ipcMain, BrowserWindow, Menu, shell, screen, systemPreferences }),
     moduleDir: __dirname,
     startup: ${expression(bindings, "startup")},
     services: createElectronProductionServiceFactories(adapters),

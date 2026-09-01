@@ -38,6 +38,8 @@ export const MAIN_METHOD_TABLE = {
   getLocalToolPermission: { args: "none" },
   getLocalToolPermissionCeiling: { args: "none" },
   setLocalToolPermission: { args: "object" },
+  getSudoAskpassEnabled: { args: "none" },
+  setSudoAskpassEnabled: { args: "object" },
   recordLocalToolApproval: { args: "object" },
   clearLocalToolApprovals: { args: "none" },
   getAskpassPrompt: { args: "none" },

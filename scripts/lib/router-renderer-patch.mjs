@@ -254,17 +254,20 @@ function RRemoteControl(){
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
 const RLocalPerm=[{value:"always",label:"On"},{value:"never",label:"Off"}];
+const RSudoOpts=[{value:"on",label:"On"},{value:"off",label:"Off"}];
 function RLocalComputer(){
-  const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null});
+  const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null,sudoEnabled:!1,sudoAvail:!1,sudoBusy:!1,sudoError:null});
   de.useEffect(()=>{let alive=!0;
     Promise.all([
       window.desktop.agent.getLocalComputer().catch(()=>null),
       window.desktop.localToolPermission.get().catch(()=>null),
-      window.desktop.localToolPermission.ceiling?window.desktop.localToolPermission.ceiling().catch(()=>null):Promise.resolve(null)
-    ]).then(r=>{if(!alive)return;const c=r[0]||{},p=r[1];
+      window.desktop.localToolPermission.ceiling?window.desktop.localToolPermission.ceiling().catch(()=>null):Promise.resolve(null),
+      window.desktop.sudoAskpass?window.desktop.sudoAskpass.get().catch(()=>null):Promise.resolve(null)
+    ]).then(r=>{if(!alive)return;const c=r[0]||{},p=r[1],sp=r[3];
       e(i=>({...i,name:c.name||"",hostname:c.hostname||"",isCustom:!!c.isCustom,draft:c.name||"",
         permission:typeof p==="string"?p:(p&&typeof p.permission==="string"?p.permission:null),
         ceiling:typeof r[2]==="string"?r[2]:(r[2]&&typeof r[2].permission==="string"?r[2].permission:null),
+        sudoEnabled:!!(sp&&sp.enabled),sudoAvail:!!(sp&&sp.available),
         loaded:!0}))}).catch(()=>{alive&&e(i=>({...i,loaded:!0}))});
     return()=>{alive=!1}},[]);
   const save=async()=>{const next=s.draft.trim();e(i=>({...i,saving:!0,error:null}));
@@ -275,6 +278,14 @@ function RLocalComputer(){
   const setPerm=async v=>{const was=s.permission;e(i=>({...i,permission:v,error:null}));
     try{await window.desktop.localToolPermission.set(v)}
     catch(err){e(i=>({...i,permission:was,error:String(err&&err.message||err)}))}};
+  const setSudo=async v=>{
+    if(v==="off"){const was=s.sudoEnabled;e(i=>({...i,sudoEnabled:!1,sudoError:null}));
+      try{await window.desktop.sudoAskpass.set(!1)}catch(err){e(i=>({...i,sudoEnabled:was,sudoError:String(err&&err.message||err)}))}return}
+    // Enabling is authenticated in the main process (Touch ID or your password);
+    // it is not optimistic — the row reflects the verified result.
+    e(i=>({...i,sudoBusy:!0,sudoError:null}));
+    try{const r=await window.desktop.sudoAskpass.set(!0);e(i=>({...i,sudoBusy:!1,sudoEnabled:!!(r&&r.enabled),sudoError:r&&r.error?r.error:null}))}
+    catch(err){e(i=>({...i,sudoBusy:!1,sudoError:String(err&&err.message||err)}))}};
   if(!s.loaded)return a.jsx(ie,{description:"The computer you are using now.",label:"This computer",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Loading…"})});
   const dirty=s.draft.trim()!==(s.name||"").trim();
   return a.jsxs("div",{children:[
@@ -288,6 +299,9 @@ function RLocalComputer(){
       children:a.jsx(ye,{"aria-label":"This computer accepts bot commands",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
         value:s.permission==null?null:s.permission==="never"?"never":"always",variant:"filled"})}),
     s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
+    s.sudoAvail?a.jsx(ie,{divided:!0,description:"Let bots run administrator (sudo) commands here. You get a password card each time; nothing runs as administrator without it. Requires Touch ID or your password to turn on.",label:"Allow administrator (sudo) commands",variant:"card",
+      children:a.jsx(ye,{"aria-label":"Allow administrator commands",onValueChange:setSudo,options:RSudoOpts,placement:"bottom-end",size:"lg",value:s.sudoBusy?null:(s.sudoEnabled?"on":"off"),variant:"filled"})}):null,
+    s.sudoError?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.sudoError}):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
 function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null,computerError:null,activeKind:null,sharingMode:null});
@@ -1441,7 +1455,7 @@ const ASKPASS_CARD_HELPER = ';(()=>{try{'
   + 'var badge=document.createElement("span");badge.className="sand-ap-badge";badge.innerHTML=LOCK;'
   + 'var h=document.createElement("p");h.className="sand-ap-h";h.textContent="Administrator password needed";'
   + 'top.append(badge,h);'
-  + 'var sub=document.createElement("p");sub.className="sand-ap-sub";sub.textContent="A command an agent is running on this computer needs your macOS password to continue. It is sent only to sudo on this machine \\u2014 never to the chat or the cloud.";'
+  + 'var sub=document.createElement("p");sub.className="sand-ap-sub";sub.textContent=p.reason?p.reason+". Enter your password to confirm \\u2014 it is sent only to sudo on this machine, never to the chat or the cloud.":"A command an agent is running on this computer needs your macOS password to continue. It is sent only to sudo on this machine \\u2014 never to the chat or the cloud.";'
   + 'var pr=document.createElement("p");pr.className="sand-ap-prompt";pr.textContent=p.prompt||"Password:";'
   + 'var input=document.createElement("input");input.className="sand-ap-in";input.type="password";input.autocomplete="off";input.setAttribute("aria-label","Password");'
   + 'var foot=document.createElement("div");foot.className="sand-ap-foot";'

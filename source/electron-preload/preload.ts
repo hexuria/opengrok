@@ -260,6 +260,10 @@ export function createDesktopPreloadBridge(options: {
       respond: (id: string, password: string | null) => edge("respondAskpass", { id, password }),
       onPrompt: (listener: (payload: unknown) => void) => subscribeIpc(ipc, "sand:askpass-prompt", listener),
     },
+    sudoAskpass: {
+      get: () => edge("getSudoAskpassEnabled"),
+      set: (enabled: boolean) => edge("setSudoAskpassEnabled", { enabled }),
+    },
     theme: {
       initial: initialState.themeState,
       get: () => edge("getThemeState"),
