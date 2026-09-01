@@ -96,7 +96,7 @@ export function createSpawnedWebAuthnSigner(options: SpawnedWebAuthnSignerOption
   return {
     sign(ceremony, signal, approved) {
       return new Promise((resolve) => {
-        const child = spawn(options.binaryPath, [], { stdio: ["pipe", "pipe", "pipe"] });
+        const child = spawn(options.binaryPath, [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
         let stdout = "";
         let stderr = "";
         let settled = false;

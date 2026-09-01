@@ -8,6 +8,7 @@ import { isSandUpdateTrack } from "../shared/update-track.js";
 import { isValidIanaTimeZone } from "../shared/timezone.js";
 import { sandWebauthnProxyMirroredEnablement } from "../shared/webauthn-proxy-availability.js";
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
+import { askpassBiometricKind, askpassService, authorizeSudoEnableProduction } from "./askpass/askpass-runtime.js";
 import { isSandInferenceProvider, parseOpenRouterModelId } from "../shared/inference-router.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
 import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_DAEMON_MACHINE_SECRET, OPENGROK_DAEMON_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
@@ -100,6 +101,7 @@ export interface MainEdgeDeps {
   readonly emitWebauthnProxyChanged: (enabled: boolean) => void;
   readonly ensureTranscriptionManager: () => Promise<UnknownRecord>;
   readonly platform: NodeJS.Platform;
+  readonly authorizeSudoEnable?: () => Promise<{ ok: boolean; error?: string }>;
   readonly delay?: (milliseconds: number) => Promise<void>;
   readonly detectTimeZone?: () => string | null | undefined;
   readonly subscriptionAuth?: SubscriptionCliAuthPort;
@@ -393,10 +395,30 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       return { ok: true };
     },
     getLocalToolPermission: () => invoke(deps.settingsStore, "getLocalToolPermission"),
+    getSudoAskpassEnabled: () => ({ enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32", biometric: askpassBiometricKind() }),
+    setSudoAskpassEnabled: async (raw) => {
+      // Turning off is free; turning on must be authenticated (Touch ID, or a
+      // validated sudo password) so an agent can't flip its own master switch.
+      if (req(raw).enabled !== true) {
+        invoke(deps.settingsStore, "setSudoAskpassEnabled", false);
+        return { enabled: false, available: deps.platform !== "win32", biometric: askpassBiometricKind() };
+      }
+      const outcome = await (deps.authorizeSudoEnable ?? authorizeSudoEnableProduction)();
+      if (outcome.ok) invoke(deps.settingsStore, "setSudoAskpassEnabled", true);
+      return { enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32", biometric: askpassBiometricKind(), ...(outcome.error == null ? {} : { error: outcome.error }) };
+    },
     getLocalToolPermissionCeiling: () => invoke(deps.settingsStore, "getLocalToolPermissionCeiling") ?? null,
     setLocalToolPermission: async (raw) => { invoke(deps.settingsStore, "setLocalToolPermission", normalizeSandLocalToolPermission(req(raw).permission)); for (let attempt = 0; attempt < 3; attempt += 1) { const permission = invoke(deps.settingsStore, "getLocalToolPermission"); try { const applied = await deps.syncHostSettingsToBox({ localToolPermission: permission }); if (applied?.localToolPermission === permission) break; } catch (error) { reportDesktopEdgeFailure("host-settings", "local-tool-retry", error); } await (deps.delay ?? sleep)(250 * (attempt + 1)); } return invoke(deps.settingsStore, "getLocalToolPermission"); },
     recordLocalToolApproval: async (raw) => { const { approvalId, action, target } = req(raw); invariant(typeof approvalId === "string" && approvalId.length > 0 && isSandLocalToolAction(action) && typeof target === "string", "A local-tool approval needs its request id and action."); await deps.recordLocalToolApproval({ id: approvalId, action, target }); },
     clearLocalToolApprovals: async () => { await deps.clearLocalToolApprovals().catch((error: unknown) => reportDesktopEdgeFailure("local-tool-approvals", "clear", error)); },
+
+    getAskpassPrompt: () => askpassService()?.pendingPrompt() ?? null,
+    respondAskpass: (raw) => {
+      const { id, password } = req(raw);
+      const answer = typeof password === "string" ? password : null;
+      const resolved = typeof id === "string" && askpassService()?.resolvePrompt(id, answer) === true;
+      return { resolved };
+    },
 
     getThemeState: () => invoke(themeController(deps), "getState"),
     setThemePreference: (raw) => { const controller = themeController(deps); const preference = req(raw).preference; return isSandThemePreference(preference) ? invoke(controller, "setPreference", preference) : invoke(controller, "getState"); },
@@ -435,7 +457,8 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const nextRuntime = isSandBoxRuntime(currentRuntime) ? coerceBoxRuntimeForProvider(currentRuntime, switched.provider) : undefined;
       if (nextRuntime != null && nextRuntime !== currentRuntime) {
         invoke(deps.settingsStore, "setBoxRuntime", nextRuntime);
-        if (nextRuntime === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
+        // Subscription providers run on the desktop host, not the Docker VM.
+        if (nextRuntime === "local-docker" && !isSubscriptionInferenceProvider(switched.provider)) await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
         invoke(deps.boxRecovery, "restartCoordinator");
       }
       const computers = providerComputersOf(deps, switched.provider);
@@ -475,7 +498,8 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         if (nextRuntime != null && nextRuntime !== currentRuntime) {
           invoke(deps.settingsStore, "setBoxRuntime", nextRuntime);
           const runtimeSettingsPath = String(Reflect.get(deps.settingsStore, "settingsPath") ?? "");
-          if (nextRuntime === "local-docker") await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
+          // Subscription providers run on the desktop host, not the Docker VM.
+          if (nextRuntime === "local-docker" && !isSubscriptionInferenceProvider(requested)) await (deps.startLocalDockerBox ?? startLocalDockerBox)(runtimeSettingsPath).catch((error: unknown) => reportDesktopEdgeFailure("box-runtime", "attach-local-vm", error));
           optionalInvoke(deps.boxRecovery, "restartCoordinator");
         }
       }

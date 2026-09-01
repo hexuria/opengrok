@@ -72,7 +72,7 @@ async function toFlac(audio: Uint8Array, mimeType: string, ffmpegPath: string | 
     const inputPath = join(workDir, "input");
     const flacPath = join(workDir, "input.flac");
     await writeFile(inputPath, audio);
-    await promisify(execFile)(ffmpegPath, ["-y", "-loglevel", "error", "-i", inputPath, "-ar", "16000", "-ac", "1", flacPath], { timeout: GEMINI_TRANSCRIBE_TIMEOUT_MS });
+    await promisify(execFile)(ffmpegPath, ["-y", "-loglevel", "error", "-i", inputPath, "-ar", "16000", "-ac", "1", flacPath], { timeout: GEMINI_TRANSCRIBE_TIMEOUT_MS, windowsHide: true });
     return { bytes: new Uint8Array(await readFile(flacPath)), mimeType: "audio/flac" };
   } catch { return null; }
   finally { await rm(workDir, { recursive: true, force: true }).catch(() => { /* best effort */ }); }

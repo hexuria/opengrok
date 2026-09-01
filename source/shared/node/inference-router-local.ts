@@ -14,24 +14,49 @@ function firstExecutable(candidates: readonly (string | undefined)[]): string | 
   return null;
 }
 
+/**
+ * Windows executables carry a suffix the POSIX name never has: native
+ * installers ship `name.exe`, npm shims ship `name.cmd`. A bare-name
+ * existsSync check finds neither, which is how "installed" CLIs read as
+ * missing on Windows.
+ */
+export function executableNameVariants(name: string, platform: NodeJS.Platform = process.platform): string[] {
+  return platform === "win32" ? [`${name}.exe`, `${name}.cmd`, name] : [name];
+}
+
+function named(directories: readonly string[], name: string): string[] {
+  const variants = executableNameVariants(name);
+  return directories.flatMap(directory => variants.map(variant => join(directory, variant)));
+}
+
 function pathCandidates(name: string): string[] {
-  return (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(directory => join(directory, name));
+  return named((process.env.PATH ?? "").split(delimiter).filter(Boolean), name);
+}
+
+/** Version-manager shim dirs; a Finder-launched app never has these on PATH. */
+function shimCandidates(name: string): string[] {
+  const home = homedir();
+  return named([join(home, ".nodenv", "shims"), join(home, ".asdf", "shims"), join(home, ".volta", "bin")], name);
 }
 
 export function resolveCodexCliPath(): string | null {
   const home = homedir();
-  return firstExecutable([process.env.CODEX_PATH, join(home, ".local", "bin", "codex"), join(home, ".codex", "bin", "codex"), ...pathCandidates("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex"]);
+  return firstExecutable([process.env.CODEX_PATH, ...named([join(home, ".local", "bin"), join(home, ".codex", "bin")], "codex"), ...pathCandidates("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex", ...shimCandidates("codex")]);
 }
 
 export function resolveClaudeCodeCliPath(): string | null {
   const home = homedir();
-  return firstExecutable([process.env.CLAUDE_CODE_PATH, join(home, ".local", "bin", "claude"), join(home, ".claude", "local", "claude"), ...pathCandidates("claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]);
+  return firstExecutable([process.env.CLAUDE_CODE_PATH, ...named([join(home, ".local", "bin"), join(home, ".claude", "local")], "claude"), ...pathCandidates("claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude", ...shimCandidates("claude")]);
 }
 
-function hasUsableCodexLogin(path: string): boolean {
+export function hasUsableCodexLogin(path: string, platform: NodeJS.Platform = process.platform): boolean {
   try {
     const stat = lstatSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) return false;
+    if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    // POSIX-only privacy check: Node synthesizes mode on Windows (0o666-ish
+    // for every file), so the group/other-bits test would reject every valid
+    // auth.json there. Windows relies on the profile directory's ACLs.
+    if (platform !== "win32" && (stat.mode & 0o077) !== 0) return false;
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
     return parsed.auth_mode === "chatgpt"
       && typeof parsed.tokens?.access_token === "string" && parsed.tokens.access_token.length > 0

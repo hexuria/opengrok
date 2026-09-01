@@ -74,7 +74,7 @@ export async function transcribeWithLocalWhisper(
   const ffmpeg = deps.ffmpegPath !== undefined ? deps.ffmpegPath : env.SAND_FFMPEG?.trim() || await firstAccessible(FFMPEG_CANDIDATES);
   if (whisperCli == null || model == null || ffmpeg == null || args.audio.length === 0) return null;
   const run = deps.execFile ?? (async (file: string, cliArgs: readonly string[], options: { timeout: number }) => {
-    const { stdout } = await promisify(execFile)(file, [...cliArgs], { timeout: options.timeout, maxBuffer: 16 * 1024 * 1024 });
+    const { stdout } = await promisify(execFile)(file, [...cliArgs], { timeout: options.timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
     return { stdout };
   });
   const startedAtMs = Date.now();

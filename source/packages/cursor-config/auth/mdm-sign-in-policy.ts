@@ -72,7 +72,7 @@ async function readWindowsPolicyRegistry(): Promise<RawPolicy | undefined> {
   let fallback: RawPolicy | undefined;
   for (const registryKey of WINDOWS_POLICY_REGISTRY_KEYS) {
     let stdout: string;
-    try { ({ stdout } = await execFileAsync("reg.exe", ["query", registryKey])); } catch { continue; }
+    try { ({ stdout } = await execFileAsync("reg.exe", ["query", registryKey], { windowsHide: true })); } catch { continue; }
     const values: RawPolicy = {};
     for (const line of stdout.split(/\r?\n/)) {
       const match = /^\s{4}(\S+)\s+(REG_\w+)\s+(.*)$/.exec(line);

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { withOpenGrokDaemonToken, type OpenGrokDaemonIdentity } from "../box/opengrok-daemon-descriptor.js";
+import { askpassDaemonEnvironment } from "../askpass/askpass-runtime.js";
 
 import {
   clearLocalExecDaemonDiscoveryIfMatches,
@@ -501,7 +502,9 @@ export function createCoordinatorControlExecutors(
       readonly logPath: string;
       readonly env: NodeJS.ProcessEnv;
     }) {
-      const spawned = await native.spawnLocalExecDaemon(args);
+      // The SAND_ASKPASS_* trio lets `sudo -A` in the daemon's shells reach the
+      // app's password card; empty (and a no-op) on Windows and in tests.
+      const spawned = await native.spawnLocalExecDaemon({ ...args, env: { ...args.env, ...askpassDaemonEnvironment() } });
       const { child, entryRealpath, generationToken } = spawned;
       if (child.pid === undefined) throw new Error("local-exec daemon spawn returned no pid");
       try {

@@ -6,5 +6,6 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
  * root and is not selected by any recovered caller.
  */
 export function spawnUnsafe(command: string, args: readonly string[] = [], options: SpawnOptions = {}): ChildProcess {
-  return spawn(command, args, options);
+  // Never flash a console window on Windows for background shell work.
+  return spawn(command, args, { windowsHide: true, ...options });
 }

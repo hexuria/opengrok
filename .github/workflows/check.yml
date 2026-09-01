@@ -1,4 +1,4 @@
-name: repository checks
+name: ci
 
 on:
   push:
@@ -7,23 +7,43 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# HONEST STATUS: these jobs cannot go green on a bare clone, and have not on
+# any recent run of main. This repository deliberately gitignores the material
+# recovered from the shipped binary — `source/packages/proto/generated/` and
+# `frontend/` (see CLAUDE.md) — and 361 source files import proto/generated,
+# so a fresh checkout cannot typecheck, test or package. Everything below is
+# therefore expected to fail until CI is given that material (a private
+# artifact or a submodule); the real gate today is running these same commands
+# locally, where the material exists.
+#
+# The matrix is kept in the shape it should have: source typecheck plus the
+# test suite on all three desktop platforms, so that darwin-only assumptions
+# surface here the moment CI can actually run. Steps that could never work
+# even with protos — `npm run typecheck` and `frontend:build` (need
+# frontend/tsconfig.json), `publication:check` (diffs the working tree against
+# a clean-history export), and `npm run package` (stages frontend/src) — are
+# deliberately absent and stay local pre-flight.
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
           cache: npm
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
-      - name: Run source and publication checks
-        run: npm run check
-      - name: Build the editable frontend
-        run: npm run frontend:build
-      - name: Verify a fresh clean-history export is lossless
-        run: npm run publication:check
+      - name: Typecheck the source tree
+        run: npm run source:typecheck
+      - name: Run the test suite
+        run: npm test
