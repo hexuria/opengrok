@@ -2156,6 +2156,34 @@ export function patchOriginalSettingsPanel(source) {
   return patched;
 }
 
+// The transcript store's tail re-fetch is the ONLY way the page's ordered replica ever gets an
+// epoch: a live frame it cannot place is buffered, a resync attempt starts, and the store
+// re-fetches the tail to install a baseline through that frame's stamp. The store guards the
+// fetch with isFetchInFlight, and its completion handlers clear that flag only when the reply is
+// not superseded (`if (X !== j.fetchAttempt) return;`). A resync attempt starting while a fetch is
+// in flight bumps fetchAttempt, so the reply is discarded with the flag still set, and every
+// later resync returns early on it for the rest of the page's life: the reply to a sent message
+// is published, the coordinator receives it, and the page shows "…" until Cmd+R. The launch
+// storm (five tail fetches in 25 s) and every renderer reload produce exactly that overlap.
+// Reproduced 2 Sep 2026 with both logs: no getAgentTranscriptTail after the send, ever.
+//
+// A superseded reply now releases the flag it owns (by a per-fetch token, so a newer fetch's flag
+// is never touched) and re-runs the fetch if the replica is still resyncing; a fetch whose reply
+// never comes (lost across a coordinator port handoff) is released by a watchdog.
+const FETCH_START_BEFORE = 'z=j=>{if(d||j.isFetchInFlight)return;j.isFetchInFlight=!0,j.isActivityRefreshQueued=!1;';
+const FETCH_START_AFTER = 'z=j=>{if(d||j.isFetchInFlight)return;j.isFetchInFlight=!0,j.isActivityRefreshQueued=!1;const __sandFetch=(j.__sandFetchSeq=(j.__sandFetchSeq||0)+1),__sandWatch=setTimeout(function(){if(j.__sandFetchSeq===__sandFetch&&j.isFetchInFlight){j.isFetchInFlight=!1;j.fetchAttempt+=1;j.replica.view().status==="resyncing"&&z(j)}},20000);typeof __sandWatch=="object"&&__sandWatch&&typeof __sandWatch.unref=="function"&&__sandWatch.unref();';
+const FETCH_RESOLVE_BEFORE = 'F(j).then(le=>{if(X!==j.fetchAttempt)return;j.isFetchInFlight=!1,j.lastFailure=null;';
+const FETCH_RESOLVE_AFTER = 'F(j).then(le=>{clearTimeout(__sandWatch);if(X!==j.fetchAttempt){if(j.__sandFetchSeq===__sandFetch){j.isFetchInFlight=!1;j.replica.view().status==="resyncing"&&z(j)}return}j.isFetchInFlight=!1,j.lastFailure=null;';
+const FETCH_REJECT_BEFORE = 'le=>{if(X!==j.fetchAttempt)return;j.isFetchInFlight=!1;const Q=j.isActivityRefreshQueued;';
+const FETCH_REJECT_AFTER = 'le=>{clearTimeout(__sandWatch);if(X!==j.fetchAttempt){if(j.__sandFetchSeq===__sandFetch){j.isFetchInFlight=!1;j.replica.view().status==="resyncing"&&z(j)}return}j.isFetchInFlight=!1;const Q=j.isActivityRefreshQueued;';
+
+export function patchOriginalTranscriptFetchFlag(source) {
+  let patched = replaceExactlyOnce(source, FETCH_START_BEFORE, FETCH_START_AFTER, "transcript fetch token");
+  patched = replaceExactlyOnce(patched, FETCH_RESOLVE_BEFORE, FETCH_RESOLVE_AFTER, "transcript fetch superseded resolve");
+  patched = replaceExactlyOnce(patched, FETCH_REJECT_BEFORE, FETCH_REJECT_AFTER, "transcript fetch superseded reject");
+  return patched;
+}
+
 export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   const assetsRoot = path.join(stageRoot, "dist", "renderer", "assets");
   const registryCandidates = [];
@@ -2174,7 +2202,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
-    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))],
+    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalTranscriptFetchFlag(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source)))))))))))))))))],
     ["panel", panelCandidates[0], patchOriginalSettingsPanel],
   ]) {
     const patched = transform(candidate.source);
@@ -2198,6 +2226,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "first-run-cursor-claude-codex",
       "first-run-login-skip",
       "computer-screen-switcher",
+      "transcript-fetch-flag-release",
     ],
     transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher"],
   };
