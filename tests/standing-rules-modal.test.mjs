@@ -75,9 +75,20 @@ test("summary counts read naturally and delete keeps its contract", () => {
   // Opening clears any stale error, and the page does not duplicate the
   // modal's error while the modal is open.
   assert.match(src, /managing:!0,error:null/);
-  assert.match(src, /s\.error&&!s\.managing\?a\.jsx\(se/);
+  assert.match(src, /extraCopy:s\.error&&!s\.managing\?a\.jsx\(se/,
+    "the page error must sit in the card copy column, and stay hidden while the modal is open");
   assert.match(src, /:"No rules match that filter\."/);
   assert.match(src, /"No commands are always allowed yet\."/);
+});
+
+test("status notes use the card copy column instead of a sibling", () => {
+  // ie (JWe) insets its copy column 14px; a sibling after the card sits at
+  // paddingLeft 0, which is the misalignment on "Waiting for Touch ID…" and
+  // the remote-control errors. extraCopy is the third child of that column.
+  assert.match(src, /extraCopy:RRowNote\(/);
+  assert.match(src, /extraCopy:s\.error\?a\.jsx\(se/);
+  assert.match(src, /extraCopy:s\.ceiling==="never"/);
+  assert.doesNotMatch(src, /s\.sudoAvail\?RRowNote/, "the sudo note must not sit after the card");
 });
 
 test("boolean settings use the bundle's Switch rather than a copy of it", async () => {
