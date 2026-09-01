@@ -1,0 +1,21 @@
+# Weekly, grouped, so the lockfile moves in one reviewable PR per ecosystem instead of a drip.
+# The pinned Electron runtime and the recovered vendor bundle are not npm-managed and are untouched.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
