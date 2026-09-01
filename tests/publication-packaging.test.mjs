@@ -102,10 +102,11 @@ test("Router settings use the trusted backend and display recorded inference usa
   // The live runtime picker replaced the placeholder computer toggles.
   assert.doesNotMatch(rendererPatch, /Use local Docker VM/);
   // The ban was a proxy for the placeholder computer toggles (asserted gone
-  // just above). role="switch" is now used by RSwitch, the accessible
-  // on/off control for the local-computer rows, so pin that instead.
-  assert.match(rendererPatch, /const RSwitch=\(\{checked,disabled,label,onToggle\}\)=>/);
-  assert.doesNotMatch(rendererPatch, /role:"switch"[\s\S]{0,400}Docker/);
+  // just above). Boolean settings now use Ne, the bundle's own Switch, rather
+  // than any hand-rolled control: reuse is the point, so pin that.
+  assert.match(rendererPatch, /a\.jsx\(Ne,\{label:"This computer accepts bot commands",isChecked:/);
+  assert.doesNotMatch(rendererPatch, /const RSwitch=/);
+  assert.doesNotMatch(rendererPatch, /role:"switch"/);
   assert.match(rendererPatch, /desktop\.agent\.setComputerScreen/);
   assert.match(rendererPatch, /desktop\.agent\.startSubscriptionLogin/);
   assert.match(rendererPatch, /Official Codex\/ChatGPT login on this Mac/);
