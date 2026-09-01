@@ -36,7 +36,7 @@ async function loadModule(entry, outfileName) {
     target: "node22",
   });
   const module = await import(`${pathToFileURL(output).href}?${Date.now()}`);
-  return { module, dispose: () => rm(temporary, { recursive: true, force: true }) };
+  return { module, dispose: () => rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
 }
 
 function status(provider, authenticated, extra = {}) {
@@ -282,7 +282,7 @@ test("provider change is persisted and a subsequent turn uses the new provider",
     await switchLoaded.dispose();
     await routerLoaded.dispose();
     await storeLoaded.dispose();
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -353,7 +353,7 @@ test("per-provider computer config is stored separately and Settings-driven", as
     await computersLoaded.dispose();
     await edgeLoaded.dispose();
     await storeLoaded.dispose();
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -455,7 +455,7 @@ test("OpenRouter model save persists through setInferenceRouter without restarti
   } finally {
     await edgeLoaded.dispose();
     await storeLoaded.dispose();
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -581,7 +581,7 @@ test("gemini transcribe toggle survives the settings whitelist round-trip", asyn
     reloaded.setGeminiTranscribeEnabled(false);
     assert.equal(new storeLoaded.module.SandSettingsStore(settingsPath).getGeminiTranscribeEnabled(), false);
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     await storeLoaded.dispose();
   }
 });
@@ -621,7 +621,7 @@ test("gemini transcribe language hints parse, persist, and reach the request bod
     assert.deepEqual(bodies[0].generationConfig.audioTranscriptionConfig.languageCodes, ["fil-PH"]);
     assert.equal(bodies[0].generationConfig.audioTranscriptionConfig.wordTimestamp, true);
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     await storeLoaded.dispose();
     await geminiLoaded.dispose();
   }
