@@ -170,9 +170,12 @@ test("the daemon maps SAND_ASKPASS_* onto the sudo/shell env names", async () =>
     const trio = { SAND_ASKPASS_HELPER: "/h/askpass.sh", SAND_ASKPASS_SOCKET: "/h/askpass.sock", SAND_ASKPASS_SECRET: "abc" };
     assert.equal(mod.askpassShellEnv({}, "linux"), undefined, "no trio → no askpass env");
     assert.equal(mod.askpassShellEnv({ SAND_ASKPASS_HELPER: "/h/askpass.sh" }, "linux"), undefined, "a partial trio is ignored");
-    assert.deepEqual(mod.askpassShellEnv(trio, "linux"), { SUDO_ASKPASS: "/h/askpass.sh", CURSOR_ASKPASS_SOCKET: "/h/askpass.sock", CURSOR_ASKPASS_SECRET: "abc" });
-    assert.deepEqual(mod.askpassShellEnv(trio, "darwin"), { SUDO_ASKPASS: "/h/askpass.sh", CURSOR_ASKPASS_SOCKET: "/h/askpass.sock", CURSOR_ASKPASS_SECRET: "abc" });
-    assert.equal(mod.askpassShellEnv(trio, "win32"), undefined, "win32 never wires askpass");
+    // SAND_ELEVATION_ALLOWED rides along so one signal means "elevation is
+    // permitted" on every platform; Windows carries it alone, with no socket.
+    const posixEnv = { SUDO_ASKPASS: "/h/askpass.sh", CURSOR_ASKPASS_SOCKET: "/h/askpass.sock", CURSOR_ASKPASS_SECRET: "abc", SAND_ELEVATION_ALLOWED: "1" };
+    assert.deepEqual(mod.askpassShellEnv(trio, "linux"), posixEnv);
+    assert.deepEqual(mod.askpassShellEnv(trio, "darwin"), posixEnv);
+    assert.equal(mod.askpassShellEnv(trio, "win32"), undefined, "win32 never wires askpass, and the trio alone does not permit elevation");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
