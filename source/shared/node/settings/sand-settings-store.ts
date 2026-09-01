@@ -37,6 +37,8 @@ export interface SandStoredSettings {
   inferenceProvider?: SandInferenceProvider; inferenceRouterUsage?: SandInferenceRouterUsage;
   openRouterModel?: string;
   cursorLoginWallSkipped?: boolean;
+  /** Master switch for the inline sudo password card. Off until the user authenticates to enable it. */
+  sudoAskpassEnabled?: boolean;
   geminiTranscribeEnabled?: boolean;
   hardwareAccelerationEnabled?: boolean;
   geminiTranscribeLanguages?: string[];
@@ -112,6 +114,7 @@ function parseSettings(value: unknown): SandStoredSettings | null {
   const openRouterModel = parseOpenRouterModelId(raw.openRouterModel);
   if (openRouterModel != null) result.openRouterModel = openRouterModel;
   if (raw.cursorLoginWallSkipped === true) result.cursorLoginWallSkipped = true;
+  if (raw.sudoAskpassEnabled === true) result.sudoAskpassEnabled = true;
   if (raw.geminiTranscribeEnabled === true) result.geminiTranscribeEnabled = true;
   if (typeof raw.hardwareAccelerationEnabled === "boolean") result.hardwareAccelerationEnabled = raw.hardwareAccelerationEnabled;
   const transcribeLanguages = parseTranscribeLanguageTags(raw.geminiTranscribeLanguages);
@@ -206,6 +209,8 @@ export class SandSettingsStore {
   setEgressTunnelEnabled(value: boolean): void { this.update((s) => ({ ...s, egressTunnelEnabled: value })); }
   getWebauthnProxyEnabled(): boolean { return this.load().webauthnProxyEnabled; }
   setWebauthnProxyEnabled(value: boolean): void { this.update((s) => ({ ...s, webauthnProxyEnabled: value })); }
+  getSudoAskpassEnabled(): boolean { return this.load().sudoAskpassEnabled === true; }
+  setSudoAskpassEnabled(value: boolean): void { this.update((s) => ({ ...s, sudoAskpassEnabled: value })); }
   getAgentDefaultModel(): SandAgentModelSelection | undefined { const model = this.load().agentDefaultModel; return model === undefined ? undefined : { ...model, maxMode: true }; }
   setAgentDefaultModel(model: SandAgentModelSelection | undefined): void { this.update((s) => { const { agentDefaultModel: _old, ...rest } = s; return model === undefined ? rest : { ...rest, agentDefaultModel: { modelId: model.modelId, maxMode: true, parameters: model.parameters.map((p) => ({ ...p })) } }; }); }
   getComputerUseModel(): SandAgentModelSelection | undefined { return this.load().computerUseModel; }

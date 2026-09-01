@@ -8,7 +8,7 @@ import { isSandUpdateTrack } from "../shared/update-track.js";
 import { isValidIanaTimeZone } from "../shared/timezone.js";
 import { sandWebauthnProxyMirroredEnablement } from "../shared/webauthn-proxy-availability.js";
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
-import { askpassService } from "./askpass/askpass-runtime.js";
+import { askpassService, authorizeSudoEnableProduction } from "./askpass/askpass-runtime.js";
 import { isSandInferenceProvider, parseOpenRouterModelId } from "../shared/inference-router.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
 import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_DAEMON_MACHINE_SECRET, OPENGROK_DAEMON_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
@@ -101,6 +101,7 @@ export interface MainEdgeDeps {
   readonly emitWebauthnProxyChanged: (enabled: boolean) => void;
   readonly ensureTranscriptionManager: () => Promise<UnknownRecord>;
   readonly platform: NodeJS.Platform;
+  readonly authorizeSudoEnable?: () => Promise<{ ok: boolean; error?: string }>;
   readonly delay?: (milliseconds: number) => Promise<void>;
   readonly detectTimeZone?: () => string | null | undefined;
   readonly subscriptionAuth?: SubscriptionCliAuthPort;
@@ -394,6 +395,18 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       return { ok: true };
     },
     getLocalToolPermission: () => invoke(deps.settingsStore, "getLocalToolPermission"),
+    getSudoAskpassEnabled: () => ({ enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32" }),
+    setSudoAskpassEnabled: async (raw) => {
+      // Turning off is free; turning on must be authenticated (Touch ID, or a
+      // validated sudo password) so an agent can't flip its own master switch.
+      if (req(raw).enabled !== true) {
+        invoke(deps.settingsStore, "setSudoAskpassEnabled", false);
+        return { enabled: false, available: deps.platform !== "win32" };
+      }
+      const outcome = await (deps.authorizeSudoEnable ?? authorizeSudoEnableProduction)();
+      if (outcome.ok) invoke(deps.settingsStore, "setSudoAskpassEnabled", true);
+      return { enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32", ...(outcome.error == null ? {} : { error: outcome.error }) };
+    },
     getLocalToolPermissionCeiling: () => invoke(deps.settingsStore, "getLocalToolPermissionCeiling") ?? null,
     setLocalToolPermission: async (raw) => { invoke(deps.settingsStore, "setLocalToolPermission", normalizeSandLocalToolPermission(req(raw).permission)); for (let attempt = 0; attempt < 3; attempt += 1) { const permission = invoke(deps.settingsStore, "getLocalToolPermission"); try { const applied = await deps.syncHostSettingsToBox({ localToolPermission: permission }); if (applied?.localToolPermission === permission) break; } catch (error) { reportDesktopEdgeFailure("host-settings", "local-tool-retry", error); } await (deps.delay ?? sleep)(250 * (attempt + 1)); } return invoke(deps.settingsStore, "getLocalToolPermission"); },
     recordLocalToolApproval: async (raw) => { const { approvalId, action, target } = req(raw); invariant(typeof approvalId === "string" && approvalId.length > 0 && isSandLocalToolAction(action) && typeof target === "string", "A local-tool approval needs its request id and action."); await deps.recordLocalToolApproval({ id: approvalId, action, target }); },

@@ -96,6 +96,8 @@ export interface ElectronProductionNativeBindings {
   };
   readonly shell: { openExternal(url: string): Promise<unknown> };
   readonly screen: WindowStatePersistenceScreen;
+  /** macOS Touch ID, when the ABI provides it; absent elsewhere. */
+  readonly systemPreferences?: { canPromptTouchID(): boolean; promptTouchID(reason: string): Promise<void> };
 }
 
 export function createElectronProductionNativeBindings(electron: {
@@ -106,6 +108,7 @@ export function createElectronProductionNativeBindings(electron: {
   readonly Menu: ElectronProductionNativeBindings["Menu"];
   readonly shell: ElectronProductionNativeBindings["shell"];
   readonly screen: ElectronProductionNativeBindings["screen"];
+  readonly systemPreferences?: ElectronProductionNativeBindings["systemPreferences"];
 }): ElectronProductionNativeBindings {
   const required = ["app", "safeStorage", "ipcMain", "BrowserWindow", "Menu", "shell", "screen"] as const;
   const missing = required.filter((name) => electron[name] == null);
@@ -115,7 +118,9 @@ export function createElectronProductionNativeBindings(electron: {
   if (typeof electron.Menu.buildFromTemplate !== "function" || typeof electron.Menu.setApplicationMenu !== "function") throw new Error("Electron production ABI requires Menu construction and installation.");
   if (typeof electron.shell.openExternal !== "function") throw new Error("Electron production ABI requires shell.openExternal().");
   if (typeof electron.safeStorage.isEncryptionAvailable !== "function" || typeof electron.safeStorage.encryptString !== "function" || typeof electron.safeStorage.decryptString !== "function") throw new Error("Electron production ABI requires safeStorage encryption methods.");
-  return { app: electron.app, safeStorage: electron.safeStorage, ipcMain: electron.ipcMain, BrowserWindow: electron.BrowserWindow, Menu: electron.Menu, shell: electron.shell, screen: electron.screen };
+  // Touch ID is optional (macOS only) and validated where it's used, not here.
+  const systemPreferences = electron.systemPreferences != null && typeof electron.systemPreferences.canPromptTouchID === "function" && typeof electron.systemPreferences.promptTouchID === "function" ? electron.systemPreferences : undefined;
+  return { app: electron.app, safeStorage: electron.safeStorage, ipcMain: electron.ipcMain, BrowserWindow: electron.BrowserWindow, Menu: electron.Menu, shell: electron.shell, screen: electron.screen, ...(systemPreferences == null ? {} : { systemPreferences }) };
 }
 
 export interface ElectronProductionResources {
@@ -604,7 +609,12 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
         getMachineId: async () => machineId,
       });
       const broadcast = createProductionWindowBroadcaster(bindings.native.BrowserWindow);
-      configureAskpassRuntime({ userDataPath: () => bindings.native.app.getPath("userData"), broadcast });
+      configureAskpassRuntime({
+        userDataPath: () => bindings.native.app.getPath("userData"),
+        broadcast,
+        isEnabled: () => requireValue(settings, "settings").settingsStore.getSudoAskpassEnabled(),
+        biometric: bindings.native.systemPreferences ?? null,
+      });
       const getTrustedContents = (): MainBrowserWindow["webContents"] | undefined => runtime?.getMainWindow()?.webContents;
       desktopMetricsRuntime = createDesktopMetricsRuntime({
         ensureCursorAuthService: async () => await requireValue(account, "account").getAuthService(),

@@ -16,6 +16,8 @@ import { join } from "node:path";
 export interface AskpassPrompt {
   readonly id: string;
   readonly prompt: string;
+  /** Why the card is up, when it isn't a plain agent sudo (e.g. enabling the feature). */
+  readonly reason?: string;
 }
 
 export interface AskpassService {
@@ -29,6 +31,12 @@ export interface AskpassService {
   resolvePrompt(id: string, password: string | null): boolean;
   /** The prompt currently awaiting an answer, for late-joining windows. */
   pendingPrompt(): AskpassPrompt | null;
+  /**
+   * Let exactly the next connection through even while the feature is off,
+   * tagging its card with `reason`. Used by the enable flow, whose own
+   * `sudo -k -A -v` must be answered before the setting flips on.
+   */
+  allowNextPromptForValidation(reason?: string): void;
   close(): void;
 }
 
@@ -69,6 +77,7 @@ function shellQuote(value: string): string {
 interface PendingAsk {
   readonly id: string;
   readonly prompt: string;
+  readonly reason?: string;
   readonly socket: Socket;
   timer: NodeJS.Timeout | null;
 }
@@ -77,8 +86,12 @@ export function createAskpassService(options: {
   readonly directory: string;
   readonly execPath?: string;
   readonly timeoutMs?: number;
+  /** Master switch. When it returns false, connections are denied with no card. */
+  readonly isEnabled?: () => boolean;
 }): AskpassService {
   const timeoutMs = options.timeoutMs ?? ASKPASS_PROMPT_TIMEOUT_MS;
+  const isEnabled = options.isEnabled ?? (() => true);
+  let validationAllowance: { reason?: string } | null = null;
   const execPath = options.execPath ?? process.execPath;
   const secret = randomBytes(32).toString("hex");
   const socketPath = join(options.directory, "askpass.sock");
@@ -130,7 +143,7 @@ export function createAskpassService(options: {
         advance();
       }
     }, timeoutMs);
-    for (const listener of listeners) listener({ id: next.id, prompt: next.prompt });
+    for (const listener of listeners) listener({ id: next.id, prompt: next.prompt, ...(next.reason == null ? {} : { reason: next.reason }) });
   };
 
   const server: Server = createServer((socket) => {
@@ -147,10 +160,24 @@ export function createAskpassService(options: {
       let request: { secret?: unknown; prompt?: unknown } | null = null;
       try { request = JSON.parse(raw.slice(0, newline)) as { secret?: unknown; prompt?: unknown }; } catch { request = null; }
       if (request == null || !secretMatches(request.secret)) { socket.destroy(); return; }
+      // Off unless the master switch is on, or the enable flow armed a one-shot
+      // pass for its own validation sudo. A denied connection makes sudo fail
+      // exactly as it did before this feature existed — no card, no root.
+      let reason: string | undefined;
+      if (isEnabled()) {
+        reason = undefined;
+      } else if (validationAllowance != null) {
+        reason = validationAllowance.reason;
+        validationAllowance = null;
+      } else {
+        socket.destroy();
+        return;
+      }
       sequence += 1;
       const ask: PendingAsk = {
         id: `askpass-${sequence}`,
         prompt: typeof request.prompt === "string" && request.prompt.trim().length > 0 ? request.prompt.trim().slice(0, 200) : "Password:",
+        ...(reason == null ? {} : { reason }),
         socket,
         timer: null,
       };
@@ -192,7 +219,8 @@ export function createAskpassService(options: {
       advance();
       return true;
     },
-    pendingPrompt: () => (active == null ? null : { id: active.id, prompt: active.prompt }),
+    pendingPrompt: () => (active == null ? null : { id: active.id, prompt: active.prompt, ...(active.reason == null ? {} : { reason: active.reason }) }),
+    allowNextPromptForValidation: (reason) => { validationAllowance = { ...(reason == null ? {} : { reason }) }; },
     close: () => {
       for (const ask of [active, ...queue]) if (ask != null) finish(ask, null);
       queue.length = 0;
