@@ -533,36 +533,51 @@ function RSendNotDelivered(){
   }catch{}
 }
 const RBoxWaking=new Map();
-function RBoxIsAsleep(state){return state==="stopped"||state==="paused"||state==="exited"}
+// Asleep: off, disk kept, comes back with ensure. Each provider has its own word - Docker says
+// stopped/paused/exited; box.ascii.dev says archived (its auto-stop ARCHIVES, and a box on the way
+// there is archiving - it wakes once the archive completes, so it is asleep for our purposes too).
+function RBoxIsAsleep(state){return state==="stopped"||state==="paused"||state==="exited"||state==="archived"||state==="archiving"}
+// Starting: ensure was accepted and the box is on its way up. A resumed ascii box is provisioning
+// for tens of seconds before it is running; this is a wait, not a state to report and sit on.
+function RBoxIsStarting(state){return state==="provisioning"||state==="provisioned"||state==="init"||state==="cloning"||state==="restarting"||state==="resuming"}
 function RBoxOpenPlaceholder(view,localMessage){
   const err=(()=>{try{return view&&view.status&&view.status.computerError}catch{return null}})();
   if(err){
     const message=String(err.message||"").trim()||"This computer cannot be reached.";
     return{emptyMessage:message,isEmptyLoading:!1};
   }
-  const off=(()=>{try{
-    if(view==null||view.isStatusUnavailable||!view.isStatusKnown)return!1;
-    const st=view.status&&typeof view.status.state==="string"?view.status.state:null;
-    return RBoxIsAsleep(st);
-  }catch{return!1}})();
+  const st=(()=>{try{
+    if(view==null||view.isStatusUnavailable||!view.isStatusKnown)return null;
+    return view.status&&typeof view.status.state==="string"?view.status.state:null;
+  }catch{return null}})();
+  const off=RBoxIsAsleep(st);
+  const key=(()=>{try{return (view&&view.status&&view.status.agentId)||"one"}catch{return "one"}})();
   let waking=!1;
   if(off&&view&&typeof view.ensure==="function"){
     try{
-      const key=(view.status&&view.status.agentId)||"one";
       const now=Date.now(),started=RBoxWaking.get(key)||0;
-      if(now-started>60000){RBoxWaking.set(key,now);setTimeout(function(){try{Promise.resolve(view.ensure()).catch(function(){})}catch(_){}} ,0);waking=!0}
+      // ensure now waits server-side for the box to come up, so it is "waking" for as long as that
+      // call is in flight - not for a fixed window that ends while the box is still being restored.
+      if(RBoxWaking.get(key+":ensure")===!0)waking=!0;
+      else if(now-started>60000){
+        RBoxWaking.set(key,now);RBoxWaking.set(key+":ensure",!0);
+        setTimeout(function(){try{Promise.resolve(view.ensure()).catch(function(){}).then(function(){RBoxWaking.delete(key+":ensure")})}catch(_){RBoxWaking.delete(key+":ensure")}} ,0);
+        waking=!0}
       else waking=now-started<40000;
     }catch{}
   }
-  const running=view!=null&&view.isStatusKnown&&view.status&&view.status.state==="running";
+  const running=st==="running";
+  const starting=RBoxIsStarting(st);
   const screenExpected=running&&!RBoxHasNoScreen(view)&&view.vncUrl==null;
-  if(screenExpected&&view&&typeof view.retryStatus==="function"){
+  // The status only refreshes on window focus. A box that is starting, or a screen that is still
+  // arriving, is never noticed unless we ask again - so ask, every few seconds, for a bounded while.
+  if((starting||screenExpected)&&view&&typeof view.retryStatus==="function"){
     try{
-      const key=((view.status&&view.status.agentId)||"one")+":screen";
-      const now=Date.now(),first=RBoxWaking.get(key)||0;
-      if(first===0)RBoxWaking.set(key,now);
-      else if(now-first<90000&&now-(RBoxWaking.get(key+":at")||0)>2500){
-        RBoxWaking.set(key+":at",now);setTimeout(function(){try{view.retryStatus()}catch(_){}} ,0);
+      const k=key+":screen";
+      const now=Date.now(),first=RBoxWaking.get(k)||0,window=starting?240000:90000;
+      if(first===0)RBoxWaking.set(k,now);
+      else if(now-first<window&&now-(RBoxWaking.get(k+":at")||0)>2500){
+        RBoxWaking.set(k+":at",now);setTimeout(function(){try{view.retryStatus()}catch(_){}} ,0);
       }
     }catch{}
   }else if(view&&view.status&&view.status.agentId){
@@ -571,15 +586,19 @@ function RBoxOpenPlaceholder(view,localMessage){
   const stated=RBoxEmptyMessage(view)??(view&&view.phase==="local"?localMessage:void 0);
   const stalled=off&&!waking&&RBoxWaking.size>0;
   const message=waking?"Waking this computer up\u2026"
+    :starting?"Starting this computer\u2026"
     :screenExpected?"Starting the desktop\u2026"
     :stalled?"This computer did not come up. The bot can still be asked to use it, which wakes it too."
     :stated;
-  return{emptyMessage:message,isEmptyLoading:waking||screenExpected};
+  return{emptyMessage:message,isEmptyLoading:waking||starting||screenExpected};
 }
 function RBoxHasNoScreen(view){
   try{return view!=null&&view.phase==="local"}catch{return!1}
 }
-function RBoxEmptyMessage(view){
+// loading is the upstream's own spinner flag at the pane's placeholder: when it is set the pane
+// is already ensuring the box itself, so an asleep box is being WOKEN and a provisioning one is on
+// its way - say that, rather than "asleep, send a message" beside a spinner that is doing exactly that.
+function RBoxEmptyMessage(view,loading){
   try{
     if(view==null||view.isStatusUnavailable)return void 0;
     if(!view.isStatusKnown)return void 0;
@@ -589,8 +608,11 @@ function RBoxEmptyMessage(view){
       if(RBoxHasNoScreen(view))return "This computer has no screen. It runs commands and files for this bot.";
       return void 0;
     }
-    if(state==="stopped")return "This computer is asleep. Send a message and it wakes up.";
+    if(loading===!0&&RBoxIsAsleep(state))return "Waking this computer up\u2026";
+    if(loading===!0&&RBoxIsStarting(state))return "Starting this computer\u2026";
+    if(state==="stopped"||state==="archived"||state==="archiving")return "This computer is asleep. Send a message and it wakes up.";
     if(state==="absent")return "This bot has no computer yet.";
+    if(RBoxIsStarting(state))return "This computer is still starting. Open it again in a moment.";
     return "This computer is "+state+".";
   }catch{return void 0}
 }
@@ -2096,7 +2118,7 @@ export function patchOriginalComputerPlaceholder(source) {
   return replaceExactlyOnce(
     source,
     "emptyMessage:void 0,isEmptyLoading:A,pullPercent:e.pullPercent",
-    "emptyMessage:RBoxEmptyMessage(e),isEmptyLoading:A,pullPercent:e.pullPercent",
+    "emptyMessage:RBoxEmptyMessage(e,A),isEmptyLoading:A,pullPercent:e.pullPercent",
     "computer placeholder message",
   );
 }
