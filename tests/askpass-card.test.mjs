@@ -5,7 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { build } from "esbuild";
 
@@ -19,7 +19,7 @@ async function loadService() {
     entryPoints: [path.join(repoRoot, "source/electron-main/askpass/askpass-service.ts")],
     outfile, bundle: true, format: "esm", platform: "node", target: "node22",
   });
-  const mod = await import(`${outfile}?${Date.now()}`);
+  const mod = await import(`${pathToFileURL(outfile).href}?${Date.now()}`);
   return { mod, dispose: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
@@ -165,7 +165,7 @@ test("the daemon maps SAND_ASKPASS_* onto the sudo/shell env names", async () =>
     entryPoints: [path.join(repoRoot, "source/local-exec-daemon/askpass-shell-env.ts")],
     outfile, bundle: true, format: "esm", platform: "node", target: "node22",
   });
-  const mod = await import(`${outfile}?${Date.now()}`);
+  const mod = await import(`${pathToFileURL(outfile).href}?${Date.now()}`);
   try {
     const trio = { SAND_ASKPASS_HELPER: "/h/askpass.sh", SAND_ASKPASS_SOCKET: "/h/askpass.sock", SAND_ASKPASS_SECRET: "abc" };
     assert.equal(mod.askpassShellEnv({}, "linux"), undefined, "no trio → no askpass env");
@@ -191,7 +191,7 @@ test("the sudo master switch persists off-by-default and round-trips", async () 
   const dir = mkdtempSync(path.join(os.tmpdir(), "grok-sudo-set-"));
   const outfile = path.join(dir, "sand-settings-store.mjs");
   await build({ entryPoints: [path.join(repoRoot, "source/shared/node/settings/sand-settings-store.ts")], outfile, bundle: true, format: "esm", platform: "node", target: "node22" });
-  const mod = await import(`${outfile}?${Date.now()}`);
+  const mod = await import(`${pathToFileURL(outfile).href}?${Date.now()}`);
   try {
     const p = path.join(dir, "settings.json");
     const store = new mod.SandSettingsStore(p);
