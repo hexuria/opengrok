@@ -28,7 +28,7 @@ import type { SandLocalToolAction, SandLocalToolPermission } from "../shared/loc
  * as separate approvals.
  */
 
-export type RoutedToolResolution = "allow-once" | "deny" | "always" | "never";
+export type RoutedToolResolution = "allow-once" | "allow-session" | "deny" | "always" | "never";
 
 export interface RoutedNativeTool {
   readonly name: string;
@@ -76,7 +76,7 @@ export function localToolPermissionCardEntry(args: {
   readonly requestId: string;
   readonly action: SandLocalToolAction;
   readonly target: string;
-  readonly status: "pending" | "allow-once" | "always" | "denied" | "never" | "expired";
+  readonly status: "pending" | "allow-once" | "allow-session" | "always" | "denied" | "never" | "expired";
   readonly timestampMs: number;
 }): Record<string, unknown> {
   return {
@@ -184,7 +184,7 @@ export function createRoutedMessagesTools(deps: RoutedMessagesDeps) {
       const agentId = typeof record.agentId === "string" ? record.agentId : "";
       if (agentId.length > 0 && agentId !== entry.agentId) return false;
       const resolution = record.resolution;
-      if (resolution !== "allow-once" && resolution !== "deny" && resolution !== "always" && resolution !== "never") return false;
+      if (resolution !== "allow-once" && resolution !== "allow-session" && resolution !== "deny" && resolution !== "always" && resolution !== "never") return false;
       entry.settle(resolution);
       return true;
     },
