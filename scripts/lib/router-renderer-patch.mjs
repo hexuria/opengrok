@@ -227,7 +227,15 @@ function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
   const needle=filter.trim().toLowerCase();
   const shown=needle.length===0?rules:rules.filter(function(p){return p.toLowerCase().includes(needle)});
   const panelId="sand-standing-rules-panel";
-  const tabButton=(id,label,count)=>a.jsx(oe,{role:"tab","aria-selected":tab===id,"aria-controls":panelId,tabIndex:tab===id?0:-1,onClick:function(){setTab(id)},
+  // Roving tabindex means arrow keys MUST move between tabs, or the unfocused
+  // one is unreachable without a mouse. Both buttons exist in the DOM, so the
+  // target can be focused synchronously.
+  const onTablistKey=function(ev){const order=["allow","deny"];var i=order.indexOf(tab),next=null;
+    if(ev.key==="ArrowRight")next=order[(i+1)%order.length];else if(ev.key==="ArrowLeft")next=order[(i-1+order.length)%order.length];
+    else if(ev.key==="Home")next=order[0];else if(ev.key==="End")next=order[order.length-1];
+    if(next==null)return;ev.preventDefault();setTab(next);
+    var btn=ev.currentTarget.querySelector('[data-tab="'+next+'"]');if(btn)btn.focus()};
+  const tabButton=(id,label,count)=>a.jsx(oe,{role:"tab","aria-selected":tab===id,"aria-controls":panelId,"data-tab":id,tabIndex:tab===id?0:-1,onClick:function(){setTab(id)},
     shape:"rectangular",size:"sm",variant:tab===id?"primary":"secondary",children:label+" ("+count+")"});
   return a.jsx(Os,{"aria-label":"Standing rules",open:!!open,onOpenChange:function(v){if(!v)onClose()},size:"md",
     children:a.jsxs("div",{style:{display:"flex",flexDirection:"column",padding:20,gap:12,minWidth:0},children:[
@@ -235,7 +243,7 @@ function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
         a.jsx(se,{as:"span",size:"md",children:"Standing rules"}),
         a.jsx($e,{icon:"close","aria-label":"Close standing rules",onClick:onClose,shape:"square",size:"xs",variant:"ghost"})]}),
       a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Commands you have answered Always or Never for. Delete one to be asked again."}),
-      a.jsxs("div",{className:"sand-9f619 sand-78zum5",role:"tablist","aria-label":"Rule kind",style:{gap:8},children:[
+      a.jsxs("div",{className:"sand-9f619 sand-78zum5",role:"tablist","aria-label":"Rule kind",onKeyDown:onTablistKey,style:{gap:8},children:[
         tabButton("allow","Allow",allow.length),
         tabButton("deny","Never",deny.length)]}),
       a.jsx("input",{"aria-label":"Filter commands",className:RRouterInputClass,onChange:function(ev){setFilter(ev.currentTarget.value)},
@@ -247,14 +255,14 @@ function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
       // own, so nothing can drift from the theme.
       // Height comes from the tab's UNFILTERED count, so typing in the filter
       // never resizes the dialog, while a short list leaves no empty well.
-      a.jsx("div",{id:panelId,role:"tabpanel","aria-label":tab==="allow"?"Always allowed":"Always refused",
+      a.jsx("div",{id:panelId,role:"tabpanel","aria-label":tab==="allow"?"Always allowed":"Always refused",tabIndex:0,
         style:{height:"min(38vh, "+Math.max(96,rules.length*38)+"px)",minWidth:0,overflowY:"auto",overflowX:"hidden"},
-        children:a.jsx("div",{role:"list",className:"sand-standing-rules-table",style:{minWidth:0},
-          children:shown.length>0
-            ?shown.map(function(p){return RRuleRow(tab,p,onDelete,busy)})
-            :a.jsx(se,{as:"p",color:"secondary",size:"sm",children:rules.length===0
-              ?(tab==="allow"?"No commands are always allowed yet.":"No commands are always refused yet.")
-              :"No rules match that filter."})})}),
+        // A list may only own listitems, so the empty message is not inside one.
+        children:shown.length>0
+          ?a.jsx("div",{role:"list",className:"sand-standing-rules-table",style:{minWidth:0},children:shown.map(function(p){return RRuleRow(tab,p,onDelete,busy)})})
+          :a.jsx(se,{as:"p",color:"secondary",size:"sm",children:rules.length===0
+            ?(tab==="allow"?"No commands are always allowed yet.":"No commands are always refused yet.")
+            :"No rules match that filter."})}),
       RRowNote(error,"red")]})})}
 function RRemoteControl(){
   const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:!1,managing:!1});
@@ -293,7 +301,7 @@ function RRemoteControl(){
         placement:"bottom-end",size:"lg",value:s.mode,variant:"filled"})}),
     a.jsx(ie,{divided:!0,variant:"card",label:"Standing rules",
       description:RStandingSummary(s.allow.length,s.deny.length),
-      children:a.jsx(oe,{disabled:s.allow.length+s.deny.length===0,onClick:function(){e(i=>({...i,managing:!0}))},
+      children:a.jsx(oe,{disabled:s.allow.length+s.deny.length===0,onClick:function(){e(i=>({...i,managing:!0,error:null}))},
         shape:"rectangular",size:"sm",variant:"secondary",children:"Manage…"})}),
     a.jsx(RStandingRules,{open:s.managing,onClose:function(){e(i=>({...i,managing:!1}))},allow:s.allow,deny:s.deny,onDelete:removeRule,busy:s.busy,error:s.error}),
     a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
@@ -303,7 +311,8 @@ function RRemoteControl(){
             a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,confirming:!1})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
             a.jsx(oe,{disabled:s.busy,onClick:turnOff,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning off…":"Turn off"})]})
         :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
-    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
+    // While the dialog is open it owns the error; do not also paint it behind.
+    s.error&&!s.managing?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
 // A fixed slot so showing or clearing a message never shifts the rows.
 const RRowNote=(text,tone)=>a.jsx("div",{style:{minHeight:16,paddingBottom:8,paddingTop:2},children:text?a.jsx(se,{as:"p",color:tone||"red",size:"sm",children:text}):null});

@@ -21,8 +21,11 @@ test("the rules list lives in the app's own dialog, not a hand-rolled one", () =
   // instead of scrolling. The dialog owns its scroll box now.
   assert.match(src, /id:panelId,role:"tabpanel"[\s\S]{0,320}overflowY:"auto"/,
     "the rules panel itself must be the scroll box");
-  assert.doesNotMatch(src, /a\.jsx\(Te,\{children:a\.jsx\("div",\{role:"(rowgroup|list)"/,
-    "the rules list must not be wrapped in the settings page pane");
+  // Check the property, not one character sequence: nothing inside the modal
+  // component may use the settings page pane, whatever shape it takes.
+  const modal = src.slice(src.indexOf("function RStandingRules("), src.indexOf("function RRemoteControl("));
+  assert.ok(modal.length > 500, "RStandingRules body must be locatable");
+  assert.doesNotMatch(modal, /a\.jsx\(Te,/, "the rules modal must not use the settings page pane anywhere");
   // No bespoke surface: no invented radius, shadow or backdrop for this modal.
   assert.doesNotMatch(src, /sand-standing-rules[\s\S]{0,200}box-shadow/);
 });
@@ -33,6 +36,15 @@ test("tabs are real tabs and the close control is the app's icon button", () => 
   assert.match(src, /tabButton\("allow","Allow",allow\.length\)/);
   assert.match(src, /tabButton\("deny","Never",deny\.length\)/, "copy says Never, matching the mode picker and the old row");
   assert.match(src, /a\.jsx\(\$e,\{icon:"close"/);
+  // Roving tabindex is only legal with arrow-key movement; without it the
+  // unfocused tab is unreachable from the keyboard.
+  assert.match(src, /tabIndex:tab===id\?0:-1/);
+  assert.match(src, /onKeyDown:onTablistKey/);
+  assert.match(src, /ev\.key==="ArrowRight"/);
+  assert.match(src, /"aria-controls":panelId/);
+  assert.match(src, /id:panelId,role:"tabpanel"[^}]*tabIndex:0/, "the scroll box must be keyboard focusable");
+  // A list may only own listitems: the empty message sits outside it.
+  assert.doesNotMatch(src, /role:"list"[^)]{0,200}:a\.jsx\(se,\{as:"p"/, "empty message must not be a child of role=list");
 });
 
 test("the filter reuses the shared input styling and narrows the list", () => {
@@ -60,6 +72,10 @@ test("summary counts read naturally and delete keeps its contract", () => {
   assert.match(src, /" allow, "\+deny\+" never/);
   // Same backend call and (kind, pattern) pair as before - no new semantics.
   assert.match(src, /window\.desktop\.agent\.deleteRemoteControlRule\(kind,pattern\)/);
+  // Opening clears any stale error, and the page does not duplicate the
+  // modal's error while the modal is open.
+  assert.match(src, /managing:!0,error:null/);
+  assert.match(src, /s\.error&&!s\.managing\?a\.jsx\(se/);
   assert.match(src, /:"No rules match that filter\."/);
   assert.match(src, /"No commands are always allowed yet\."/);
 });
