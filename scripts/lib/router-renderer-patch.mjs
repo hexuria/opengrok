@@ -533,11 +533,17 @@ function RSendNotDelivered(){
   }catch{}
 }
 const RBoxWaking=new Map();
+function RBoxIsAsleep(state){return state==="stopped"||state==="paused"||state==="exited"}
 function RBoxOpenPlaceholder(view,localMessage){
+  const err=(()=>{try{return view&&view.status&&view.status.computerError}catch{return null}})();
+  if(err){
+    const message=String(err.message||"").trim()||"This computer cannot be reached.";
+    return{emptyMessage:message,isEmptyLoading:!1};
+  }
   const off=(()=>{try{
     if(view==null||view.isStatusUnavailable||!view.isStatusKnown)return!1;
     const st=view.status&&typeof view.status.state==="string"?view.status.state:null;
-    return st!=null&&st!=="running";
+    return RBoxIsAsleep(st);
   }catch{return!1}})();
   let waking=!1;
   if(off&&view&&typeof view.ensure==="function"){
