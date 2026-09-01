@@ -264,33 +264,49 @@ function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
             ?(tab==="allow"?"No commands are always allowed yet.":"No commands are always refused yet.")
             :"No rules match that filter."})}),
       RRowNote(error,"red")]})})}
+function RRemoteForgetRow(s,e,forget){
+  return a.jsx(ie,{divided:!0,variant:"card",label:"Forget this computer",
+    description:s.confirming==="forget"
+      ?"This computer stops being reachable and its credential is destroyed. You can turn it on again later, as a new computer."
+      :"Destroy this computer's credential. Standing rules stay on the server but will not apply until recovered.",
+    children:s.confirming==="forget"
+      ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
+          a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,confirming:null})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
+          a.jsx(oe,{disabled:s.busy,onClick:forget,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Forgetting…":"Forget"})]})
+      :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:"forget"})),shape:"rectangular",size:"sm",variant:"secondary",children:"Forget…"})})}
 function RRemoteControl(){
-  const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:!1,managing:!1});
+  const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:null,managing:!1});
   const load=()=>window.desktop.agent.getRemoteControl().then(r=>{if(r==null)return;
     e(i=>({...i,loaded:!0,available:!!r.available,enrolled:!!r.enrolled,machineId:r.machineId||null,
-      mode:typeof r.mode==="string"?r.mode:"never",allow:r.allow||[],deny:r.deny||[],error:r.error||null}))})
-    .catch(err=>e(i=>({...i,loaded:!0,error:String(err&&err.message||err)})));
+      mode:typeof r.mode==="string"?r.mode:"never",allow:r.allow||[],deny:r.deny||[],error:r.error||null,busy:!1,confirming:null}))})
+    .catch(err=>e(i=>({...i,loaded:!0,error:String(err&&err.message||err),busy:!1,confirming:null})));
   de.useEffect(()=>{load()},[]);
   if(!s.loaded)return null;
   if(!s.available)return null;
   const turnOn=async()=>{e(i=>({...i,busy:!0,error:null}));
     try{const name=(await window.desktop.agent.getLocalComputer().catch(()=>null))||{};
       await window.desktop.agent.enrolRemoteControl(String(name.name||name.hostname||"This computer"));
-      await load();e(i=>({...i,busy:!1}))}
+      await load()}
     catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
-  const turnOff=async()=>{e(i=>({...i,busy:!0,error:null,confirming:!1}));
-    try{await window.desktop.agent.revokeRemoteControl();await load();e(i=>({...i,busy:!1}))}
+  const turnOff=async()=>{e(i=>({...i,busy:!0,error:null,confirming:null}));
+    try{await window.desktop.agent.stopRemoteControl();await load()}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+  const forget=async()=>{e(i=>({...i,busy:!0,error:null,confirming:null}));
+    try{await window.desktop.agent.revokeRemoteControl();await load()}
     catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
   const setMode=async v=>{const was=s.mode;e(i=>({...i,mode:v,error:null}));
     try{await window.desktop.agent.setRemoteControlMode(v)}
     catch(err){e(i=>({...i,mode:was,error:String(err&&err.message||err)}))}};
   const removeRule=async(kind,pattern)=>{e(i=>({...i,busy:!0,error:null}));
-    try{await window.desktop.agent.deleteRemoteControlRule(kind,pattern);await load();e(i=>({...i,busy:!1}))}
+    try{await window.desktop.agent.deleteRemoteControlRule(kind,pattern);await load()}
     catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
   if(!s.enrolled)return a.jsxs("div",{children:[
     a.jsx(ie,{variant:"card",label:"Let your bots use this computer",
-      description:"Off. A bot on your server cannot reach this Mac at all. Turn this on and it can ask to run commands here — useful for reaching this machine from your phone, and worth understanding before you do it.",
+      description:s.machineId
+        ?"Off. Standing rules are kept. Turn this on and a bot can ask to run commands here again."
+        :"Off. A bot on your server cannot reach this Mac at all. Turn this on and it can ask to run commands here — useful for reaching this machine from your phone, and worth understanding before you do it.",
       children:a.jsx(oe,{disabled:s.busy,onClick:turnOn,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning on…":"Turn on…"})}),
+    s.machineId?RRemoteForgetRow(s,e,forget):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
   return a.jsxs("div",{children:[
     a.jsx(ie,{variant:"card",label:"Bots using this computer",
@@ -305,12 +321,15 @@ function RRemoteControl(){
         shape:"rectangular",size:"sm",variant:"secondary",children:"Manage…"})}),
     a.jsx(RStandingRules,{open:s.managing,onClose:function(){e(i=>({...i,managing:!1}))},allow:s.allow,deny:s.deny,onDelete:removeRule,busy:s.busy,error:s.error}),
     a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
-      description:s.confirming?"This computer stops being reachable and its credential is destroyed. You can turn it on again later.":"Stop your bots reaching this computer.",
-      children:s.confirming
+      description:s.confirming==="off"
+        ?"This computer stops being reachable. Standing rules stay, and turning it on again uses the same computer."
+        :"Stop your bots reaching this computer.",
+      children:s.confirming==="off"
         ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
-            a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,confirming:!1})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
+            a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,confirming:null})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
             a.jsx(oe,{disabled:s.busy,onClick:turnOff,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning off…":"Turn off"})]})
-        :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:!0})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
+        :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:"off"})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
+    RRemoteForgetRow(s,e,forget),
     // While the dialog is open it owns the error; do not also paint it behind.
     s.error&&!s.managing?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }

@@ -313,6 +313,7 @@ export function createDesktopPreloadBridge(options: {
       getOpenGrokAgentIssues: () => edge("getOpenGrokAgentIssues"),
       getRemoteControl: () => edge("getRemoteControl"),
       enrolRemoteControl: (label: string) => edge("enrolRemoteControl", { label }),
+      stopRemoteControl: () => edge("stopRemoteControl"),
       revokeRemoteControl: () => edge("revokeRemoteControl"),
       setRemoteControlMode: (mode: string) => edge("setRemoteControlMode", { mode }),
       deleteRemoteControlRule: (kind: string, pattern: string) => edge("deleteRemoteControlRule", { kind, pattern }),
