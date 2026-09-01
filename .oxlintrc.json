@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "node_modules/**",
+    "dist/**",
+    ".build/**",
+    "frontend/src/recovered/**",
+    "frontend/src/production/**",
+    "scripts/lib/router-renderer-patch.mjs",
+    "docs/**"
+  ],
+  "plugins": [
+    "eslint",
+    "typescript"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "no-unused-vars": "warn",
+    "no-unused-private-class-members": "warn",
+    "no-useless-escape": "warn",
+    "no-control-regex": "warn"
+  },
+  "overrides": [
+    {
+      "files": [
+        "tests/**",
+        "scripts/**"
+      ],
+      "rules": {
+        "no-eval": "off"
+      }
+    },
+    {
+      "files": [
+        "source/electron-main/vnc/vnc-trust.ts",
+        "source/electron-main/telemetry/telemetry-report-sinks.ts"
+      ],
+      "rules": {
+        "no-eval": "off"
+      }
+    },
+    {
+      "files": [
+        "source/packages/**",
+        "source/host/**"
+      ],
+      "rules": {
+        "no-unused-expressions": "warn",
+        "no-unassigned-vars": "warn",
+        "no-control-regex": "warn",
+        "no-cond-assign": "warn",
+        "no-extra-boolean-cast": "warn",
+        "no-useless-catch": "warn",
+        "typescript/no-this-alias": "warn",
+        "typescript/no-non-null-asserted-optional-chain": "warn",
+        "typescript/no-unsafe-declaration-merging": "warn",
+        "typescript/no-useless-empty-export": "warn"
+      }
+    }
+  ]
+}
