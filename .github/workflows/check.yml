@@ -12,19 +12,21 @@ concurrency:
   cancel-in-progress: true
 
 # This repository does not track the material recovered from the shipped
-# binary (CLAUDE.md): `source/packages/proto/generated/` and `frontend/` are
-# gitignored, and 361 source files import proto/generated, so a bare checkout
-# cannot typecheck. CI therefore fetches the protos from the private
-# hexuria/opengrok-stow archive with a read-only deploy key, into the
-# workspace only — they are never committed here and never uploaded as an
+# binary (CLAUDE.md): source/packages/{proto,redacted-protos}/generated and
+# frontend/ are gitignored, yet hundreds of source files and 17 test files
+# read them, so a bare checkout can neither typecheck nor test. CI restores
+# them from the private hexuria/opengrok-stow archive with a read-only deploy
+# key, into the workspace only - never committed here, never uploaded as an
 # artifact.
 #
-# Secrets are withheld from forked pull requests by design, so that case
-# degrades to the checks that need no protos rather than failing loudly.
+# The fetch is required, not best-effort: if it fails the run stops with a
+# clear message rather than a wall of TS2307. Note that GitHub withholds
+# secrets from forked pull requests, so a fork PR fails at that step by
+# design.
 #
-# The pinned renderer is recovered by `npm run bootstrap`, which needs
-# macOS-only hdiutil; the handful of tests that read it skip where it is
-# absent, so ubuntu and windows still run the rest of the suite.
+# `publication:check` stays out: it diffs the working tree against a
+# clean-history export, which the staged material would confound. It remains
+# a local pre-flight.
 jobs:
   check:
     strategy:
@@ -36,29 +38,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch the recovered protobuf definitions
-        id: protos
-        continue-on-error: true
+      - name: Fetch the recovered material
         uses: actions/checkout@v4
         with:
           repository: hexuria/opengrok-stow
           ssh-key: ${{ secrets.STOW_DEPLOY_KEY }}
-          path: .stow-protos
+          path: .stow-material
 
-      - name: Stage the recovered packages into the source tree
-        if: steps.protos.outcome == 'success'
+      - name: Restore it into the working tree
         shell: bash
         run: |
           set -euo pipefail
-          # Both gitignored package trees, copied by name so a third one
-          # added later fails loudly here instead of as a wall of TS2307.
           for pkg in proto redacted-protos; do
-            src=".stow-protos/source/packages/$pkg/generated"
+            src=".stow-material/source/packages/$pkg/generated"
             test -d "$src" || { echo "archive is missing $src"; exit 1; }
             mkdir -p "source/packages/$pkg"
             cp -R "$src" "source/packages/$pkg/generated"
-            echo "staged $pkg: $(find "source/packages/$pkg/generated" -name "*.ts" | wc -l | tr -d " ") files"
           done
+          test -d ".stow-material/frontend" || { echo "archive is missing frontend/"; exit 1; }
+          cp -R .stow-material/frontend frontend
+          rm -rf .stow-material
+          echo "restored $(find source/packages -name '*.ts' -path '*generated*' | wc -l | tr -d ' ') proto files and frontend/"
 
       - uses: actions/setup-node@v4
         with:
@@ -68,15 +68,11 @@ jobs:
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
 
-      # Recovers the checksum-pinned renderer the icon/anchor checks read.
-      # hdiutil is macOS-only; elsewhere those few tests skip.
+      # Recovers the checksum-pinned renderer that the icon and anchor checks
+      # read. It needs macOS-only hdiutil; elsewhere those few tests skip.
       - name: Recover the pinned runtime
         if: runner.os == 'macOS'
         run: npm run bootstrap
 
-      - name: Typecheck the source tree
-        if: steps.protos.outcome == 'success'
-        run: npm run source:typecheck
-
-      - name: Run the test suite
-        run: npm test
+      - name: Typecheck frontend and source, run the test suite
+        run: npm run check
