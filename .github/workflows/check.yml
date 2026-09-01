@@ -11,11 +11,19 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# What CI can and cannot do here.
+#
+# `frontend/` (the editable reconstruction) is deliberately gitignored — see
+# CLAUDE.md — so a clean clone does not have it. That rules three things out
+# of CI, and they stay local pre-flight steps:
+#   * `npm run typecheck` / `npm run frontend:build` — need frontend/tsconfig.json
+#   * `npm run publication:check` — diffs the working tree against a clean-history
+#     export, which requires the private material to be present
+#   * `npm run package` — clean-build stages frontend/src and its manifests
+# What is left is the part that genuinely benefits from a matrix: the source
+# typecheck and the test suite, on all three desktop platforms, so darwin-only
+# assumptions surface here instead of on a user's machine.
 jobs:
-  # Typecheck + full test suite + editable-frontend build on every desktop OS
-  # the Electron app targets. macOS is the shipped platform; Linux and Windows
-  # runs exist to catch darwin-only assumptions (paths, shell-outs, signals)
-  # before they land, not to produce a package.
   check:
     strategy:
       fail-fast: false
@@ -31,59 +39,7 @@ jobs:
           cache: npm
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
-      - name: Typecheck frontend and source, run the test suite
-        run: npm run check
-      - name: Build the editable frontend
-        run: npm run frontend:build
-
-  # Publication hygiene only needs one OS, and it is the one job that wants
-  # the LFS-tracked research archives present.
-  publication:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.5.0
-          cache: npm
-      - name: Install the locked dependency graph
-        run: npm ci --no-audit --no-fund
-      - name: Verify a fresh clean-history export is lossless
-        run: npm run publication:check
-
-  # The real package is macOS-only by design: the pinned 0.18 runtime is
-  # recovered from a checksum-pinned DMG (hdiutil) and the bundle is signed
-  # (ad-hoc on CI - resolveCodesignIdentity falls back when no Developer ID
-  # certificate is installed). Windows/Linux packaging does not exist yet;
-  # when it does, it gets its own job here.
-  package-macos:
-    runs-on: macos-latest
-    needs: check
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.5.0
-          cache: npm
-      - name: Install the locked dependency graph
-        run: npm ci --no-audit --no-fund
-      - name: Cache the pinned runtime DMG
-        uses: actions/cache@v4
-        with:
-          path: .cache/downloads
-          key: grok-bot-dmg-0.18.0-a253ccd8
-      - name: Recover the pinned runtime
-        run: npm run bootstrap
-      - name: Package Open Grok.app (typecheck + tests + build + ad-hoc sign)
-        run: npm run package
-      - name: Zip the bundle with metadata intact
-        run: /usr/bin/ditto -c -k --keepParent "dist/Open Grok.app" "open-grok-macos.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: open-grok-macos
-          path: open-grok-macos.zip
-          retention-days: 14
+      - name: Typecheck the source tree
+        run: npm run source:typecheck
+      - name: Run the test suite
+        run: npm test
