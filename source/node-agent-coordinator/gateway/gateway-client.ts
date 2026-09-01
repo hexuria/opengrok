@@ -261,8 +261,12 @@ export class CoordinatorGatewayClient {
 
   private reportCommandSpan(method: string, commandTrace: { root: string; child: { spanId: string } } | undefined, settle: Record<string, unknown>): void {
     const sink = this.options.recordGatewayCommandSpan;
-    if (commandTrace === undefined || sink == null || this.spanSinkBroken) return;
-    try { sink({ method, rootTraceparent: commandTrace.root, spanId: commandTrace.child.spanId, ...settle }); }
+    if (sink == null || this.spanSinkBroken) return;
+    // Without a trace window there is no span to record, but the call still happened: the report
+    // goes out traceless so the desktop's local telemetry log has one line per gateway call. The
+    // span recorder ignores a report with no parent; the local log does not.
+    const trace = commandTrace === undefined ? { rootTraceparent: null, spanId: "" } : { rootTraceparent: commandTrace.root, spanId: commandTrace.child.spanId };
+    try { sink({ method, ...trace, ...settle }); }
     catch { this.spanSinkBroken = true; }
   }
 

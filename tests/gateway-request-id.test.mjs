@@ -33,6 +33,7 @@ test("every gateway call carries a fresh X-Request-Id and reports it", async () 
   const originalFetch = globalThis.fetch;
   const seen = [];
   const reports = [];
+  const spans = [];
   try {
     globalThis.fetch = async (url, init) => {
       seen.push({ url: String(url), headers: init.headers });
@@ -44,6 +45,7 @@ test("every gateway call carries a fresh X-Request-Id and reports it", async () 
       onEvent() {},
       onTransportEvent() {},
       onReachability: (report) => reports.push(report),
+      recordGatewayCommandSpan: (report) => spans.push(report),
     });
     const h1 = client.requestHeaders({}, { baseUrl: "http://server.test:1447", token: "t" });
     const h2 = client.requestHeaders({}, { baseUrl: "http://server.test:1447", token: "t" });
@@ -55,6 +57,13 @@ test("every gateway call carries a fresh X-Request-Id and reports it", async () 
     assert.equal(seen.length, 1);
     const sent = seen[0].headers[loaded.GATEWAY_REQUEST_ID_HEADER];
     assert.match(sent, /^[0-9a-f-]{36}$/);
+    // A successful call with no trace window still produces a report, or the local log would
+    // only ever show failures and "the app never asked" would be indistinguishable from "it did".
+    assert.equal(spans.length, 1, "one traceless span report for the successful call");
+    assert.equal(spans[0].method, "getTrays");
+    assert.equal(spans[0].requestId, sent);
+    assert.equal(spans[0].isError, false);
+    assert.equal(spans[0].rootTraceparent, null);
 
     // A failed call is the one a person greps for; its reachability report names the same id
     // the wire carried, so the server's line for it can be found.
