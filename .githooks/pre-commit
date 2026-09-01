@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Repo pre-commit: oxlint on the staged hand-written files, so a lint failure never reaches CI.
-# Chained from the machine's global hook (~/.git-hooks/pre-commit) when present; see
-# docs/opengrok-remaining-work.md "Building". Recovered vendor code and the patch library are
-# excluded by .oxlintrc.json, so this only ever looks at what is written here.
+# Chained from the machine's global hook (~/.git-hooks/pre-commit) when present. Recovered vendor
+# code and the patch library are excluded by .oxlintrc.json, so this only looks at what is
+# written here. Written for bash 3.2 (macOS's /bin/bash): no mapfile, no arrays from process
+# substitution.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR -- 'scripts/**/*.mjs' 'tests/**/*.mjs' 'source/**/*.ts' 'source/**/*.tsx' 'source/**/*.mjs' | grep -v -E '^scripts/lib/router-renderer-patch\.mjs$' || true)
-[ "${#staged[@]}" -eq 0 ] && exit 0
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- 'scripts/*.mjs' 'scripts/**/*.mjs' 'tests/*.mjs' 'tests/**/*.mjs' 'source/**/*.ts' 'source/**/*.tsx' 'source/**/*.mjs' | grep -v -E '^scripts/lib/router-renderer-patch\.mjs$' || true)
+[ -z "$staged" ] && exit 0
 if [ ! -x node_modules/.bin/oxlint ]; then echo "pre-commit: oxlint not installed (npm ci); skipping lint" >&2; exit 0; fi
-node_modules/.bin/oxlint "${staged[@]}"
+# One path per line; filenames here never contain spaces or newlines.
+echo "$staged" | xargs node_modules/.bin/oxlint
