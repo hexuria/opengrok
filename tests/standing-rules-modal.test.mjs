@@ -62,7 +62,9 @@ test("the filter reuses the shared input styling and narrows the list", () => {
 test("the settings row is a summary plus Manage…, not the whole list", () => {
   assert.match(src, /label:"Standing rules",\s*\n?\s*description:RStandingSummary\(s\.allow\.length,s\.deny\.length\)/);
   assert.match(src, /children:"Manage…"/);
-  assert.match(src, /disabled:s\.allow\.length\+s\.deny\.length===0/, "nothing to manage when there are no rules");
+  // Empty lists still open Manage so a rule can be added by hand.
+  assert.doesNotMatch(src, /disabled:s\.allow\.length\+s\.deny\.length===0/);
+  assert.doesNotMatch(src, /if\(open&&allow\.length\+deny\.length===0\)onClose/);
   // The old inline dump of every rule into the card is gone.
   assert.doesNotMatch(src, /\.\.\.s\.allow\.map\(function\(p\)\{return RRuleRow/);
 });
@@ -72,6 +74,9 @@ test("summary counts read naturally and delete keeps its contract", () => {
   assert.match(src, /" allow, "\+deny\+" never/);
   // Same backend call and (kind, pattern) pair as before - no new semantics.
   assert.match(src, /window\.desktop\.agent\.deleteRemoteControlRule\(kind,pattern\)/);
+  assert.match(src, /window\.desktop\.agent\.addRemoteControlRule\(kind,pattern\)/);
+  assert.match(src, /"aria-label":"Command to remember"/);
+  assert.match(src, /placeholder:tab==="allow"\?"Always allow this command…":"Never run this command…"/);
   // Opening clears any stale error, and the page does not duplicate the
   // modal's error while the modal is open.
   assert.match(src, /managing:!0,error:null/);

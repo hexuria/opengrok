@@ -215,15 +215,14 @@ function RRuleRow(kind,pattern,onDelete,busy){
 // of growing the Settings page. Everything here is a bundle component: Os is
 // the same dialog that renders Settings itself, Te its scroll pane - so the
 // chrome, theming and scrollbars match without a line of new CSS.
-function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
+function RStandingRules({open,onClose,allow,deny,onDelete,onAdd,busy,error}){
   const[tab,setTab]=de.useState("allow");
   const[filter,setFilter]=de.useState("");
-  // Reopening should not inherit the last search or tab.
-  de.useLayoutEffect(function(){if(open){setTab("allow");setFilter("")}},[open]);
-  // Deleting the last rule leaves nothing to manage, and its opener is
-  // disabled at zero, so the dialog closes itself rather than stranding.
-  de.useEffect(function(){if(open&&allow.length+deny.length===0)onClose()},[open,allow.length,deny.length]);
+  const[draft,setDraft]=de.useState("");
+  // Reopening should not inherit the last search, tab, or add draft.
+  de.useLayoutEffect(function(){if(open){setTab("allow");setFilter("");setDraft("")}},[open]);
   const rules=tab==="allow"?allow:deny;
+  const add=function(){const pattern=draft.trim();if(!pattern||busy||!onAdd)return;onAdd(tab,pattern);setDraft("")};
   const needle=filter.trim().toLowerCase();
   const shown=needle.length===0?rules:rules.filter(function(p){return p.toLowerCase().includes(needle)});
   const panelId="sand-standing-rules-panel";
@@ -242,7 +241,7 @@ function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
       a.jsxs("div",{className:"sand-9f619 sand-78zum5",style:{alignItems:"center",justifyContent:"space-between",gap:8},children:[
         a.jsx(se,{as:"span",size:"md",children:"Standing rules"}),
         a.jsx($e,{icon:"close","aria-label":"Close standing rules",onClick:onClose,shape:"square",size:"xs",variant:"ghost"})]}),
-      a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Commands you have answered Always or Never for. Delete one to be asked again."}),
+      a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Commands you Always or Never. A rule is a word-boundary prefix: git covers git push. Add one here, or delete one to be asked again."}),
       a.jsxs("div",{className:"sand-9f619 sand-78zum5",role:"tablist","aria-label":"Rule kind",onKeyDown:onTablistKey,style:{gap:8},children:[
         tabButton("allow","Allow",allow.length),
         tabButton("deny","Never",deny.length)]}),
@@ -263,6 +262,14 @@ function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
           :a.jsx(se,{as:"p",color:"secondary",size:"sm",children:rules.length===0
             ?(tab==="allow"?"No commands are always allowed yet.":"No commands are always refused yet.")
             :"No rules match that filter."})}),
+      a.jsxs("div",{className:"sand-9f619 sand-78zum5",style:{gap:8,alignItems:"center"},children:[
+        a.jsx("input",{"aria-label":"Command to remember",className:RRouterInputClass,disabled:!!busy,
+          onChange:function(ev){setDraft(ev.currentTarget.value)},
+          onKeyDown:function(ev){if(ev.key==="Enter"){ev.preventDefault();add()}},
+          placeholder:tab==="allow"?"Always allow this command…":"Never run this command…",
+          style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",flex:1},type:"text",value:draft}),
+        a.jsx(oe,{disabled:!!busy||draft.trim().length===0,onClick:add,shape:"rectangular",size:"sm",variant:"secondary",
+          children:tab==="allow"?"Always allow":"Never"})]}),
       RRowNote(error,"red")]})})}
 function RRemoteForgetRow(s,e,forget){
   return a.jsx(ie,{divided:!0,variant:"card",label:"Forget this computer",
@@ -300,6 +307,9 @@ function RRemoteControl(){
   const removeRule=async(kind,pattern)=>{e(i=>({...i,busy:!0,error:null}));
     try{await window.desktop.agent.deleteRemoteControlRule(kind,pattern);await load()}
     catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
+  const addRule=async(kind,pattern)=>{e(i=>({...i,busy:!0,error:null}));
+    try{await window.desktop.agent.addRemoteControlRule(kind,pattern);await load()}
+    catch(err){e(i=>({...i,busy:!1,error:String(err&&err.message||err)}))}};
   if(!s.enrolled)return a.jsxs("div",{children:[
     a.jsx(ie,{variant:"card",label:"Let your bots use this computer",
       description:s.machineId
@@ -317,9 +327,9 @@ function RRemoteControl(){
         placement:"bottom-end",size:"lg",value:s.mode,variant:"filled"})}),
     a.jsx(ie,{divided:!0,variant:"card",label:"Standing rules",
       description:RStandingSummary(s.allow.length,s.deny.length),
-      children:a.jsx(oe,{disabled:s.allow.length+s.deny.length===0,onClick:function(){e(i=>({...i,managing:!0,error:null}))},
+      children:a.jsx(oe,{onClick:function(){e(i=>({...i,managing:!0,error:null}))},
         shape:"rectangular",size:"sm",variant:"secondary",children:"Manage…"})}),
-    a.jsx(RStandingRules,{open:s.managing,onClose:function(){e(i=>({...i,managing:!1}))},allow:s.allow,deny:s.deny,onDelete:removeRule,busy:s.busy,error:s.error}),
+    a.jsx(RStandingRules,{open:s.managing,onClose:function(){e(i=>({...i,managing:!1}))},allow:s.allow,deny:s.deny,onDelete:removeRule,onAdd:addRule,busy:s.busy,error:s.error}),
     a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
       description:s.confirming==="off"
         ?"This computer stops being reachable. Standing rules stay, and turning it on again uses the same computer."

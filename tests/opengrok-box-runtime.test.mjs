@@ -699,6 +699,9 @@ test("remote control is off by default and says what it is", async () => {
   assert.ok(revoke.indexOf("deleteSecret(OPENGROK_DAEMON_TOKEN_SECRET)") < revoke.indexOf("/local-exec/daemon/"),
     "the local credential must be destroyed before the server is told, not after");
   assert.match(revoke, /deleteSecret\(OPENGROK_DAEMON_MACHINE_SECRET\)/);
+  const add = mainEdge.slice(mainEdge.indexOf("addRemoteControlRule:"), mainEdge.indexOf("deleteRemoteControlRule:"));
+  assert.match(add, /method: "POST"/);
+  assert.match(add, /\/local-exec\/policy\/rule/);
 });
 
 // A remote box's desktop is provisioned a moment AFTER the box itself is up, so
