@@ -19,7 +19,7 @@ test("the Mac switch is a single On/Off toggle, not a three-way ask control", ()
   assert.match(src, /This computer accepts bot commands/);
   // Binary by construction: the row drives the bundle's own role="switch"
   // component, mapping anything that is not "never" to on.
-  assert.match(src, /checked:s\.permission!=null&&s\.permission!=="never"/);
+  assert.match(src, /isChecked:s\.permission!=null&&s\.permission!=="never"/);
   assert.match(src, /onToggle:\(\)=>setPerm\(s\.permission==="never"\?"always":"never"\)/);
   // The old three-way execution control and its copy are gone. ("Ask every
   // time" / value:"ask" legitimately remain in the remote-control mode picker.)
@@ -96,6 +96,12 @@ test("injected settings components only reference symbols that exist in the pane
 
   const missing = [...referenced]
     .filter((id) => !declaredHere.has(id))
-    .filter((id) => !new RegExp(`\\b${id}\\b`).test(panel));
+    // `$` is a valid identifier character but not a word character, so \b
+    // cannot delimit names like `$e` and would report them missing. Bound on
+    // JS identifier characters instead, and escape the name before use.
+    .filter((id) => {
+      const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return !new RegExp(`(?:^|[^\\w$])${escaped}(?![\\w$])`).test(panel);
+    });
   assert.deepEqual(missing, [], `these symbols are not in the settings panel chunk: ${missing.join(", ")}`);
 });
