@@ -650,6 +650,22 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       });
       return { mode };
     },
+    addRemoteControlRule: async (raw) => {
+      const kind = req(raw).kind; const pattern = req(raw).pattern;
+      invariant(kind === "allow" || kind === "deny", "A standing rule is allow or deny.");
+      invariant(typeof pattern === "string" && pattern.trim().length > 0, "A standing rule needs its pattern.");
+      const trimmed = pattern.trim();
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
+      const secrets = await import("./secrets/secret-store.js");
+      const machineId = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
+      invariant(machineId.length > 0, "This computer is not enrolled for remote control.");
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: "/local-exec/policy/rule", method: "POST", body: { machineId, kind, pattern: trimmed },
+      });
+      return { kind, pattern: trimmed };
+    },
     deleteRemoteControlRule: async (raw) => {
       const kind = req(raw).kind; const pattern = req(raw).pattern;
       invariant(kind === "allow" || kind === "deny", "A standing rule is allow or deny.");

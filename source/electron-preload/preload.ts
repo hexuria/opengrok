@@ -316,6 +316,7 @@ export function createDesktopPreloadBridge(options: {
       stopRemoteControl: () => edge("stopRemoteControl"),
       revokeRemoteControl: () => edge("revokeRemoteControl"),
       setRemoteControlMode: (mode: string) => edge("setRemoteControlMode", { mode }),
+      addRemoteControlRule: (kind: string, pattern: string) => edge("addRemoteControlRule", { kind, pattern }),
       deleteRemoteControlRule: (kind: string, pattern: string) => edge("deleteRemoteControlRule", { kind, pattern }),
       getAgentAutoReview: (agentId: string) => edge("getAgentAutoReview", { agentId }),
       setAgentAutoReview: (agentId: string, policy: { enabled: boolean | null; allowInstructions: string[] | null; blockInstructions: string[] | null }) => edge("setAgentAutoReview", { agentId, ...policy }),
