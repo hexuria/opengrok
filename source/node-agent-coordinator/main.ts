@@ -17,7 +17,7 @@ import { SandHostSupervisor, createCoordinatorHostSupervisorTiming } from "./gat
 import { createLocalExecDaemonRefreshPolicy, createLocalExecDaemonSupervisor } from "./local-exec/supervisor.js";
 import { McpOAuthForwarder } from "./oauth/mcp-oauth-forwarder.js";
 import { createRendererPortServer } from "./renderer-port-server.js";
-import { createTransportStageRecorder } from "./telemetry/transport-stage-recorder.js";
+import { createTransportStageRecorder, SSE_ECHO_MISSING_AFTER_MS } from "./telemetry/transport-stage-recorder.js";
 import { createWebAuthnProvider } from "./webauthn/provider.js";
 import { createSpawnedWebAuthnSigner, resolveWebAuthnSignerPath } from "./webauthn/signer.js";
 import { ClientSideToolV2Relay } from "./client-side-tool-v2-relay.js";
@@ -124,8 +124,13 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
   const bootstrap = carrier.bootstrap;
   const controlClient = createControlPortClient({ post: (frame) => carrier.control.post(frame), close: () => carrier.control.close() });
   const commands = controlClient.commands;
+  // A send whose echo never arrives is the stream lying about being up: tell the renderer the
+  // transport is down (its own reconnecting state, no new UI), and force a fresh stream. The
+  // renderer hears "connected" again from handleTransportEvent once the new stream is up.
+  let onEchoMissing: (key: { accountSlot: string; clientNonce: string }) => void = () => {};
   const recorder = createTransportStageRecorder({
     clock: realClock,
+    onEchoMissing: (key) => onEchoMissing(key),
     egress: {
       reportTransportStage: (report) => command(commands, "reportTransportStage", report),
       reportGatewayCommandSpan: (report) => command(commands, "reportGatewayCommandSpan", report),
@@ -321,6 +326,11 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
         server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state: isGatewayStreamLive ? "connected" : "down" });
     } }
   );
+  onEchoMissing = (key) => {
+    process.stderr.write(`node-agent-coordinator: no stream echo for send ${key.clientNonce} within ${SSE_ECHO_MISSING_AFTER_MS}ms; forcing a reconnect\n`);
+    if (!usesLocalCoordinator(dataDir)) server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state: "down" });
+    void gatewayClient.forceReconnect().catch(() => { /* closed or superseded: nothing to do */ });
+  };
   const mainDispatch = createGatewayRequestDispatch(gatewayClient, isCoordinatorMainMethod);
   const applyPause = (paused: boolean) => {
     void localExecSupervisor.setPaused(paused);
@@ -342,6 +352,7 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
   function settleProcess(exitCode: number): void {
     if (exitSettled) return;
     exitSettled = true;
+    recorder.dispose();
     gatewayClient.close();
     toolRelay.clear();
     localExecSupervisor.dispose();
