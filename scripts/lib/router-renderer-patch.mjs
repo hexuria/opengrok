@@ -1596,6 +1596,10 @@ const A11Y_ANNOUNCE_HELPER = ';(()=>{try{'
 const LOCAL_TOOL_TITLE_BEFORE = 'hideBadge:!0,leading:Y,title:TLn,...U}';
 const LOCAL_TOOL_TITLE_AFTER = 'hideBadge:!0,leading:Y,title:(self.__sandLocalToolAskTitle&&self.__sandLocalToolAskTitle(s.action)||TLn),...U}';
 
+const CARD_SESSION_BUTTON_BEFORE = '?(z=[_,q,F],e[38]=q,e[39]=F,e[40]=_,e[41]=z)';
+const CARD_SESSION_BUTTON_AFTER = '?(z=[_,{label:"Allow for this session",onClick:()=>E("allow-session"),disabled:R},q,F],e[38]=q,e[39]=F,e[40]=_,e[41]=z)';
+const CARD_SESSION_OUTCOME_BEFORE = 'n.status==="always"?"Grok Bot can run commands on your computer.":n.status==="never"?"Grok Bot cannot run commands on your computer."';
+const CARD_SESSION_OUTCOME_AFTER = 'n.status==="always"?"Grok Bot can run commands on your computer.":n.status==="allow-session"?"Grok Bot can run commands on your computer until the server restarts.":n.status==="never"?"Grok Bot cannot run commands on your computer."';
 const CARD_LOCAL_FLIP_BEFORE = 'if(e==="always"||e==="never")try{await n.setPermission(e)!==e&&(e=e==="always"?"allow-once":"deny")}catch{e=e==="always"?"allow-once":"deny"}';
 // One consent model: the card's Always/Never write a SERVER standing rule and
 // nothing else. Upstream also flipped the Mac's own permission here - which in
@@ -1607,6 +1611,11 @@ const CARD_LOCAL_FLIP_BEFORE = 'if(e==="always"||e==="never")try{await n.setPerm
 const CARD_LOCAL_FLIP_AFTER = '';
 export function patchOriginalCardLocalFlip(source) {
   return replaceExactlyOnce(source, CARD_LOCAL_FLIP_BEFORE, CARD_LOCAL_FLIP_AFTER, "card local-permission flip removal");
+}
+
+export function patchOriginalCardSessionTier(source) {
+  let patched = replaceExactlyOnce(source, CARD_SESSION_BUTTON_BEFORE, CARD_SESSION_BUTTON_AFTER, "card session-allow button");
+  return replaceExactlyOnce(patched, CARD_SESSION_OUTCOME_BEFORE, CARD_SESSION_OUTCOME_AFTER, "card session-allow outcome");
 }
 
 export function patchOriginalLocalToolAsk(source) {
@@ -1939,6 +1948,7 @@ export function patchOriginalMediaMeta(source) {
   patched = patchOriginalJumpLoad(patched);
   patched = patchOriginalLocalToolAsk(patched);
   patched = patchOriginalCardLocalFlip(patched);
+  patched = patchOriginalCardSessionTier(patched);
   return KATEX_BUNDLE_PREPEND + MEDIA_META_HELPER + JUMP_PILL_HELPER + REVEAL_GATE_HELPER + DRAFTS_HELPER + MEDIA_DEBUG_HELPER + DEEPLINK_MSG_HELPER + SELECT_MODE_HELPER + LOCAL_TOOL_ASK_HELPER + A11Y_ANNOUNCE_HELPER + OPENGROK_MODE_HELPER + LOGIN_PROVIDER_HELPER + ASKPASS_CARD_HELPER + ACCOUNT_CARD_HELPER + AGENT_AUTOREVIEW_HELPER + patched;
 }
 
