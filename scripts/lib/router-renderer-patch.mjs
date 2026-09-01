@@ -207,23 +207,27 @@ const RRuleMono={fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",overfl
 // modal the Allow/Never tab already says which kind these are, so the row
 // does not repeat it.
 function RRuleRow(kind,pattern,onDelete,busy){
-  return a.jsxs("div",{key:kind+":"+pattern,className:"sand-standing-rule sand-9f619 sand-78zum5",role:"row",
+  return a.jsxs("div",{key:kind+":"+pattern,className:"sand-standing-rule sand-9f619 sand-78zum5",role:"listitem",
     style:{gap:8,alignItems:"center",justifyContent:"space-between",paddingBlock:6,minWidth:0},children:[
-    a.jsx(se,{as:"span",color:"secondary",size:"sm",role:"cell",style:RRuleMono,children:pattern}),
+    a.jsx(se,{as:"span",color:"secondary",size:"sm",style:RRuleMono,children:pattern}),
     a.jsx(oe,{disabled:busy,onClick:function(){onDelete(kind,pattern)},shape:"rectangular",size:"sm",variant:"secondary","aria-label":"Delete the rule for "+pattern,children:"Delete"})]})}
 // The rules list, behind the app's own Dialog so a long list scrolls instead
 // of growing the Settings page. Everything here is a bundle component: Os is
 // the same dialog that renders Settings itself, Te its scroll pane - so the
 // chrome, theming and scrollbars match without a line of new CSS.
-function RStandingRules({open,onClose,allow,deny,onDelete,busy}){
+function RStandingRules({open,onClose,allow,deny,onDelete,busy,error}){
   const[tab,setTab]=de.useState("allow");
   const[filter,setFilter]=de.useState("");
   // Reopening should not inherit the last search or tab.
-  de.useEffect(function(){if(open){setTab("allow");setFilter("")}},[open]);
+  de.useLayoutEffect(function(){if(open){setTab("allow");setFilter("")}},[open]);
+  // Deleting the last rule leaves nothing to manage, and its opener is
+  // disabled at zero, so the dialog closes itself rather than stranding.
+  de.useEffect(function(){if(open&&allow.length+deny.length===0)onClose()},[open,allow.length,deny.length]);
   const rules=tab==="allow"?allow:deny;
   const needle=filter.trim().toLowerCase();
   const shown=needle.length===0?rules:rules.filter(function(p){return p.toLowerCase().includes(needle)});
-  const tabButton=(id,label,count)=>a.jsx(oe,{role:"tab","aria-selected":tab===id,onClick:function(){setTab(id)},
+  const panelId="sand-standing-rules-panel";
+  const tabButton=(id,label,count)=>a.jsx(oe,{role:"tab","aria-selected":tab===id,"aria-controls":panelId,tabIndex:tab===id?0:-1,onClick:function(){setTab(id)},
     shape:"rectangular",size:"sm",variant:tab===id?"primary":"secondary",children:label+" ("+count+")"});
   return a.jsx(Os,{"aria-label":"Standing rules",open:!!open,onOpenChange:function(v){if(!v)onClose()},size:"md",
     children:a.jsxs("div",{style:{display:"flex",flexDirection:"column",padding:20,gap:12,minWidth:0},children:[
@@ -237,15 +241,21 @@ function RStandingRules({open,onClose,allow,deny,onDelete,busy}){
       a.jsx("input",{"aria-label":"Filter commands",className:RRouterInputClass,onChange:function(ev){setFilter(ev.currentTarget.value)},
         placeholder:"Filter commands…",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:"100%"},type:"text",value:filter}),
       a.jsx(ts,{}),
+      // Own the scrolling. Te is the settings *page* pane: it only constrains
+      // height as a flex child, and it carries 22/32/28/32 page padding that is
+      // wrong inside a dialog. A plain scroll box has no colour or type of its
+      // own, so nothing can drift from the theme.
       // Height comes from the tab's UNFILTERED count, so typing in the filter
-      // never resizes the dialog, while a short list does not leave a large
-      // empty well below it. Capped so a long list scrolls instead of growing.
-      a.jsx("div",{style:{height:"min(38vh, "+Math.max(96,rules.length*34)+"px)",minWidth:0},children:a.jsx(Te,{children:a.jsx("div",{role:"rowgroup",className:"sand-standing-rules-table",style:{minWidth:0,paddingRight:4},
-        children:shown.length>0
-          ?shown.map(function(p){return RRuleRow(tab,p,onDelete,busy)})
-          :a.jsx(se,{as:"p",color:"secondary",size:"sm",children:rules.length===0
-            ?(tab==="allow"?"No commands are always allowed yet.":"No commands are always refused yet.")
-            :"No rules match that filter."})})})})]})})}
+      // never resizes the dialog, while a short list leaves no empty well.
+      a.jsx("div",{id:panelId,role:"tabpanel","aria-label":tab==="allow"?"Always allowed":"Always refused",
+        style:{height:"min(38vh, "+Math.max(96,rules.length*38)+"px)",minWidth:0,overflowY:"auto",overflowX:"hidden"},
+        children:a.jsx("div",{role:"list",className:"sand-standing-rules-table",style:{minWidth:0},
+          children:shown.length>0
+            ?shown.map(function(p){return RRuleRow(tab,p,onDelete,busy)})
+            :a.jsx(se,{as:"p",color:"secondary",size:"sm",children:rules.length===0
+              ?(tab==="allow"?"No commands are always allowed yet.":"No commands are always refused yet.")
+              :"No rules match that filter."})})}),
+      RRowNote(error,"red")]})})}
 function RRemoteControl(){
   const[s,e]=de.useState({loaded:!1,available:!1,enrolled:!1,machineId:null,mode:"never",allow:[],deny:[],busy:!1,error:null,confirming:!1,managing:!1});
   const load=()=>window.desktop.agent.getRemoteControl().then(r=>{if(r==null)return;
@@ -285,7 +295,7 @@ function RRemoteControl(){
       description:RStandingSummary(s.allow.length,s.deny.length),
       children:a.jsx(oe,{disabled:s.allow.length+s.deny.length===0,onClick:function(){e(i=>({...i,managing:!0}))},
         shape:"rectangular",size:"sm",variant:"secondary",children:"Manage…"})}),
-    a.jsx(RStandingRules,{open:s.managing,onClose:function(){e(i=>({...i,managing:!1}))},allow:s.allow,deny:s.deny,onDelete:removeRule,busy:s.busy}),
+    a.jsx(RStandingRules,{open:s.managing,onClose:function(){e(i=>({...i,managing:!1}))},allow:s.allow,deny:s.deny,onDelete:removeRule,busy:s.busy,error:s.error}),
     a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
       description:s.confirming?"This computer stops being reachable and its credential is destroyed. You can turn it on again later.":"Stop your bots reaching this computer.",
       children:s.confirming
