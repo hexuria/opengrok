@@ -24,7 +24,13 @@ export class FileTranscriptMirror<Store = unknown> {
   pendingPathFor(id: string): string { const safe = safeId(id); return join(this.transcriptsDir, safe, `${safe}.journal-pending.json`); }
   cursorPathFor(id: string): string { const safe = safeId(id); return join(this.transcriptsDir, safe, `${safe}.journal-cursor.json`); }
   modePathFor(id: string): string { const safe = safeId(id); return join(this.transcriptsDir, safe, `${safe}.journal-mode`); }
-  private async syncParent(path: string): Promise<void> { const handle = await open(dirname(path), "r"); try { await handle.sync(); } finally { await handle.close(); } }
+  /**
+   * Durability barrier for the rename itself. Windows has no notion of
+   * fsync on a directory handle - opening one read-only and syncing it
+   * raises EPERM - and NTFS orders metadata through its own journal, so
+   * there the file sync already done before the rename is the guarantee.
+   */
+  private async syncParent(path: string): Promise<void> { if (process.platform === "win32") return; const handle = await open(dirname(path), "r"); try { await handle.sync(); } finally { await handle.close(); } }
   private async installAtomic(path: string, bytes: Uint8Array): Promise<void> { await mkdir(dirname(path), { recursive: true }); const temporary = join(dirname(path), `.transcript.${randomUUID()}.part`); let handle; try { handle = await open(temporary, "wx"); await writeAll(handle, bytes, 0); await handle.sync(); await handle.close(); handle = undefined; await rename(temporary, path); await this.syncParent(path); } catch (error) { await handle?.close().catch(() => {}); await unlink(temporary).catch(() => {}); throw error; } }
   async ownsConversation(id: string): Promise<boolean> { try { await stat(this.modePathFor(id)); return true; } catch (error) { if (isMissingFile(error)) return false; throw error; } }
   async claimConversation(id: string): Promise<void> { const path = this.modePathFor(id); if (await this.ownsConversation(id)) return; await this.installAtomic(path, Buffer.from("1\n")); }

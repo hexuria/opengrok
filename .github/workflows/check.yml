@@ -63,9 +63,12 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # Recovers the checksum-pinned renderer that the icon and anchor checks
-      # read. It needs macOS-only hdiutil; elsewhere those few tests skip.
-      - name: Recover the pinned runtime
+      # read. Best-effort: it needs macOS-only hdiutil, and the vendor CDN
+      # answers 403 to hosted runners, so the handful of tests that read the
+      # renderer skip instead. Never let it fail the run.
+      - name: Recover the pinned runtime (best-effort)
         if: runner.os == 'macOS'
+        continue-on-error: true
         run: npm run bootstrap
 
       - name: Typecheck frontend and source, run the test suite

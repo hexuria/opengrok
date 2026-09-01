@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { build } from "esbuild";
 
@@ -13,7 +13,7 @@ async function loadAuth() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "grok-sudo-auth-"));
   const outfile = path.join(dir, "sudo-enable-auth.mjs");
   await build({ entryPoints: [path.join(repoRoot, "source/electron-main/askpass/sudo-enable-auth.ts")], outfile, bundle: true, format: "esm", platform: "node", target: "node22" });
-  const mod = await import(`${outfile}?${Date.now()}`);
+  const mod = await import(`${pathToFileURL(outfile).href}?${Date.now()}`);
   return { mod, dispose: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
