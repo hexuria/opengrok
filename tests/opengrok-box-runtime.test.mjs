@@ -673,17 +673,32 @@ test("remote control is off by default and says what it is", async () => {
   assert.match(component, /every request is refused/);
   assert.match(component, /asked before anything runs here/);
   assert.match(component, /without asking you first/);
-  // Turning it off asks first and says what is destroyed.
+  // Turning it off asks first and keeps the standing rules.
+  assert.match(component, /Standing rules stay/);
+  assert.match(component, /stopRemoteControl/);
+  // Destroying the credential is a separate, labelled action.
+  assert.match(component, /Forget this computer/);
   assert.match(component, /its credential is destroyed/);
+  assert.match(component, /revokeRemoteControl/);
 
   // The daemon credential is its own secret, never the account token.
   const runtime = await readFile(path.join(repoRoot, "source", "shared", "box-runtime.ts"), "utf8");
   assert.match(runtime, /OPENGROK_DAEMON_TOKEN_SECRET = "opengrok-daemon-token"/);
   const mainEdge = await readFile(path.join(repoRoot, "source", "electron-main", "main-edge.ts"), "utf8");
+  const enrol = mainEdge.slice(mainEdge.indexOf("enrolRemoteControl:"), mainEdge.indexOf("stopRemoteControl:"));
+  assert.match(enrol, /machineId: remembered/, "re-enrol must send the kept machine id");
+  assert.match(enrol, /mode: "ask"/, "Turn on must lift Never so Always presses write");
+  const stop = mainEdge.slice(mainEdge.indexOf("stopRemoteControl:"), mainEdge.indexOf("revokeRemoteControl:"));
+  assert.match(stop, /mode: "never"/);
+  assert.match(stop, /deleteSecret\(OPENGROK_DAEMON_TOKEN_SECRET\)/);
+  assert.doesNotMatch(stop, /deleteSecret\(OPENGROK_DAEMON_MACHINE_SECRET\)/,
+    "Turn off must keep the machine id");
+  assert.doesNotMatch(stop, /\/local-exec\/daemon\//, "Turn off must not revoke the daemon");
   // Revoking clears this machine first, so a failed server call still disarms it.
   const revoke = mainEdge.slice(mainEdge.indexOf("revokeRemoteControl:"));
   assert.ok(revoke.indexOf("deleteSecret(OPENGROK_DAEMON_TOKEN_SECRET)") < revoke.indexOf("/local-exec/daemon/"),
     "the local credential must be destroyed before the server is told, not after");
+  assert.match(revoke, /deleteSecret\(OPENGROK_DAEMON_MACHINE_SECRET\)/);
 });
 
 // A remote box's desktop is provisioned a moment AFTER the box itself is up, so
