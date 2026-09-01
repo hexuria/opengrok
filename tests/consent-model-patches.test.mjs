@@ -38,6 +38,15 @@ test("card Always/Never no longer flips the local Mac switch (shipped bundle)", 
   assert.throws(() => patch.patchOriginalCardLocalFlip(patched));
 });
 
+test("the local-tool card offers Allow for this session (shipped bundle)", { skip: pinned == null }, () => {
+  assert.match(pinned, /z=\[_,q,F\],e\[38\]=q/);
+  const patched = patch.patchOriginalCardSessionTier(pinned);
+  assert.match(patched, /Allow for this session/);
+  assert.match(patched, /E\("allow-session"\)/);
+  assert.match(patched, /until the server restarts/);
+  assert.throws(() => patch.patchOriginalCardSessionTier(patched));
+});
+
 test("the daemon on/off helper maps enrolled legacy values to on, never to off", async () => {
   const { build } = await import("esbuild");
   const { mkdtemp, rm } = await import("node:fs/promises");
