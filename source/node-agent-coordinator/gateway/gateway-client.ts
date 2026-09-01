@@ -38,6 +38,7 @@ export const CREATE_AGENT_RETRY_POLICY = { name: "gateway-create-agent-retry", m
 export const SSE_RECONNECT_MIN_MS = 1_000;
 export const SSE_RECONNECT_MAX_MS = 10_000;
 export const SSE_STALL_TIMEOUT_MS = 35_000;
+export const GATEWAY_REQUEST_ID_HEADER = "x-request-id";
 export const SSE_CONNECT_TIMEOUT_MS = 15_000;
 export const SEND_POST_TIMEOUT_MS = 15_000;
 export const ROSTER_READ_TIMEOUT_MS = 15_000;
@@ -162,6 +163,9 @@ export class CoordinatorGatewayClient {
   requestHeaders(base: Record<string, string>, connection: GatewayConnection): Record<string, string> {
     const headers = withAuth(base, connection);
     if (!this.slimAvatarsDisabled) headers[GATEWAY_SLIM_AVATARS_HEADER] = "1";
+    // One id per call, sent to the server and kept in our own reports, so a line in the desktop's
+    // local telemetry log and a line in the server's request log name the same request.
+    if (headers[GATEWAY_REQUEST_ID_HEADER] === undefined) headers[GATEWAY_REQUEST_ID_HEADER] = randomUUID();
     return headers;
   }
 
@@ -257,8 +261,12 @@ export class CoordinatorGatewayClient {
 
   private reportCommandSpan(method: string, commandTrace: { root: string; child: { spanId: string } } | undefined, settle: Record<string, unknown>): void {
     const sink = this.options.recordGatewayCommandSpan;
-    if (commandTrace === undefined || sink == null || this.spanSinkBroken) return;
-    try { sink({ method, rootTraceparent: commandTrace.root, spanId: commandTrace.child.spanId, ...settle }); }
+    if (sink == null || this.spanSinkBroken) return;
+    // Without a trace window there is no span to record, but the call still happened: the report
+    // goes out traceless so the desktop's local telemetry log has one line per gateway call. The
+    // span recorder ignores a report with no parent; the local log does not.
+    const trace = commandTrace === undefined ? { rootTraceparent: null, spanId: "" } : { rootTraceparent: commandTrace.root, spanId: commandTrace.child.spanId };
+    try { sink({ method, ...trace, ...settle }); }
     catch { this.spanSinkBroken = true; }
   }
 
@@ -268,6 +276,7 @@ export class CoordinatorGatewayClient {
     let commandTrace: { root: string; child: { traceparent: string; spanId: string } } | undefined;
     let fetchStartMonotonicMs = startMonotonicMs;
     let fetchStartEpochMs = 0;
+    let requestId: string | undefined;
     try {
       connection = await this.resolveConnection(init?.signal);
       if (init?.requiredBaseUrl != null && connection.baseUrl !== init.requiredBaseUrl) throw new GatewayEndpointChangedError();
@@ -277,9 +286,11 @@ export class CoordinatorGatewayClient {
       const traceparent = child?.traceparent ?? root;
       fetchStartMonotonicMs = this.options.timing.clock.monotonicNow();
       fetchStartEpochMs = this.options.timing.clock.now();
+      const headers = this.requestHeaders({ "content-type": "application/json", ...(traceparent === undefined ? {} : { [GATEWAY_TRACEPARENT_HEADER]: traceparent }) }, connection);
+      requestId = headers[GATEWAY_REQUEST_ID_HEADER];
       const response = await fetch(`${connection.baseUrl}${GATEWAY_API_PREFIX}/${method}`, {
         method: "POST",
-        headers: this.requestHeaders({ "content-type": "application/json", ...(traceparent === undefined ? {} : { [GATEWAY_TRACEPARENT_HEADER]: traceparent }) }, connection),
+        headers,
         body: JSON.stringify(args ?? {}),
         ...(init?.signal == null ? {} : { signal: init.signal })
       });
@@ -291,13 +302,13 @@ export class CoordinatorGatewayClient {
       }
       const result = await response.json() as unknown;
       if (response.headers.get(GATEWAY_MINT_DEDUPE_HEADER) === "1") this.mintDedupeProvenBaseUrls.add(connection.baseUrl);
-      this.reportCommandSpan(method, commandTrace, { startEpochMs: fetchStartEpochMs, durationMs: this.options.timing.clock.monotonicNow() - fetchStartMonotonicMs, isError: false });
+      this.reportCommandSpan(method, commandTrace, { requestId, startEpochMs: fetchStartEpochMs, durationMs: this.options.timing.clock.monotonicNow() - fetchStartMonotonicMs, isError: false });
       return { result, connection };
     } catch (error) {
-      this.reportCommandSpan(method, commandTrace, { startEpochMs: fetchStartEpochMs, durationMs: this.options.timing.clock.monotonicNow() - fetchStartMonotonicMs, isError: true });
+      this.reportCommandSpan(method, commandTrace, { requestId, startEpochMs: fetchStartEpochMs, durationMs: this.options.timing.clock.monotonicNow() - fetchStartMonotonicMs, isError: true });
       if (error instanceof SandGatewayCommandError || error instanceof GatewayEndpointChangedError) throw error;
       const classified = classifyGatewayError(error);
-      this.reportReachability({ outcome: classified.outcome, method, latencyMs: this.options.timing.clock.monotonicNow() - startMonotonicMs, baseUrlKind: classifyBaseUrlKind(connection?.baseUrl), ...(classified.httpStatus === undefined ? {} : { httpStatus: classified.httpStatus }), ...(classified.causeSummary === undefined ? {} : { causeSummary: classified.causeSummary }) }, connection?.baseUrl);
+      this.reportReachability({ requestId, outcome: classified.outcome, method, latencyMs: this.options.timing.clock.monotonicNow() - startMonotonicMs, baseUrlKind: classifyBaseUrlKind(connection?.baseUrl), ...(classified.httpStatus === undefined ? {} : { httpStatus: classified.httpStatus }), ...(classified.causeSummary === undefined ? {} : { causeSummary: classified.causeSummary }) }, connection?.baseUrl);
       if (error instanceof SandGatewayUnreachableError) throw error;
       const blocked = findSandBoxBlockedMessage(error);
       throw new SandGatewayUnreachableError(classified.outcome, blocked == null ? `gateway ${method} unreachable (${classified.outcome})` : `gateway ${method} unreachable (${classified.outcome}): ${blocked}`, { cause: error, ...(classified.causeSummary === undefined ? {} : { causeSummary: classified.causeSummary }), ...(connection === undefined ? {} : { attemptedBaseUrl: connection.baseUrl }), isPreDispatch: connection === undefined });
@@ -436,6 +447,7 @@ export class CoordinatorGatewayClient {
     this.activeEventLoopController = controller;
     const connectStartMonotonicMs = this.options.timing.clock.monotonicNow();
     let connection: GatewayConnection | undefined;
+    let eventsRequestId: string | undefined;
     let didConnect = false;
     try {
       let handshake: { connection: GatewayConnection; reader: ReadableStreamDefaultReader<Uint8Array> };
@@ -443,7 +455,9 @@ export class CoordinatorGatewayClient {
         handshake = await this.options.timing.connectDeadline.run(async (deadlineSignal) => {
           const resolved = await this.resolveConnection(deadlineSignal);
           connection = resolved;
-          const response = await fetch(`${resolved.baseUrl}${GATEWAY_EVENTS_PATH}`, { headers: this.requestHeaders({ accept: "text/event-stream" }, resolved), signal: controller.signal });
+          const eventsHeaders = this.requestHeaders({ accept: "text/event-stream" }, resolved);
+          eventsRequestId = eventsHeaders[GATEWAY_REQUEST_ID_HEADER];
+          const response = await fetch(`${resolved.baseUrl}${GATEWAY_EVENTS_PATH}`, { headers: eventsHeaders, signal: controller.signal });
           if (controller.signal.aborted || attemptGeneration !== this.reconnectGeneration) {
             void response.body?.cancel().catch(() => {});
             throw new Error("gateway connect superseded");
@@ -464,7 +478,7 @@ export class CoordinatorGatewayClient {
       const watchdog = this.options.timing.stallWatchdog.arm(() => { stalled = true; controller.abort(); });
       let down = { reason: "stream-ended", cause: null as string | null };
       try {
-        this.reportReachability({ outcome: "ok", method: "events", latencyMs: this.options.timing.clock.monotonicNow() - connectStartMonotonicMs, baseUrlKind: classifyBaseUrlKind(handshake.connection.baseUrl) }, handshake.connection.baseUrl);
+        this.reportReachability({ requestId: eventsRequestId, outcome: "ok", method: "events", latencyMs: this.options.timing.clock.monotonicNow() - connectStartMonotonicMs, baseUrlKind: classifyBaseUrlKind(handshake.connection.baseUrl) }, handshake.connection.baseUrl);
         const forced = this.pendingForcedReconnect != null && this.pendingForcedReconnect.generation <= attemptGeneration;
         this.emitTransportEvent({ family: "transport-connected", payload: { generation: this.connectionCount } });
         if (forced) { this.pendingForcedReconnect?.resolve(); this.pendingForcedReconnect = undefined; }
@@ -482,7 +496,7 @@ export class CoordinatorGatewayClient {
     } catch (error) {
       if (!didConnect && !this.isClosed && attemptGeneration === this.reconnectGeneration) {
         const classified = classifyGatewayError(error);
-        this.reportReachability({ outcome: classified.outcome, method: "events", latencyMs: this.options.timing.clock.monotonicNow() - connectStartMonotonicMs, baseUrlKind: classifyBaseUrlKind(connection?.baseUrl), ...(classified.httpStatus === undefined ? {} : { httpStatus: classified.httpStatus }), ...(classified.causeSummary === undefined ? {} : { causeSummary: classified.causeSummary }) }, connection?.baseUrl);
+        this.reportReachability({ requestId: eventsRequestId, outcome: classified.outcome, method: "events", latencyMs: this.options.timing.clock.monotonicNow() - connectStartMonotonicMs, baseUrlKind: classifyBaseUrlKind(connection?.baseUrl), ...(classified.httpStatus === undefined ? {} : { httpStatus: classified.httpStatus }), ...(classified.causeSummary === undefined ? {} : { causeSummary: classified.causeSummary }) }, connection?.baseUrl);
       }
       throw error;
     } finally { if (this.activeEventLoopController === controller) this.activeEventLoopController = undefined; }

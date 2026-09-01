@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getLocalTelemetryLog } from "../telemetry/local-telemetry-log.js";
 import { withOpenGrokDaemonToken, type OpenGrokDaemonIdentity } from "../box/opengrok-daemon-descriptor.js";
 import { askpassDaemonEnvironment } from "../askpass/askpass-runtime.js";
 
@@ -553,6 +554,9 @@ export function createCoordinatorControlExecutors(
     getRpcTraceWindowTraceparent: () =>
       dependencies.getRpcTraceWindowTraceparent?.() ?? null,
     reportTransportStage(report: CoordinatorTransportStageReport) {
+      // The local log takes every stage, sampled or not: the echo of a send and its absence are
+      // the evidence for "the stream was up / was dead" and must not depend on trace sampling.
+      getLocalTelemetryLog()?.append(report.isError ? "warn" : "info", "sand.send_stage", { stage: report.stage, attempt: report.attempt, client_nonce: report.clientNonce, duration_ms: Math.round(report.durationMs), is_error: report.isError, traceparent: report.traceparent ?? undefined });
       if (report.traceparent == null) return;
       dependencies.recordSendStage({
         name: report.stage,
@@ -565,6 +569,8 @@ export function createCoordinatorControlExecutors(
       });
     },
     reportGatewayCommandSpan(report: unknown) {
+      const span = (typeof report === "object" && report != null ? report : {}) as Record<string, unknown>;
+      getLocalTelemetryLog()?.append(span.isError === true ? "warn" : "info", "sand.gateway_command", { method: span.method, request_id: span.requestId, duration_ms: typeof span.durationMs === "number" ? Math.round(span.durationMs) : undefined, is_error: span.isError === true });
       dependencies.recordGatewayCommandSpan(report);
     },
     reportGatewayReachability(report: unknown) {
