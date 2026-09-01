@@ -117,13 +117,19 @@ if (BEARER) {
   log("server has it:", JSON.stringify({ id: mine.id, name: mine.name, trigger: mine.trigger, schedule: mine.schedule, isEnabled: mine.isEnabled, nextRunAt: mine.nextRunAt }));
   // ---- edit -----------------------------------------------------------------------------------
   if (await typeInto(`document.querySelector('textarea[aria-label="Instruction"],textarea[placeholder^="What should this routine"]')`, `${INSTRUCTION} (edited)`)) {
-    await clickText("^(Save|Done)$");
-    await sleep(1500);
-    const again = await api("listAllAutomations");
-    const rows = Array.isArray(again.value) ? again.value.filter((r) => r.name === NAME) : [];
+    // The editor autosaves on blur, not on a button: move focus away, then wait for the update
+    // to land on the server before doing anything else, so a Test run cannot race the autosave.
+    await ev(`(()=>{const n=document.querySelector('input[placeholder="Name this routine"]');n&&n.focus();return true})()`);
+    let rows = [];
+    for (let i = 0; i < 16; i += 1) {
+      await sleep(500);
+      const again = await api("listAllAutomations");
+      rows = Array.isArray(again.value) ? again.value.filter((r) => r.name === NAME) : [];
+      if (rows.length === 1 && /edited/.test(rows[0].prompt ?? "")) break;
+    }
     if (rows.length !== 1) fail(`edit made ${rows.length} rows named ${NAME}; expected 1`);
-    if (!/edited/.test(rows[0].prompt ?? "")) log("WARN prompt not updated on the server:", rows[0].prompt);
-    else log("edit applied on the server");
+    if (!/edited/.test(rows[0].prompt ?? "")) fail(`prompt not updated on the server within 8s: ${rows[0].prompt}`);
+    log("edit applied on the server, one row");
   }
   // ---- test run -------------------------------------------------------------------------------
   if (await clickText("^Test run$")) {
