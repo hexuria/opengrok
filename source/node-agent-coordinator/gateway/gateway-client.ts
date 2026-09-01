@@ -112,6 +112,25 @@ export interface CoordinatorGatewayClientOptions {
 
 type RequestInit = { readonly signal?: AbortSignal; readonly requiredBaseUrl?: string };
 
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("This operation was aborted", "AbortError");
+}
+
+// Aborting fetch does not always reject an already-taken body reader (undici
+// half-open after a server PID change). Race the pending read against abort so
+// the reconnect loop can proceed even when cancel() never settles the read.
+async function readWithAbort<T>(reader: ReadableStreamDefaultReader<T>, signal: AbortSignal): Promise<ReadableStreamReadResult<T>> {
+  if (signal.aborted) throw abortReason(signal);
+  let remove = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    const onAbort = () => reject(abortReason(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    remove = () => signal.removeEventListener("abort", onAbort);
+  });
+  try { return await Promise.race([reader.read(), aborted]); }
+  finally { remove(); }
+}
+
 export class CoordinatorGatewayClient {
   private isClosed = false;
   private devInducedOffline = false;
@@ -440,6 +459,8 @@ export class CoordinatorGatewayClient {
       this.transportState = "connected";
       const blocks = new SseBlockDecoder((block) => this.dispatchEventBlock(block, handshake.connection.vncProxy ?? null));
       let stalled = false;
+      const abandonReader = () => { void reader.cancel().catch(() => {}); };
+      controller.signal.addEventListener("abort", abandonReader, { once: true });
       const watchdog = this.options.timing.stallWatchdog.arm(() => { stalled = true; controller.abort(); });
       let down = { reason: "stream-ended", cause: null as string | null };
       try {
@@ -448,15 +469,16 @@ export class CoordinatorGatewayClient {
         this.emitTransportEvent({ family: "transport-connected", payload: { generation: this.connectionCount } });
         if (forced) { this.pendingForcedReconnect?.resolve(); this.pendingForcedReconnect = undefined; }
         for (;;) {
-          const result = await reader.read();
+          const result = await readWithAbort(reader, controller.signal);
           if (result.done) break;
           watchdog.kick();
           blocks.push(result.value);
         }
+        if (stalled) down = { reason: "stall-timeout", cause: null };
       } catch (error) {
         down = classifyStreamDown({ stalled, forced: attemptGeneration !== this.reconnectGeneration, devInducedOffline: this.devInducedOffline, clientPaused: this.clientPaused, error });
         throw error;
-      } finally { watchdog.dispose(); controller.abort(); this.notifyDisconnected(down.reason, down.cause); }
+      } finally { watchdog.dispose(); abandonReader(); controller.abort(); this.notifyDisconnected(down.reason, down.cause); }
     } catch (error) {
       if (!didConnect && !this.isClosed && attemptGeneration === this.reconnectGeneration) {
         const classified = classifyGatewayError(error);
