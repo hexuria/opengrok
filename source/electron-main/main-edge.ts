@@ -550,7 +550,10 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const secrets = await import("./secrets/secret-store.js");
       const machineId = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
       const hasToken = ((await secrets.readSecret(OPENGROK_DAEMON_TOKEN_SECRET)) ?? "").length > 0;
-      if (machineId.length === 0 || !hasToken) return { available: true, enrolled: false };
+      // Turn off keeps the machine id so Turn on can re-enrol the same computer.
+      if (machineId.length === 0 || !hasToken) {
+        return { available: true, enrolled: false, ...(machineId.length > 0 ? { machineId } : {}) };
+      }
       try {
         const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
         const policy = await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
@@ -573,8 +576,11 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
       const secrets = await import("./secrets/secret-store.js");
       const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-      const reply = await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
-        path: "/local-exec/daemon", method: "POST", body: { label },
+      const secretsHandle = openGrokAccountSecrets(deps, gatewayUrl);
+      const remembered = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
+      const reply = await callOpenGrokAccountApi(secretsHandle, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: "/local-exec/daemon", method: "POST",
+        body: remembered.length > 0 ? { label, machineId: remembered } : { label },
       }) as Record<string, unknown> | undefined;
       const machineId = typeof reply?.machineId === "string" ? reply.machineId : "";
       const token = typeof reply?.token === "string" ? reply.token : "";
@@ -582,7 +588,35 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       // Shown once by the server, so it is stored here and never asked for again.
       await secrets.writeSecret(OPENGROK_DAEMON_TOKEN_SECRET, token);
       await secrets.writeSecret(OPENGROK_DAEMON_MACHINE_SECRET, machineId);
+      // A fresh enrolment, and Turn on after Turn off, both land in Never. Card
+      // Always/Never presses then write nothing, so lift Never to Ask.
+      try {
+        const policy = await callOpenGrokAccountApi(secretsHandle, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: "/local-exec/policy", query: { machine: machineId },
+        }) as Record<string, unknown> | undefined;
+        const mode = typeof policy?.mode === "string" ? policy.mode : "never";
+        if (mode === "never") {
+          await callOpenGrokAccountApi(secretsHandle, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+            path: "/local-exec/policy", method: "PUT", body: { machineId, mode: "ask" },
+          });
+        }
+      } catch { /* enrolled; they can still pick a mode in Settings */ }
       return { machineId };
+    },
+    stopRemoteControl: async () => {
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "No OpenGrok server is configured.");
+      const secrets = await import("./secrets/secret-store.js");
+      const machineId = (await secrets.readSecret(OPENGROK_DAEMON_MACHINE_SECRET)) ?? "";
+      invariant(machineId.length > 0, "This computer is not enrolled for remote control.");
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      // Mode never first: the server must stop dispatching before we drop the
+      // local token. The machine id stays so Turn on re-enrols the same computer.
+      await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: "/local-exec/policy", method: "PUT", body: { machineId, mode: "never" },
+      });
+      await secrets.deleteSecret(OPENGROK_DAEMON_TOKEN_SECRET);
+      return { enrolled: false };
     },
     revokeRemoteControl: async () => {
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
