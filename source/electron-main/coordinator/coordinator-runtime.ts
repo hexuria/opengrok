@@ -148,6 +148,14 @@ export function createCoordinatorRuntime(
     void handle.processExited.then(({ code }) => {
       launchedHandles.delete(handle);
       if (disposed || current !== handle) return;
+      // The child usually exits because the page that held its renderer port went away (a
+      // reload closes the port and the coordinator settles). The sink recorded for that page
+      // belongs to a document that no longer exists: serving the relaunched child's port to it
+      // hands a port to nobody, and when the NEW page then asks, `portTransferred` is already
+      // true and the runtime launches a THIRD coordinator — the page ends up holding two ports,
+      // requests go on one and events arrive on the other, and every reply it sends is dead
+      // until Cmd+R. Forget the requester here; the new page's own request serves this child.
+      requester = null;
 
       const uptimeMs = dependencies.monotonicNow() - launchedAtMs;
       relaunchSeq += 1;
