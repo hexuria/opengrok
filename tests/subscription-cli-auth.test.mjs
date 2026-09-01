@@ -208,7 +208,11 @@ test("codex login runs in the background and a missing CLI opens the install ter
     const result = await missing.startLogin("codex");
     assert.equal(result.started, false);
     assert.equal(installOpens.length, 1);
-    assert.match(result.status.prompt, /curl -fsSL https:\/\/chatgpt\.com\/codex\/install\.sh \| sh/);
+    // The prompt hands over the installer for the machine it is running on,
+    // so assert against that rather than assuming the POSIX one: on Windows
+    // this is the PowerShell command, and hardcoding curl failed there.
+    assert.ok(result.status.prompt.includes(loaded.module.codexInstallCommand(process.platform)));
+    assert.match(loaded.module.codexInstallCommand("darwin"), /curl -fsSL https:\/\/chatgpt\.com\/codex\/install\.sh \| sh/);
     assert.equal(loaded.module.codexInstallCommand("win32").includes("install.ps1"), true);
   } finally {
     await loaded.dispose();
