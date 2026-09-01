@@ -1,7 +1,7 @@
 import { type SandLocalToolPermissionController, type SandLocalToolResolution } from "./local-tool-permission-controller.js";
 
 export class SandLocalToolPermissionResolutionError extends Error {}
-export function isSandLocalToolPermissionResolution(value: unknown): value is SandLocalToolResolution { return value === "allow-once" || value === "deny" || value === "always" || value === "never"; }
+export function isSandLocalToolPermissionResolution(value: unknown): value is SandLocalToolResolution { return value === "allow-once" || value === "allow-session" || value === "deny" || value === "always" || value === "never"; }
 
 export interface LocalToolPermissionResolutionArgs { readonly agentId: string; readonly entryId: string; readonly requestId: string; readonly resolution: unknown; }
 export interface LocalToolPermissionTranscript { readonly widgetResponses: { settleStaleLocalToolPermissionCard(args: { readonly agentId: string; readonly entryId: string; readonly requestId: string }): Promise<boolean | "retired">; expireAllPendingLocalToolPermissionCards?(args: { readonly ifPendingBeforeMs: number }): Promise<void>; }; }
