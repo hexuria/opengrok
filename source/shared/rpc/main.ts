@@ -92,6 +92,7 @@ export const MAIN_METHOD_TABLE = {
   getOpenGrokAgentIssues: { args: "none" },
   getRemoteControl: { args: "none" },
   enrolRemoteControl: { args: "object" },
+  stopRemoteControl: { args: "none" },
   revokeRemoteControl: { args: "none" },
   setRemoteControlMode: { args: "object" },
   deleteRemoteControlRule: { args: "object" },
