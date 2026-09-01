@@ -11,22 +11,20 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# HONEST STATUS: these jobs cannot go green on a bare clone, and have not on
-# any recent run of main. This repository deliberately gitignores the material
-# recovered from the shipped binary — `source/packages/proto/generated/` and
-# `frontend/` (see CLAUDE.md) — and 361 source files import proto/generated,
-# so a fresh checkout cannot typecheck, test or package. Everything below is
-# therefore expected to fail until CI is given that material (a private
-# artifact or a submodule); the real gate today is running these same commands
-# locally, where the material exists.
+# This repository does not track the material recovered from the shipped
+# binary (CLAUDE.md): `source/packages/proto/generated/` and `frontend/` are
+# gitignored, and 361 source files import proto/generated, so a bare checkout
+# cannot typecheck. CI therefore fetches the protos from the private
+# hexuria/opengrok-stow archive with a read-only deploy key, into the
+# workspace only — they are never committed here and never uploaded as an
+# artifact.
 #
-# The matrix is kept in the shape it should have: source typecheck plus the
-# test suite on all three desktop platforms, so that darwin-only assumptions
-# surface here the moment CI can actually run. Steps that could never work
-# even with protos — `npm run typecheck` and `frontend:build` (need
-# frontend/tsconfig.json), `publication:check` (diffs the working tree against
-# a clean-history export), and `npm run package` (stages frontend/src) — are
-# deliberately absent and stay local pre-flight.
+# Secrets are withheld from forked pull requests by design, so that case
+# degrades to the checks that need no protos rather than failing loudly.
+#
+# The pinned renderer is recovered by `npm run bootstrap`, which needs
+# macOS-only hdiutil; the handful of tests that read it skip where it is
+# absent, so ubuntu and windows still run the rest of the suite.
 jobs:
   check:
     strategy:
@@ -37,13 +35,44 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fetch the recovered protobuf definitions
+        id: protos
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: hexuria/opengrok-stow
+          ssh-key: ${{ secrets.STOW_DEPLOY_KEY }}
+          path: .stow-protos
+
+      - name: Stage the protos into the source tree
+        if: steps.protos.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=".stow-protos/source/packages/proto/generated"
+          test -d "$src" || { echo "archive has no $src"; exit 1; }
+          mkdir -p source/packages/proto
+          cp -R "$src" source/packages/proto/generated
+          echo "staged $(find source/packages/proto/generated -name '*.ts' | wc -l) proto files"
+
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
           cache: npm
+
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
+
+      # Recovers the checksum-pinned renderer the icon/anchor checks read.
+      # hdiutil is macOS-only; elsewhere those few tests skip.
+      - name: Recover the pinned runtime
+        if: runner.os == 'macOS'
+        run: npm run bootstrap
+
       - name: Typecheck the source tree
+        if: steps.protos.outcome == 'success'
         run: npm run source:typecheck
+
       - name: Run the test suite
         run: npm test

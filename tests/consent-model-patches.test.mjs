@@ -74,7 +74,7 @@ test("the per-agent auto-review widget is injected and is valid JS", async () =>
   assert.match(src, /\+ AGENT_AUTOREVIEW_HELPER \+ patched;/);
 });
 
-test("injected settings components only reference symbols that exist in the panel chunk", async () => {
+test("injected settings components only reference symbols that exist in the panel chunk", { skip: pinned == null }, async () => {
   // COMPONENT_SOURCE is spliced into the chunk holding the settings panel,
   // which is NOT the main index chunk. Referencing a helper that lives in
   // another chunk yields `undefined` at render and takes the whole app down
