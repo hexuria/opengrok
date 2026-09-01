@@ -446,8 +446,22 @@ test("the computer placeholder says what is actually true of the box", async () 
   assert.match(known("stopped"), /asleep/i);
   assert.match(known("stopped"), /message/i);
   assert.match(known("absent"), /no computer/i);
+  // box.ascii.dev's word for asleep is archived (its auto-stop archives; nothing there is ever
+  // "stopped"), and a box still archiving wakes the same way once it lands. Same answer.
+  assert.match(known("archived"), /asleep/i);
+  assert.match(known("archiving"), /asleep/i);
   // A provider word we have never seen is still reported rather than swallowed.
   assert.match(known("exited"), /exited/);
+
+  // The pane's own placeholder passes its spinner flag. A spinner beside "asleep, send a message"
+  // is the pane already waking the box - this is what the archived box showed for its whole
+  // 15-second resume - so with the flag set the copy says what the spinner is doing.
+  const busy = (state) => RBoxEmptyMessage({ isStatusKnown: true, isStatusUnavailable: false, status: { state } }, true);
+  assert.match(busy("archived"), /Waking/i);
+  assert.match(busy("stopped"), /Waking/i);
+  assert.match(busy("provisioning"), /Starting this computer/i);
+  assert.equal(busy("running"), undefined, "a running box with a spinner is the screen arriving; say nothing here");
+  assert.match(busy("absent"), /no computer/i, "loading does not make an absent computer a waking one");
 
   // Only a genuinely unknown status keeps the original wording, because there
   // the app really is still finding out.
@@ -616,6 +630,48 @@ test("opening a stopped computer wakes it, once, and only from the opened view",
   assert.match(gone.emptyMessage, /no computer/i);
   assert.equal(gone.isEmptyLoading, false);
 
+  // An ARCHIVED box is an asleep box - that is box.ascii.dev's only word for it. Left as an
+  // unknown word it sat there saying "This computer is archived." and never woke.
+  let archivedEnsured = 0;
+  const archived = RBoxOpenPlaceholder({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote",
+    status: { state: "archived", agentId: "cw_archived" },
+    ensure: () => { archivedEnsured += 1; return Promise.resolve(); },
+  }, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(archivedEnsured, 1, "an archived computer is woken when its view is opened");
+  assert.match(archived.emptyMessage, /Waking/i);
+  assert.equal(archived.isEmptyLoading, true);
+
+  // One still archiving wakes too: the server waits for the archive to land, then resumes.
+  let archivingEnsured = 0;
+  RBoxOpenPlaceholder({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote",
+    status: { state: "archiving", agentId: "cw_archiving" },
+    ensure: () => { archivingEnsured += 1; return Promise.resolve(); },
+  }, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(archivingEnsured, 1, "a computer still archiving is woken as well");
+
+  // While an ensure is in flight the view keeps saying Waking, and does not fire another: the
+  // server now waits for the box to come up inside ensure, which outlasts any fixed window.
+  let pending;
+  const slow = new Promise((r) => { pending = r; });
+  let slowEnsured = 0;
+  const sleeping = {
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote",
+    status: { state: "archived", agentId: "cw_slow" },
+    ensure: () => { slowEnsured += 1; return slow; },
+  };
+  RBoxOpenPlaceholder(sleeping, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
+  const meanwhile = RBoxOpenPlaceholder(sleeping, "local copy");
+  assert.equal(slowEnsured, 1);
+  assert.match(meanwhile.emptyMessage, /Waking/i, "still waking while ensure has not answered");
+  assert.equal(meanwhile.isEmptyLoading, true);
+  pending();
+  await new Promise((r) => setTimeout(r, 20));
+
   // A mapped box whose key will not open must say so, not spin waking.
   let errEnsured = 0;
   const broken = RBoxOpenPlaceholder({
@@ -776,6 +832,32 @@ test("a screen that is still arriving is not reported as absent", async () => {
   }, "local copy");
   assert.equal(up.emptyMessage, undefined);
   assert.equal(up.isEmptyLoading, false);
+});
+
+// A resumed box.ascii.dev box is `provisioning` for tens of seconds before it
+// runs. That is not asleep (do not resume it again) and not running (there is
+// no screen to wait for); it is a wait, and the status only refreshes on focus,
+// so the view must ask again itself and say what it is waiting for.
+test("a computer that is starting is polled and says so", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  const place = new Function(`${chrome}\nreturn RBoxOpenPlaceholder;`)();
+
+  let asked = 0;
+  let ensured = 0;
+  const starting = {
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote", vncUrl: null,
+    status: { state: "provisioning", agentId: "cw_starting" },
+    retryStatus: () => { asked += 1; }, ensure: () => { ensured += 1; },
+  };
+  const first = place(starting, "local copy");
+  assert.match(first.emptyMessage, /Starting this computer/i);
+  assert.equal(first.isEmptyLoading, true);
+  await new Promise((r) => setTimeout(r, 2700));
+  place(starting, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(asked > 0, "a starting computer must be asked about again");
+  assert.equal(ensured, 0, "and must not be resumed a second time");
 });
 
 // Asking the store to update while another component is rendering is what
