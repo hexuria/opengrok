@@ -36,6 +36,9 @@ node_modules/
 
 # Stow directory (managed separately)
 .stow/
+# Where CI (and a local dry-run) checks out the private archive before
+# restoring it into the tree. Never belongs in a commit.
+.stow-material/
 
 # Vendor release archive: the manifests stay here as documentation, the
 # binaries live in the private .stow repo (see research-archives/README.md)
