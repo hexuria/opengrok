@@ -2177,10 +2177,23 @@ const FETCH_RESOLVE_AFTER = 'F(j).then(le=>{clearTimeout(__sandWatch);if(X!==j.f
 const FETCH_REJECT_BEFORE = 'le=>{if(X!==j.fetchAttempt)return;j.isFetchInFlight=!1;const Q=j.isActivityRefreshQueued;';
 const FETCH_REJECT_AFTER = 'le=>{clearTimeout(__sandWatch);if(X!==j.fetchAttempt){if(j.__sandFetchSeq===__sandFetch){j.isFetchInFlight=!1;j.replica.view().status==="resyncing"&&z(j)}return}j.isFetchInFlight=!1;const Q=j.isActivityRefreshQueued;';
 
+// The second way the same replica starves, seen on every renderer reload: the transport
+// reconnect calls replica.reconnect(), which starts a resync attempt BEFORE any live frame has
+// been observed, so the fetch it triggers has no anchor and installs nothing; the attempt stays
+// open. When the next live frame arrives (the echo of a send) it carries the anchor the fetch
+// needed, but joinOrStartAttempt is a no-op with an attempt already current, resyncRequests does
+// not move, and the driver below only re-fetches after a FAILURE. Nothing fetches again until the
+// window-focus refresh chain happens to run the store's activity refresh, which is why a reply
+// "sometimes" appears a minute later. Re-fetch when the replica is resyncing, nothing is in
+// flight, and a new anchor has been observed since the last dispatch.
+const RESYNC_RETRY_BEFORE = 'se.status==="resyncing"&&le.status==="resyncing"&&!j.isFetchInFlight&&j.lastFailure!=null?(N(j),z(j)):';
+const RESYNC_RETRY_AFTER = 'se.status==="resyncing"&&le.status==="resyncing"&&!j.isFetchInFlight&&(j.lastFailure!=null||j.observedAnchor!=null&&j.__sandAnchorSeen!==j.observedAnchor)?(j.__sandAnchorSeen=j.observedAnchor,N(j),z(j)):';
+
 export function patchOriginalTranscriptFetchFlag(source) {
   let patched = replaceExactlyOnce(source, FETCH_START_BEFORE, FETCH_START_AFTER, "transcript fetch token");
   patched = replaceExactlyOnce(patched, FETCH_RESOLVE_BEFORE, FETCH_RESOLVE_AFTER, "transcript fetch superseded resolve");
   patched = replaceExactlyOnce(patched, FETCH_REJECT_BEFORE, FETCH_REJECT_AFTER, "transcript fetch superseded reject");
+  patched = replaceExactlyOnce(patched, RESYNC_RETRY_BEFORE, RESYNC_RETRY_AFTER, "transcript resync retry on new anchor");
   return patched;
 }
 

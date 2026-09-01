@@ -16,13 +16,14 @@ const FIXTURE = `
   const d=false, F=env.F, N=env.N||(()=>{}), I=(j,f)=>f(), D=(j)=>{j.replica.status="synced"}, O=()=>{}, E=env.E||(()=>{}), W=()=>{}, H=()=>{};
   class wn extends Error { constructor(f){ super(f.code); this.failure=f; } }
   const z=j=>{if(d||j.isFetchInFlight)return;j.isFetchInFlight=!0,j.isActivityRefreshQueued=!1;const Z=j.replica.view();Z.status==="resyncing"&&N(j);const X=j.fetchAttempt,se={anchor:j.observedAnchor,attemptId:Z.currentResyncAttemptId,windowAtDispatch:Z.value};F(j).then(le=>{if(X!==j.fetchAttempt)return;j.isFetchInFlight=!1,j.lastFailure=null;const Q=j.replica.view().value;if(I(j,()=>D(j,le,se)),j.replica.view().status==="resyncing"){O(j),z(j);return}E(j,"covered"),W(j),H(),O(j),j.isActivityRefreshQueued&&z(j)},le=>{if(X!==j.fetchAttempt)return;j.isFetchInFlight=!1;const Q=j.isActivityRefreshQueued;if(j.isActivityRefreshQueued=!1,!(le instanceof wn))throw le;j.lastFailure=le.failure,O(j),Q&&z(j)})};
-  return { z, wn };
+  const V=(j,Z,X=!1)=>{const se=j.replica.view();Z();const le=j.replica.view();X&&j.lastFailure!=null&&le.status==="synced"&&le.value.isInstalled&&le.value!==se.value&&(j.lastFailure=null),le.resyncRequests>se.resyncRequests||se.status==="resyncing"&&le.status==="resyncing"&&!j.isFetchInFlight&&j.lastFailure!=null?(N(j),z(j)):se.status==="resyncing"&&le.status==="synced"&&!j.isFetchInFlight&&E(j,"covered"),O(j)};
+  return { z, V, wn };
 })
 `;
 
 function store(status) {
   // The real replica flips to "synced" once a fetched tail installs a baseline (D above).
-  const replica = { status, view() { return { status: this.status, currentResyncAttemptId: 1, value: {} }; } };
+  const replica = { status, resyncRequests: 1, view() { return { status: this.status, currentResyncAttemptId: 1, resyncRequests: this.resyncRequests, value: {} }; } };
   return { isFetchInFlight: false, isActivityRefreshQueued: false, fetchAttempt: 0, observedAnchor: null, lastFailure: null, replica };
 }
 
@@ -89,4 +90,24 @@ test("the patch is registered on the renderer chunk pipeline", async () => {
   const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
   assert.match(src, /patchOriginalTranscriptFetchFlag\(patchOriginalMediaMeta\(/);
   assert.match(src, /"transcript-fetch-flag-release"/);
+});
+
+// On a renderer reload the transport reconnect starts a resync attempt before any live frame
+// exists; the fetch it triggers has no anchor and installs nothing, and the attempt stays open.
+// When the echo of a send then arrives with an anchor, the unpatched driver does nothing (no
+// failure, no new attempt) and the page shows "…" until a focus refresh happens to fetch.
+test("a new anchor while an attempt is open re-runs the fetch on the patched driver only", async () => {
+  const run = async (source) => {
+    const calls = [];
+    const { z, V } = eval(source)({ F: (j) => { calls.push(j.fetchAttempt); return new Promise(() => {}); } });
+    void z; // the driver is exercised through V, as the event path does
+    const j = store("resyncing");
+    // No fetch in flight, attempt open, and the echo just gave us an anchor.
+    j.replica.status = "resyncing";
+    V(j, () => { j.observedAnchor = { epoch: "e1", sequence: 4 }; });
+    await tick();
+    return calls.length;
+  };
+  assert.equal(await run(FIXTURE), 0, "the defect: nothing fetches");
+  assert.equal(await run(patchOriginalTranscriptFetchFlag(FIXTURE)), 1, "the patched driver fetches with the anchor");
 });
