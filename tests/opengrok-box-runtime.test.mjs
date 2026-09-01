@@ -602,7 +602,36 @@ test("opening a stopped computer wakes it, once, and only from the opened view",
   let blind = 0;
   RBoxOpenPlaceholder({ isStatusKnown: false, isStatusUnavailable: false, status: null, ensure: () => { blind += 1; } }, "local copy");
   assert.equal(blind, 0, "a status we do not have is not a reason to wake anything");
+
+  // Absent is not asleep. Waking a computer that does not exist is how "no computer yet"
+  // turned into the 40s/60s overlay loop.
+  let absentEnsured = 0;
+  const gone = RBoxOpenPlaceholder({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote",
+    status: { state: "absent", agentId: "cw_absent" },
+    ensure: () => { absentEnsured += 1; return Promise.resolve(); },
+  }, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(absentEnsured, 0, "an absent computer must not be woken");
+  assert.match(gone.emptyMessage, /no computer/i);
+  assert.equal(gone.isEmptyLoading, false);
+
+  // A mapped box whose key will not open must say so, not spin waking.
+  let errEnsured = 0;
+  const broken = RBoxOpenPlaceholder({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote",
+    status: {
+      state: "stopped", agentId: "cw_err",
+      computerError: { code: "invalid_key", message: "The saved box.ascii.dev key cannot be opened." },
+    },
+    ensure: () => { errEnsured += 1; return Promise.resolve(); },
+  }, "local copy");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(errEnsured, 0, "a computerError is not a reason to wake");
+  assert.match(broken.emptyMessage, /cannot be opened/);
+  assert.equal(broken.isEmptyLoading, false);
 });
+
 
 // The renderer source is evaluated whole by other tests to read one function
 // out of it. A bare setInterval at its top level therefore ran in the test
