@@ -305,9 +305,9 @@ function RRemoteControl(){
       description:s.machineId
         ?"Off. Standing rules are kept. Turn this on and a bot can ask to run commands here again."
         :"Off. A bot on your server cannot reach this Mac at all. Turn this on and it can ask to run commands here — useful for reaching this machine from your phone, and worth understanding before you do it.",
+      extraCopy:s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null,
       children:a.jsx(oe,{disabled:s.busy,onClick:turnOn,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning on…":"Turn on…"})}),
-    s.machineId?RRemoteForgetRow(s,e,forget):null,
-    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
+    s.machineId?RRemoteForgetRow(s,e,forget):null]});
   return a.jsxs("div",{children:[
     a.jsx(ie,{variant:"card",label:"Bots using this computer",
       description:s.mode==="never"?"On, but nothing may run: every request is refused."
@@ -324,14 +324,13 @@ function RRemoteControl(){
       description:s.confirming==="off"
         ?"This computer stops being reachable. Standing rules stay, and turning it on again uses the same computer."
         :"Stop your bots reaching this computer.",
+      extraCopy:s.error&&!s.managing?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null,
       children:s.confirming==="off"
         ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
             a.jsx(oe,{disabled:s.busy,onClick:()=>e(i=>({...i,confirming:null})),shape:"rectangular",size:"sm",variant:"secondary",children:"Cancel"}),
             a.jsx(oe,{disabled:s.busy,onClick:turnOff,shape:"rectangular",size:"sm",variant:"secondary",children:s.busy?"Turning off…":"Turn off"})]})
         :a.jsx(oe,{onClick:()=>e(i=>({...i,confirming:"off"})),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off…"})}),
-    RRemoteForgetRow(s,e,forget),
-    // While the dialog is open it owns the error; do not also paint it behind.
-    s.error&&!s.managing?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
+    RRemoteForgetRow(s,e,forget)]});
 }
 // A fixed slot so showing or clearing a message never shifts the rows.
 const RRowNote=(text,tone)=>a.jsx("div",{style:{minHeight:16,paddingBottom:8,paddingTop:2},children:text?a.jsx(se,{as:"p",color:tone||"red",size:"sm",children:text}):null});
@@ -371,21 +370,21 @@ function RLocalComputer(){
   const dirty=s.draft.trim()!==(s.name||"").trim();
   return a.jsxs("div",{children:[
     a.jsx(ie,{description:s.isCustom&&s.hostname?"Known to this network as "+s.hostname+".":"The computer you are using now.",label:"This computer",variant:"card",
+      extraCopy:s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null,
       children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8},children:[
         a.jsx("input",{"aria-label":"Name for this computer",className:RRouterInputClass,disabled:s.saving,
           onChange:ev=>{const v=ev.currentTarget.value;e(i=>({...i,draft:v}))},
           placeholder:s.hostname||"This computer",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:230},value:s.draft}),
         a.jsx(oe,{disabled:s.saving||!dirty,onClick:save,shape:"rectangular",size:"sm",variant:"secondary",children:s.saving?"Saving…":"Save"})]})}),
     a.jsx(ie,{divided:!0,description:"When on, bots on your server can run commands on this computer. Turn it off to stop them, whatever a rule or the server says. Per-command consent still happens on the server.",label:"This computer accepts bot commands",variant:"card",
+      extraCopy:s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
       children:a.jsx(Ne,{label:"This computer accepts bot commands",isChecked:s.permission!=null&&s.permission!=="never",isDisabled:s.permission==null,size:"sm",onToggle:()=>setPerm(s.permission==="never"?"always":"never")})}),
-    s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
     s.sudoAvail?a.jsx(ie,{divided:!0,description:s.sudoEnabled
       ?"Bots can run administrator (sudo) commands here. You still get a password card each time; nothing runs as administrator without it."
       :"Let bots run administrator (sudo) commands here. You get a password card each time; nothing runs as administrator without it."+(RSudoBioLabel(s.sudoBiometric)?" Unlock with "+RSudoBioLabel(s.sudoBiometric)+", or your password if that fails.":" You will be asked for your password to turn it on."),
       label:"Allow administrator (sudo) commands",variant:"card",
-      children:a.jsx(Ne,{label:"Allow administrator (sudo) commands",isChecked:s.sudoEnabled,isDisabled:s.sudoBusy,size:"sm",onToggle:()=>setSudo(s.sudoEnabled?"off":"on")})}):null,
-    s.sudoAvail?RRowNote(s.sudoBusy?(RSudoBioLabel(s.sudoBiometric)?"Waiting for "+RSudoBioLabel(s.sudoBiometric)+"\u2026":"Waiting for your password\u2026"):s.sudoError,s.sudoBusy?"secondary":"red"):null,
-    s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
+      extraCopy:RRowNote(s.sudoBusy?(RSudoBioLabel(s.sudoBiometric)?"Waiting for "+RSudoBioLabel(s.sudoBiometric)+"\u2026":"Waiting for your password\u2026"):s.sudoError,s.sudoBusy?"secondary":"red"),
+      children:a.jsx(Ne,{label:"Allow administrator (sudo) commands",isChecked:s.sudoEnabled,isDisabled:s.sudoBusy,size:"sm",onToggle:()=>setSudo(s.sudoEnabled?"off":"on")})}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
 function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null,computerError:null,activeKind:null,sharingMode:null});
 const load=()=>window.desktop.agent.listOpenGrokComputers().then(r=>{if(r==null)return;e({computers:r.computers||[],signedIn:!!r.signedIn,error:r.error||null,computerError:r.computerError||null,activeKind:r.activeKind||null,sharingMode:r.sharingMode||null})}).catch(err=>e(i=>({...i,error:String(err&&err.message||err)})));
