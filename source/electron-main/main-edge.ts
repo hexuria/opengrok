@@ -8,7 +8,7 @@ import { isSandUpdateTrack } from "../shared/update-track.js";
 import { isValidIanaTimeZone } from "../shared/timezone.js";
 import { sandWebauthnProxyMirroredEnablement } from "../shared/webauthn-proxy-availability.js";
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
-import { askpassService, authorizeSudoEnableProduction } from "./askpass/askpass-runtime.js";
+import { askpassBiometricKind, askpassService, authorizeSudoEnableProduction } from "./askpass/askpass-runtime.js";
 import { isSandInferenceProvider, parseOpenRouterModelId } from "../shared/inference-router.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
 import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_DAEMON_MACHINE_SECRET, OPENGROK_DAEMON_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
@@ -395,17 +395,17 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       return { ok: true };
     },
     getLocalToolPermission: () => invoke(deps.settingsStore, "getLocalToolPermission"),
-    getSudoAskpassEnabled: () => ({ enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32" }),
+    getSudoAskpassEnabled: () => ({ enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32", biometric: askpassBiometricKind() }),
     setSudoAskpassEnabled: async (raw) => {
       // Turning off is free; turning on must be authenticated (Touch ID, or a
       // validated sudo password) so an agent can't flip its own master switch.
       if (req(raw).enabled !== true) {
         invoke(deps.settingsStore, "setSudoAskpassEnabled", false);
-        return { enabled: false, available: deps.platform !== "win32" };
+        return { enabled: false, available: deps.platform !== "win32", biometric: askpassBiometricKind() };
       }
       const outcome = await (deps.authorizeSudoEnable ?? authorizeSudoEnableProduction)();
       if (outcome.ok) invoke(deps.settingsStore, "setSudoAskpassEnabled", true);
-      return { enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32", ...(outcome.error == null ? {} : { error: outcome.error }) };
+      return { enabled: invoke(deps.settingsStore, "getSudoAskpassEnabled") === true, available: deps.platform !== "win32", biometric: askpassBiometricKind(), ...(outcome.error == null ? {} : { error: outcome.error }) };
     },
     getLocalToolPermissionCeiling: () => invoke(deps.settingsStore, "getLocalToolPermissionCeiling") ?? null,
     setLocalToolPermission: async (raw) => { invoke(deps.settingsStore, "setLocalToolPermission", normalizeSandLocalToolPermission(req(raw).permission)); for (let attempt = 0; attempt < 3; attempt += 1) { const permission = invoke(deps.settingsStore, "getLocalToolPermission"); try { const applied = await deps.syncHostSettingsToBox({ localToolPermission: permission }); if (applied?.localToolPermission === permission) break; } catch (error) { reportDesktopEdgeFailure("host-settings", "local-tool-retry", error); } await (deps.delay ?? sleep)(250 * (attempt + 1)); } return invoke(deps.settingsStore, "getLocalToolPermission"); },

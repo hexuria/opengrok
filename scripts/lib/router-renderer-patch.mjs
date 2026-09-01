@@ -254,9 +254,17 @@ function RRemoteControl(){
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",style:{marginTop:8},children:s.error}):null]});
 }
 const RLocalPerm=[{value:"always",label:"On"},{value:"never",label:"Off"}];
-const RSudoOpts=[{value:"on",label:"On"},{value:"off",label:"Off"}];
+// One fingerprint mark serves both platforms: Windows Hello also covers
+// fingerprint, and the print glyph is the universally read "biometric" sign.
+// The icon set ships no fingerprint, so this is our own simple mark.
+const RFingerprint=()=>a.jsxs("svg",{"aria-hidden":"true",viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",style:{width:15,height:15,flex:"none"},children:[
+  a.jsx("path",{d:"M12 10.6v4.9"}),
+  a.jsx("path",{d:"M9 12.1a3 3 0 0 1 6 0v3.1"}),
+  a.jsx("path",{d:"M6.1 11.6a5.9 5.9 0 0 1 11.8 0v2.6"}),
+  a.jsx("path",{d:"M3.7 11.1a8.3 8.3 0 0 1 16.6 0"})]});
+const RSudoBioLabel=k=>k==="windows-hello"?"Windows Hello":k==="touch-id"?"Touch ID":null;
 function RLocalComputer(){
-  const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null,sudoEnabled:!1,sudoAvail:!1,sudoBusy:!1,sudoError:null});
+  const[s,e]=de.useState({name:"",hostname:"",isCustom:!1,draft:"",permission:null,ceiling:null,loaded:!1,saving:!1,error:null,sudoEnabled:!1,sudoAvail:!1,sudoBiometric:null,sudoBusy:!1,sudoError:null});
   de.useEffect(()=>{let alive=!0;
     Promise.all([
       window.desktop.agent.getLocalComputer().catch(()=>null),
@@ -267,7 +275,7 @@ function RLocalComputer(){
       e(i=>({...i,name:c.name||"",hostname:c.hostname||"",isCustom:!!c.isCustom,draft:c.name||"",
         permission:typeof p==="string"?p:(p&&typeof p.permission==="string"?p.permission:null),
         ceiling:typeof r[2]==="string"?r[2]:(r[2]&&typeof r[2].permission==="string"?r[2].permission:null),
-        sudoEnabled:!!(sp&&sp.enabled),sudoAvail:!!(sp&&sp.available),
+        sudoEnabled:!!(sp&&sp.enabled),sudoAvail:!!(sp&&sp.available),sudoBiometric:(sp&&sp.biometric)||null,
         loaded:!0}))}).catch(()=>{alive&&e(i=>({...i,loaded:!0}))});
     return()=>{alive=!1}},[]);
   const save=async()=>{const next=s.draft.trim();e(i=>({...i,saving:!0,error:null}));
@@ -284,7 +292,7 @@ function RLocalComputer(){
     // Enabling is authenticated in the main process (Touch ID or your password);
     // it is not optimistic — the row reflects the verified result.
     e(i=>({...i,sudoBusy:!0,sudoError:null}));
-    try{const r=await window.desktop.sudoAskpass.set(!0);e(i=>({...i,sudoBusy:!1,sudoEnabled:!!(r&&r.enabled),sudoError:r&&r.error?r.error:null}))}
+    try{const r=await window.desktop.sudoAskpass.set(!0);e(i=>({...i,sudoBusy:!1,sudoEnabled:!!(r&&r.enabled),sudoBiometric:(r&&r.biometric)||i.sudoBiometric,sudoError:r&&r.error?r.error:null}))}
     catch(err){e(i=>({...i,sudoBusy:!1,sudoError:String(err&&err.message||err)}))}};
   if(!s.loaded)return a.jsx(ie,{description:"The computer you are using now.",label:"This computer",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Loading…"})});
   const dirty=s.draft.trim()!==(s.name||"").trim();
@@ -299,8 +307,18 @@ function RLocalComputer(){
       children:a.jsx(ye,{"aria-label":"This computer accepts bot commands",onValueChange:setPerm,options:RLocalPerm,placement:"bottom-end",size:"lg",
         value:s.permission==null?null:s.permission==="never"?"never":"always",variant:"filled"})}),
     s.ceiling==="never"&&s.permission!=="never"?a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Your organisation has turned local execution off, so nothing will run here."}):null,
-    s.sudoAvail?a.jsx(ie,{divided:!0,description:"Let bots run administrator (sudo) commands here. You get a password card each time; nothing runs as administrator without it. Requires Touch ID or your password to turn on.",label:"Allow administrator (sudo) commands",variant:"card",
-      children:a.jsx(ye,{"aria-label":"Allow administrator commands",onValueChange:setSudo,options:RSudoOpts,placement:"bottom-end",size:"lg",value:s.sudoBusy?null:(s.sudoEnabled?"on":"off"),variant:"filled"})}):null,
+    s.sudoAvail?a.jsx(ie,{divided:!0,description:s.sudoEnabled
+      ?"Bots can run administrator (sudo) commands here. You still get a password card each time; nothing runs as administrator without it."
+      :"Let bots run administrator (sudo) commands here. You get a password card each time; nothing runs as administrator without it."+(RSudoBioLabel(s.sudoBiometric)?" Unlock with "+RSudoBioLabel(s.sudoBiometric)+", or your password if that fails.":" You will be asked for your password to turn it on."),
+      label:"Allow administrator (sudo) commands",variant:"card",
+      children:s.sudoEnabled
+        ?a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:8,alignItems:"center"},children:[
+          a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"On"}),
+          a.jsx(oe,{disabled:s.sudoBusy,onClick:()=>setSudo("off"),shape:"rectangular",size:"sm",variant:"secondary",children:"Turn off"})]})
+        :a.jsx(oe,{disabled:s.sudoBusy,onClick:()=>setSudo("on"),shape:"rectangular",size:"sm",variant:"secondary",
+          children:a.jsxs("span",{className:"sand-9f619 sand-78zum5 sand-6s0dn4",style:{gap:6,alignItems:"center"},children:[
+            a.jsx(RFingerprint,{}),
+            s.sudoBusy?"Waiting…":(RSudoBioLabel(s.sudoBiometric)?"Unlock with "+RSudoBioLabel(s.sudoBiometric):"Turn on")]})})}):null,
     s.sudoError?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.sudoError}):null,
     s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};

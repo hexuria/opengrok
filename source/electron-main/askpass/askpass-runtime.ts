@@ -77,3 +77,15 @@ export async function authorizeSudoEnableProduction(): Promise<SudoEnableAuthRes
     runSudoValidate: createSudoValidator(active),
   });
 }
+
+/**
+ * Which biometric the machine can actually prompt with, for labelling the
+ * enable button. Null when there is no sensor, none enrolled, or the platform
+ * has no supported biometric — the enable flow then uses the password card.
+ */
+export function askpassBiometricKind(): "touch-id" | "windows-hello" | null {
+  if (process.platform === "darwin") {
+    try { return biometric?.canPromptTouchID() === true ? "touch-id" : null; } catch { return null; }
+  }
+  return null;
+}
