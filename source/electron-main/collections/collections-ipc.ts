@@ -102,6 +102,7 @@ export interface CollectionsIpcDeps {
 export interface CollectionsService {
   addMessagesFromApp(request: unknown): Promise<{ readonly collectionId: string; readonly name: string; readonly added: number; readonly duplicates: number; readonly dropped: number; readonly missing: number }>;
   listCollectionsFromApp(): Promise<{ readonly collections: CollectionSummary[] }>;
+  openWindowFromApp(collectionId?: string): void;
 }
 
 let activeService: CollectionsService | null = null;
@@ -117,6 +118,11 @@ export function addCollectionMessagesFromApp(request: unknown): Promise<unknown>
 }
 
 /** The share picker in the app window lists collections through the same holder. */
+/** The rail's entry: brings the Collections window forward, on a collection when one is named. */
+export function openCollectionsFromApp(collectionId?: string): void {
+  activeService?.openWindowFromApp(collectionId);
+}
+
 export function listCollectionsFromApp(): Promise<unknown> {
   if (activeService == null) return Promise.reject(new CollectionsError("Collections are not available yet."));
   return activeService.listCollectionsFromApp();
@@ -230,6 +236,9 @@ function createService(deps: CollectionsIpcDeps): CollectionsService {
       });
       deps.openWindow(result.collectionId);
       return { ...result, missing: entryIds.length - messages.length };
+    },
+    openWindowFromApp(collectionId?: string) {
+      deps.openWindow(collectionId);
     },
     async listCollectionsFromApp() {
       return { collections: await deps.store.listCollections() };

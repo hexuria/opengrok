@@ -92,6 +92,7 @@ export interface MainEdgeDeps {
   readonly deleteTranscriptEntries: (args: UnknownRecord) => Promise<unknown>;
   /** Share/bookmark entry point for the multi-select UI; snapshots and stores in main. */
   readonly addCollectionMessages?: (args: UnknownRecord) => Promise<unknown>;
+  readonly openCollections?: (collectionId?: string) => void;
   /** Collection roster for the in-transcript share picker. */
   readonly listCollections?: () => Promise<unknown>;
   readonly recordLocalToolApproval: (approval: { id: string; action: string; target: string }) => Promise<void>;
@@ -901,6 +902,11 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       return cloneableRecord({ ...transcriptDeletionFor(read("getBoxRuntime"), read("getInferenceProvider")) });
     },
     deleteTranscriptEntries: (raw) => { const { agentId, entryIds } = req(raw); invariant(typeof agentId === "string" && agentId.length > 0 && Array.isArray(entryIds), "A transcript deletion names its agent and entry ids."); return deps.deleteTranscriptEntries({ agentId, entryIds: entryIds.filter((id): id is string => typeof id === "string") }); },
+    openCollections: async (raw) => {
+      const id = typeof req(raw).collectionId === "string" ? req(raw).collectionId as string : "";
+      deps.openCollections?.(id.length > 0 ? id : undefined);
+      return cloneableRecord({ opened: true });
+    },
     addCollectionMessages: async (raw) => {
       const { agentId, entryIds, target, collectionId, name } = req(raw);
       invariant(typeof agentId === "string" && agentId.length > 0 && Array.isArray(entryIds), "Sharing to a collection names its agent and entry ids.");

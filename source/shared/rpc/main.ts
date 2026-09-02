@@ -110,6 +110,7 @@ export const MAIN_METHOD_TABLE = {
   deleteTranscriptEntries: { args: "object" },
   getTranscriptDeletion: { args: "none" },
   addCollectionMessages: { args: "object" },
+  openCollections: { args: "object" },
   listCollections: { args: "none" },
   transcribeAudio: { args: "object" },
   getTranscribeSettings: { args: "none" },
