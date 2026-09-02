@@ -4,7 +4,8 @@ import { pathToFileURL } from "node:url";
 
 import grayMatter from "gray-matter";
 import { Piscina } from "piscina";
-import yaml from "js-yaml";
+// js-yaml 4 dropped the default export; it ships named exports only.
+import * as yaml from "js-yaml";
 import { z } from "zod";
 
 import { readExecutorResource } from "../../../../agent-exec/read.js";
@@ -38,7 +39,8 @@ export const planFrontmatterSchema = z.object({
   phases: z.array(z.unknown()).optional(),
 }).passthrough();
 
-const planFrontmatterStringifyOptions: Parameters<typeof yaml.safeDump>[1] = {
+// js-yaml 4 dropped the unsafe dump and renamed the safe one to `dump`.
+const planFrontmatterStringifyOptions: Parameters<typeof yaml.dump>[1] = {
   indent: 2,
   lineWidth: -1,
 };
@@ -47,7 +49,7 @@ export function stringifyPlanFrontmatter(
   content: string,
   data: Record<string, unknown>,
 ): string {
-  const frontmatter = yaml.safeDump(data, planFrontmatterStringifyOptions).trim();
+  const frontmatter = yaml.dump(data, planFrontmatterStringifyOptions).trim();
   const normalizedContent = content.endsWith("\n") ? content : `${content}\n`;
   if (frontmatter === "{}") return normalizedContent;
   return `---\n${frontmatter}\n---\n${normalizedContent}`;

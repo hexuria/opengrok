@@ -13,7 +13,7 @@ import type { ProductionServiceContext } from "../main-production-services.js";
 import type { ElectronProductionAdapterBindings } from "../production-adapters.js";
 import { DashboardService } from "../../packages/proto/generated/aiserver/v1/dashboard_connect.js";
 import { createSandCursorBackendClient } from "../../shared/node/cursor-backend/cursor-inference.js";
-import { SAND_PRODUCT_DISPLAY_NAME } from "../../shared/product-name.js";
+import { productDisplayName } from "../../shared/product-name.js";
 import type { SandAccessBackend } from "../account/access.js";
 
 function accountRuntimeOf(context: Pick<ProductionServiceContext, "requireCoordinator">): AccountRuntime | null | undefined {
@@ -56,7 +56,7 @@ export function createElectronProductionCursorAccountBinding(): ElectronProducti
         fetchPrivacyModeEnabled: (getAccessToken) => fetchUserPrivacyModeEnabled(getAccessToken, { getMachineId }),
         cancelTrial: (getAccessToken) => cancelSandTrial(getAccessToken, { getMachineId }),
         invokeDashboardAction: (getAccessToken, request) => invokeSandDashboardAction(getAccessToken, request, { getMachineId }),
-        productDisplayName: SAND_PRODUCT_DISPLAY_NAME,
+        productDisplayName: productDisplayName(),
       });
     },
     createTranscriptionManager(context) {

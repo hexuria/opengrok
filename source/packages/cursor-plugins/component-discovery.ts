@@ -1,5 +1,6 @@
 import { basename } from "node:path";
-import yaml from "js-yaml";
+// js-yaml 4 dropped the default export; it ships named exports only.
+import * as yaml from "js-yaml";
 import { isPathSafe, type PluginManifest } from "./manifest-parser.js";
 import { PLUGIN_MCP_CONFIG_FILE_NAMES, resolvePluginMcpConfigFromReader } from "./mcp-parser.js";
 import { inferMcpPlaceholderVariables, type PlaceholderProperty } from "./mcp-placeholder-variables.js";
