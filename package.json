@@ -101,7 +101,7 @@
     "@tiptap/starter-kit": "3.14.0",
     "@tiptap/suggestion": "3.14.0",
     "ai": "4.3.17",
-    "diff": "8.0.3",
+    "diff": "9.0.0",
     "emojibase": "17.0.0",
     "emojibase-data": "17.0.0",
     "gray-matter": "4.0.3",
