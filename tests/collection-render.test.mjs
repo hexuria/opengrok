@@ -87,3 +87,31 @@ test("an export carries one theme: the one it was exported from", () => {
   assert.match(of(undefined), /color-scheme:light/, "no theme given means light");
   assert.match(dark, /break-inside:avoid/, "and a printed page does not split a bubble");
 });
+
+// A collection is a fixed set of messages kept to be read again: no stamps, no way to take one
+// out, no link back to an original that may not exist any more.
+test("a saved message shows who said it and what it said, and nothing else", () => {
+  const message = {
+    key: "cw_1/e_1", agentId: "cw_1", agentName: "Hexuria", entryId: "e_1", addedAtMs: 1_700_000_000_000,
+    entry: { kind: "message", role: "assistant", content: "**kept**", timestampMs: 1_700_000_000_000 }, media: [],
+  };
+  const html = mod.renderCollectionMessage(message, { mediaSrc: () => null, formatTimestamp: () => "Aug 28, 2026, 5:19 PM" });
+  assert.match(html, /<span class="sand-col-who">Hexuria<\/span>/);
+  assert.match(html, /<strong>kept<\/strong>/);
+  assert.doesNotMatch(html, /Aug 28/, "no timestamp");
+  assert.doesNotMatch(html, /sand-col-when/);
+  assert.doesNotMatch(html, /Open original/);
+  assert.doesNotMatch(html, /data-collection-action/, "nothing to press on a saved message");
+});
+
+test("an entry with nothing to show is shown as nothing", () => {
+  const empty = {
+    key: "cw_1/e_2", agentId: "cw_1", agentName: "Hexuria", entryId: "e_2", addedAtMs: 1_700_000_000_000,
+    entry: { kind: "message", role: "assistant", content: "", timestampMs: 1_700_000_000_000 }, media: [],
+  };
+  const options = { mediaSrc: () => null, formatTimestamp: () => "Aug 28, 2026, 5:19 PM" };
+  assert.equal(mod.renderCollectionMessage(empty, options), "", "no dated header floating above no message");
+  const both = mod.renderCollectionMessages([empty, { ...empty, key: "cw_1/e_3", entry: { kind: "message", role: "user", content: "here" } }], options);
+  assert.equal((both.match(/sand-col-msg/g) ?? []).length, 1, "only the one with something to say");
+  assert.match(mod.renderCollectionMessage({ ...empty, entry: { kind: "widget-response" } }, options), /sand-col-chip/, "an unknown kind still says what it was");
+});

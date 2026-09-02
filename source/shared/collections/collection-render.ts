@@ -37,8 +37,6 @@ export interface CollectionRenderOptions {
   /** Resolves one media reference to a src attribute value, or null for a placeholder chip. */
   readonly mediaSrc: (media: CollectionRenderMedia) => string | null;
   readonly formatTimestamp: (timestampMs: number | undefined) => string;
-  /** Emits the per-message hover actions; the exporter leaves this out. */
-  readonly withActions?: boolean;
 }
 
 const IMAGE_EXTENSIONS = ["avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"];
@@ -240,6 +238,16 @@ function renderUnknownKind(entry: Readonly<Record<string, unknown>>): string {
   return `<span class="sand-col-chip">${escapeCollectionHtml(kind.length > 0 ? kind : "entry")}</span>`;
 }
 
+/**
+ * One saved message: who said it and what it said. Nothing else.
+ *
+ * A collection is a fixed set of messages kept to be read again, so the archive shows no
+ * timestamps, offers no way to take a message out, and does not link back to the original — the
+ * saved copy is the point, and the original may not even exist any more.
+ *
+ * An entry with nothing to show is shown as nothing. A stamp used to be drawn from the entry
+ * even when its body was empty, which left a dated header floating above no message at all.
+ */
 export function renderCollectionMessage(message: CollectionRenderMessage, options: CollectionRenderOptions): string {
   const role = collectionMessageRole(message.entry);
   const text = collectionMessageText(message.entry);
@@ -248,17 +256,10 @@ export function renderCollectionMessage(message: CollectionRenderMessage, option
   const kind = readString(message.entry.kind);
   const known = kind === "message" || kind === "send-message" || kind === "user-attachment";
   const content = body.length > 0 ? body : known ? "" : renderUnknownKind(message.entry);
-  const stamp = options.formatTimestamp(collectionMessageTimestampMs(message.entry) ?? message.addedAtMs);
-  const actions = options.withActions === true
-    ? "<div class=\"sand-col-actions\">"
-      + "<button type=\"button\" data-collection-action=\"open\">Open original</button>"
-      + "<button type=\"button\" data-collection-action=\"remove\">Remove</button>"
-      + "</div>"
-    : "";
+  if (content.length === 0) return "";
   return `<article class="sand-col-msg sand-col-${role}" data-collection-key="${escapeCollectionHtml(message.key)}">`
-    + `<header class="sand-col-head"><span class="sand-col-who">${escapeCollectionHtml(message.agentName)}</span>`
-    + `<span class="sand-col-when">${escapeCollectionHtml(stamp)}</span></header>`
-    + `<div class="sand-col-bubble">${content}</div>${actions}</article>`;
+    + `<header class="sand-col-head"><span class="sand-col-who">${escapeCollectionHtml(message.agentName)}</span></header>`
+    + `<div class="sand-col-bubble">${content}</div></article>`;
 }
 
 export function renderCollectionMessages(
@@ -309,10 +310,6 @@ export const COLLECTION_BUBBLE_CSS = `
 .sand-col-video{display:flex;align-items:center;gap:8px;padding:14px 16px;border-radius:10px;background:var(--sand-col-code-bg);font-size:12.5px}
 .sand-col-video-glyph{width:0;height:0;border-style:solid;border-width:7px 0 7px 12px;border-color:transparent transparent transparent currentColor;opacity:.75}
 .sand-col-chip{display:inline-block;padding:3px 9px;border-radius:999px;border:1px solid var(--sand-col-chip-border);font-size:11.5px;opacity:.8}
-.sand-col-actions{display:none;gap:6px;padding:0 4px}
-.sand-col-msg:hover .sand-col-actions{display:flex}
-.sand-col-actions button{font:600 11px system-ui,-apple-system,"Segoe UI",sans-serif;color:inherit;background:transparent;border:1px solid var(--sand-col-chip-border);border-radius:7px;padding:3px 8px;cursor:pointer;opacity:.75}
-.sand-col-actions button:hover{opacity:1}
 .sand-col-empty{opacity:.6;font-size:13px;padding:24px 20px}
 `;
 

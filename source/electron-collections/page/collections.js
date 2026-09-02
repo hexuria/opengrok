@@ -156,7 +156,6 @@
     threadEl.innerHTML = render.renderCollectionMessages(doc.messages, {
       mediaSrc: mediaSrc,
       formatTimestamp: formatTimestamp,
-      withActions: true,
     });
   }
 
@@ -216,27 +215,6 @@
     paint();
   }
 
-  threadEl.addEventListener("click", function (event) {
-    var button = event.target && event.target.closest ? event.target.closest("[data-collection-action]") : null;
-    if (!button) return;
-    var article = button.closest("[data-collection-key]");
-    var key = article && article.getAttribute("data-collection-key");
-    if (!key || !state.document) return;
-    var message = state.document.messages.filter(function (item) { return item.key === key; })[0];
-    if (!message) return;
-    var action = button.getAttribute("data-collection-action");
-    if (action === "remove") {
-      bridge.removeMessages(state.selectedId, [key]).then(function () {
-        setStatus("Removed from this collection.");
-        return reloadSelected();
-      }).catch(function (error) { setStatus(failureText(error)); });
-      return;
-    }
-    if (action === "open") {
-      bridge.openOriginal(message.agentId, message.entryId).catch(function (error) { setStatus(failureText(error)); });
-      return;
-    }
-  });
 
   // The filter field: Enter commits what is typed as chips, Backspace on an empty field takes
   // the last one back, Escape clears everything. Typing filters as you go without committing,
