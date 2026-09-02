@@ -73,7 +73,7 @@ function buildJsonValueSchema(): z.ZodType<unknown> {
     z.boolean(),
     z.number(),
     z.string(),
-    z.record(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
     z.array(jsonValueSchema),
   ]));
   return jsonValueSchema;
@@ -87,7 +87,7 @@ export function buildMcpCallToolSchemas({
   readonly smartModeClassifierMode: boolean;
 }): McpCallToolSchemas {
   const jsonValueSchema = buildJsonValueSchema();
-  const argumentsRecordSchema = z.record(jsonValueSchema);
+  const argumentsRecordSchema = z.record(z.string(), jsonValueSchema);
   const argumentsParameterSchema = argumentsRecordSchema
     .optional()
     .describe(useDynamicToolNamespaces

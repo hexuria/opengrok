@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { query as queryClaude, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createOpenAI } from "@ai-sdk/openai";
-import { jsonSchema, streamText, tool, type CoreMessage, type LanguageModelV1, type ToolSet } from "ai";
+import { jsonSchema, stepCountIs, streamText, tool, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
 
 import { BasePromptBuilder, BasePromptExecutor } from "../../../packages/chat-inference/base.js";
 import { resolveOpenRouterModelId, type SandInferenceProvider } from "../../../shared/inference-router.js";
@@ -291,12 +291,15 @@ function toToolSet(definitions: readonly Loose[] | undefined, executeTool?: Rout
 
 function openRouterExecutor(messages: readonly ProviderMessage[], invocationId: string, definitions?: readonly Loose[], executeTool?: RoutedToolExecutor, onUsage?: (usage: UsageRecord) => void, extraSystem?: string, explicitModel?: string | null) {
   const id = configuredOpenRouterModel(explicitModel);
-  const model: LanguageModelV1 = createOpenAI({ apiKey: openRouterCredential(), baseURL: "https://openrouter.ai/api/v1", compatibility: "compatible", name: "openrouter", headers: { "HTTP-Referer": "https://github.com/grok-bot-reconstructed", "X-Title": "Grok Bot Reconstructed" } }).chat(id as any);
+  const model: LanguageModel = createOpenAI({ apiKey: openRouterCredential(), baseURL: "https://openrouter.ai/api/v1", name: "openrouter", headers: { "HTTP-Referer": "https://github.com/grok-bot-reconstructed", "X-Title": "Grok Bot Reconstructed" } }).chat(id as any);
   const tools = toToolSet(definitions, executeTool);
-  const result = streamText({ model, system: routerSystemPrompt("openrouter", extraSystem, explicitModel), messages: messages as CoreMessage[], ...(tools === undefined ? {} : { tools }), toolCallStreaming: true, maxSteps: tools === undefined ? 1 : 8 });
-  const extendedUsage = result.usage.then(value => ({ inputTokens: value.promptTokens, outputTokens: value.completionTokens, cacheReadTokens: 0, cacheWriteTokens: 0, maxTokens: 0 }));
+  const result = streamText({ model, system: routerSystemPrompt("openrouter", extraSystem, explicitModel), messages: messages as ModelMessage[], ...(tools === undefined ? {} : { tools }), stopWhen: stepCountIs(tools === undefined ? 1 : 8) });
+  const extendedUsage = result.usage.then(value => ({ inputTokens: value.inputTokens ?? 0, outputTokens: value.outputTokens ?? 0, cacheReadTokens: 0, cacheWriteTokens: 0, maxTokens: 0 }));
+  // The SDK renamed its usage fields, but the sibling executors and everything downstream of them still
+  // count in promptTokens/completionTokens, so this hop keeps speaking those names.
+  const usage = result.usage.then(value => ({ promptTokens: value.inputTokens ?? 0, completionTokens: value.outputTokens ?? 0, totalTokens: value.totalTokens ?? 0 }));
   if (onUsage != null) void extendedUsage.then(onUsage);
-  return { fullStream: result.fullStream, response: result.response, usage: result.usage, extendedUsage, providerMetadata: result.providerMetadata, invocationId: Promise.resolve(invocationId) };
+  return { fullStream: result.fullStream, response: result.response, usage, extendedUsage, providerMetadata: result.providerMetadata, invocationId: Promise.resolve(invocationId) };
 }
 
 class ProviderPromptExecutor extends BasePromptExecutor<ProviderMessage> {

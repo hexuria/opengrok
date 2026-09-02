@@ -55,7 +55,7 @@ const selfHostedWorkerSchema = z.object({
 const selfHostedPoolSchema = z.object({
   type: z.literal("self_hosted_pool"),
   pool: z.string().optional().describe("Pool to draw a worker from. Defaults to the team's default pool."),
-  labels: z.record(z.string()).optional().describe("Key/value labels a candidate worker must all match."),
+  labels: z.record(z.string(), z.string()).optional().describe("Key/value labels a candidate worker must all match."),
 }).strict().describe("Run on any free worker in a self-hosted pool. Pool workers are claimed exclusively, so the subagent queues until one is free.");
 
 export function buildTargetMachineField(options: TaskPlacementSchemaOptions): z.ZodTypeAny {

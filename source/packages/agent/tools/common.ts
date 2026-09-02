@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { jsonSchema, type Schema } from "ai";
-import type { ZodTypeAny } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z, type ZodTypeAny } from "zod";
 
 import { createKey, type Context } from "../../context/core.js";
 import { createLogger } from "../../context/logger.js";
@@ -112,7 +111,9 @@ interface AgentToolLike {
 }
 
 export function createZodAgentTool(toolIdentifier: string, tool: AgentToolLike): Record<string, unknown> {
-  const schema = stripSchemaArtifacts(zodToJsonSchema(tool.parameters));
+  // zod 4 converts to JSON Schema itself, so zod-to-json-schema is gone. "any" for what JSON
+  // Schema cannot express keeps the old library's forgiving behaviour instead of throwing.
+  const schema = stripSchemaArtifacts(z.toJSONSchema(tool.parameters, { unrepresentable: "any", io: "input" }));
   return {
     toolIdentifier,
     name: tool.name,
@@ -191,7 +192,7 @@ function parseJsonArgsWithZodSchema(args: string, schema: ZodTypeAny): unknown {
   }
   const parsed = schema.safeParse(parsedJson);
   if (!parsed.success) {
-    const messages = parsed.error.errors.map(error => `${error.path.length > 0 ? error.path.join(".") : "argument"}: ${error.message}`);
+    const messages = parsed.error.issues.map(error => `${error.path.length > 0 ? error.path.join(".") : "argument"}: ${error.message}`);
     throw new ToolCallArgParseError(`Invalid arguments:\n${messages.join("\n")}`);
   }
   return parsed.data;
