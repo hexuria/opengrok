@@ -1,3 +1,4 @@
+import { patchOriginalBrandText } from "./brand-text-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -2197,6 +2198,16 @@ export function patchOriginalTranscriptFetchFlag(source) {
   return patched;
 }
 
+// Brand by backend runs last so every anchor above still matches its original "Grok Bot" text
+// and every string a patch injected is covered too.
+function brandLast(source, transform) {
+  const branded = patchOriginalBrandText(transform(source));
+  if (branded.skippedKeys > 0 || branded.skippedTagged > 0) {
+    throw new Error(`Brand pass left ${branded.skippedKeys} object keys and ${branded.skippedTagged} tagged templates unbranded`);
+  }
+  return branded.source;
+}
+
 export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   const assetsRoot = path.join(stageRoot, "dist", "renderer", "assets");
   const registryCandidates = [];
@@ -2215,8 +2226,8 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
-    ["registry", registryCandidates[0], (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalTranscriptFetchFlag(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source)))))))))))))))))],
-    ["panel", panelCandidates[0], patchOriginalSettingsPanel],
+    ["registry", registryCandidates[0], (source) => brandLast(source, (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalTranscriptFetchFlag(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))))],
+    ["panel", panelCandidates[0], (source) => brandLast(source, patchOriginalSettingsPanel)],
   ]) {
     const patched = transform(candidate.source);
     await writeFile(candidate.target, patched);
@@ -2240,8 +2251,9 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "first-run-login-skip",
       "computer-screen-switcher",
       "transcript-fetch-flag-release",
+      "brand-by-backend",
     ],
-    transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher"],
+    transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher", "brand-by-backend"],
   };
   const provenancePath = path.join(stageRoot, "dist", "renderer-router-extension.json");
   await writeFile(provenancePath, `${JSON.stringify(record, null, 2)}\n`);

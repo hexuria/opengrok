@@ -1,6 +1,7 @@
 import type { DataRootSettlement } from "./startup-data-root-migration.js";
 import { retireIdleLegacyDaemon } from "./legacy-daemon-retirement.js";
 import { moveToApplicationsFolderIfNeeded } from "./move-to-applications-folder.js";
+import { brandText } from "../../shared/product-name.js";
 
 export type StartupDisposition = "continue-bootstrap" | "stop-bootstrap";
 
@@ -69,9 +70,9 @@ export async function runStartupMoveCheck(
     confirmMove: async () => {
       const result = await deps.dialog.showMessageBox({
         type: "question",
-        title: "Move Grok Bot to Applications",
-        message: "Move Grok Bot to the Applications folder?",
-        detail: "Grok Bot cannot install updates from its current location. It will reopen after moving.",
+        title: brandText("Move Grok Bot to Applications"),
+        message: brandText("Move Grok Bot to the Applications folder?"),
+        detail: brandText("Grok Bot cannot install updates from its current location. It will reopen after moving."),
         buttons: ["Move to Applications", "Not Now"],
         defaultId: 0,
         cancelId: 1,
@@ -82,9 +83,9 @@ export async function runStartupMoveCheck(
       deps.reportFailure?.("startup", "move-to-applications", error);
       await deps.dialog.showMessageBox({
         type: "error",
-        title: "Couldn't Move Grok Bot",
-        message: "Grok Bot couldn't move to Applications",
-        detail: "Move Grok Bot to the Applications folder manually, then reopen Grok Bot",
+        title: brandText("Couldn't Move Grok Bot"),
+        message: brandText("Grok Bot couldn't move to Applications"),
+        detail: brandText("Move Grok Bot to the Applications folder manually, then reopen Grok Bot"),
         buttons: ["OK"],
         defaultId: 0,
       });
