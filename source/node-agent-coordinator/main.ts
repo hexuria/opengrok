@@ -116,6 +116,11 @@ export interface ComposeCoordinatorDependencies {
 }
 
 export async function composeCoordinator(dependencies: ComposeCoordinatorDependencies = {}): Promise<void> {
+  // Every gateway call and the /events stream leave this process over Node's TLS, which does
+  // not read the OS keychain: trust the OS roots first. This is the production entry (the bundle
+  // calls composeCoordinator directly), so it lives here and not behind the argv check below.
+  const trusted = trustSystemCertificateAuthorities();
+  if (trusted != null && trusted.system > 0) process.stderr.write(`node-agent-coordinator: trusting ${trusted.system} system CA roots alongside ${trusted.bundled} bundled\n`);
   const carrierIntake = await (dependencies.adoptCarrier ?? adoptCarrier)();
   if (!carrierIntake.adopted) {
     process.stderr.write(`node-agent-coordinator: ${carrierIntake.rejection.detail}\n`);
@@ -397,9 +402,6 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href) {
-  // Every gateway call and the /events stream leave this process over Node's TLS: trust the OS roots.
-  const trusted = trustSystemCertificateAuthorities();
-  if (trusted != null && trusted.system > 0) process.stderr.write(`node-agent-coordinator: trusting ${trusted.system} system CA roots alongside ${trusted.bundled} bundled\n`);
   void composeCoordinator().catch((error) => {
     process.stderr.write(`node-agent-coordinator: composition failure: ${String(error)}\n`);
     process.exit(1);
