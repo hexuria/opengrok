@@ -1,5 +1,19 @@
-# Weekly, grouped, so the lockfile moves in one reviewable PR per ecosystem instead of a drip.
-# The pinned Electron runtime and the recovered vendor bundle are not npm-managed and are untouched.
+# Weekly, grouped, so the lockfile moves in reviewable PRs instead of a drip.
+#
+# Two npm groups: minors and patches together (one PR, usually mergeable as-is), and majors
+# one PR each, since every major here has meant API changes (zod 4, ai 7, undici 8, ...).
+#
+# Ignored on purpose, not forgotten:
+# - electron: the packaged app runs the pinned, recovered Electron 42 runtime (scripts/lib/runtime.mjs);
+#   the npm package must match it, and it moves only with the runtime.
+# - @bufbuild/protobuf and @connectrpc/*: the recovered generated protos are 1.x codegen; 2.x changes
+#   the generated API and would have to be regenerated from the shipped descriptors first.
+# - tree-sitter, tree-sitter-bash, web-tree-sitter: 0.x native/wasm ABI, where a minor is a break and
+#   the grammar and the runtime must move together.
+#
+# Note: CI's "Fetch the recovered material" step needs STOW_DEPLOY_KEY, and GitHub gives
+# Dependabot-triggered runs only *Dependabot* secrets, so the key has to exist there too
+# (gh secret set STOW_DEPLOY_KEY --app dependabot).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -8,9 +22,19 @@ updates:
       interval: weekly
       day: monday
     groups:
-      npm-dependencies:
+      npm-minor-and-patch:
         patterns: ["*"]
-    open-pull-requests-limit: 3
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: electron
+      - dependency-name: "@bufbuild/protobuf"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@connectrpc/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: tree-sitter
+      - dependency-name: tree-sitter-bash
+      - dependency-name: web-tree-sitter
+    open-pull-requests-limit: 6
   - package-ecosystem: github-actions
     directory: /
     schedule:
