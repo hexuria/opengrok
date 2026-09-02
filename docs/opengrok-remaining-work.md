@@ -266,8 +266,25 @@ The server emits a transcript entry when `user_machine_shell` suspends on Ask:
 
 ### Still open
 
-- "Always allow this command" → server policy-rule endpoints (card sends it;
-  server-side standing-rule mapping unconfirmed).
+- "Always allow this command" — **not unconfirmed: unbuilt on the client.**
+  Checked 2 Sep 2026 by reading, not guessing. The server mints the rule
+  (`gateway/cards.rs:167 proposed_rule(tool, arguments)`) and puts it on the
+  card as `proposedRule`. Nothing consumes it: the shipped 0.30 renderer has
+  **zero** occurrences of the string in either patched chunk, so it is never
+  shown and never sent back; `resolveAutoReviewApproval` carries only
+  approved/declined; the coordinator's resolutions are
+  `allow-once|allow-session|deny|always|never`
+  (`routed-messages-tools.ts:187`), where "always" sets the machine's local
+  Execution permission rather than a per-command rule; and on the server
+  nothing writes `allow_instructions` on approval — that column is only ever
+  written by the client's whole-row `PUT /auto-review/policy`
+  (`main-edge.ts putAutoReviewPolicyRow`).
+  So the path exists at both ends and is joined by nothing. Building it is a
+  renderer patch (a new affordance in the pinned bundle, which is exact-string
+  patch work), a client-side append to the allow list, and the existing policy
+  PUT — plus a decision about scope: the rule the server proposes is
+  per-coworker, and the allow list has a global tier too. **Ask the operator
+  before starting; it is a feature, not a fix.**
 - Passkey ceremony test (RP `opengrok.app`) — needs the user's go.
 - Per-bot desktops (one box, several displays — verdict in
   docs/per-bot-desktops-plan.md), parked next in line.
