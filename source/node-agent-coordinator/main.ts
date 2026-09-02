@@ -8,6 +8,7 @@ import { COORDINATOR_TRANSPORT_STATE_FAMILY } from "../shared/rpc/coordinator-po
 import { isCoordinatorMainMethod } from "../shared/rpc/coordinator-main.js";
 import { SAND_WEBAUTHN_HEARTBEAT_INTERVAL_MS, type WebAuthnCeremony } from "../shared/webauthn-gateway.js";
 import { adoptCarrier, type CarrierIntake } from "./carrier.js";
+import { trustSystemCertificateAuthorities } from "../shared/node/trust-system-ca.js";
 import { createControlPortClient } from "./control-port-client.js";
 import { CoordinatorGatewayClient, HOST_ACCOUNT_SLOT, createCoordinatorGatewayClientTiming, type GatewayConnection } from "./gateway/gateway-client.js";
 import { createGatewayDnsDiagnosticReporter } from "./gateway/gateway-dns-diagnostics.js";
@@ -396,6 +397,9 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href) {
+  // Every gateway call and the /events stream leave this process over Node's TLS: trust the OS roots.
+  const trusted = trustSystemCertificateAuthorities();
+  if (trusted != null && trusted.system > 0) process.stderr.write(`node-agent-coordinator: trusting ${trusted.system} system CA roots alongside ${trusted.bundled} bundled\n`);
   void composeCoordinator().catch((error) => {
     process.stderr.write(`node-agent-coordinator: composition failure: ${String(error)}\n`);
     process.exit(1);

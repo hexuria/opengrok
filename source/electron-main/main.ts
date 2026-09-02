@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { installApplicationMenu, type ApplicationMenuElectronPort } from "./application-menu.js";
 import { getSandRootDir } from "../host/host-paths.js";
 import { SandSettingsStore } from "../shared/node/settings/sand-settings-store.js";
+import { trustSystemCertificateAuthorities } from "../shared/node/trust-system-ca.js";
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
 import { createDevToolsGate, createDevToolsMembershipResolver } from "./devtools-gate.js";
 import {
@@ -463,6 +464,8 @@ export function startElectronMain(deps: ElectronMainDependencies): ElectronMainR
 }
 
 export function startElectronMainProduction(bindings: ElectronMainProductionBindings): ElectronMainRuntime {
+  // The main process talks to the gateway too (account refresh, box status); trust the OS roots first.
+  trustSystemCertificateAuthorities();
   const composition = createElectronMainProductionComposition(bindings);
   const runtime = startElectronMain(composition.dependencies);
   composition.bindRuntime(runtime);

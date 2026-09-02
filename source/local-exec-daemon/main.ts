@@ -8,6 +8,7 @@ import { runLocalExecDaemon, type RunLocalExecDaemonOptions } from "../host/loca
 import { installProcessCrashGuards, type ProcessCrashKind } from "../host/process-crash-guard.js";
 import { flushSandSentry, initSandSentryDaemon, type SandSentryDaemonRuntime } from "../host/local-exec/sentry.js";
 import { installInvariantReporter } from "../shared/invariant.js";
+import { trustSystemCertificateAuthorities } from "../shared/node/trust-system-ca.js";
 import { writeInvariantViolationLog } from "./invariant-violation-log.js";
 import {
   createDefaultProductionLocalExecExecutor,
@@ -97,6 +98,8 @@ export async function runLocalExecDaemonEntrypoint(options: {
   readonly sentryRuntime?: SandSentryDaemonRuntime;
   readonly process?: Pick<NodeJS.Process, "pid" | "on" | "exit">;
 } = {}): Promise<void> {
+  // The daemon posts to the gateway (/local-exec/responses) over Node's TLS: trust the OS roots.
+  trustSystemCertificateAuthorities();
   const sentryRuntime = options.sentryRuntime ?? loadLocalExecSentryRuntime();
   let reporterInitialized = false;
   let reportCrash: ((error: Error, kind: ProcessCrashKind | "fatal") => void) | undefined;
