@@ -2,6 +2,9 @@ import * as acorn from "acorn";
 import { ALWAYS_ALLOW_ANCHORS, patchOriginalAlwaysAllowScope } from "./always-allow-patch.mjs";
 import { SERVER_READS_BANNER_HELPER } from "./server-reads-banner.mjs";
 import { DELETE_MESSAGE_HELPER } from "./delete-message-helper.mjs";
+import { COLLECTIONS_RAIL_HELPER } from "./collections-rail-helper.mjs";
+import { AGENT_MODEL_HELPER } from "./agent-model-helper.mjs";
+import { SCREEN_PREVIEW_HELPER } from "./screen-preview-helper.mjs";
 import { SELECT_MODE_HELPER } from "./select-messages-helper.mjs";
 import { patchOriginalBrandText } from "./brand-text-patch.mjs";
 import { createHash } from "node:crypto";
@@ -2064,7 +2067,7 @@ export function patchOriginalMainChrome(source) {
   }
   // The banner for a server that cannot be read is chrome, not a feature of any one surface,
   // so it rides with the main chrome rather than in the helper chain the tests pin.
-  return `${source}\n${MAIN_CHROME_SOURCE}\n${SERVER_READS_BANNER_HELPER}\n${DELETE_MESSAGE_HELPER}`;
+  return `${source}\n${MAIN_CHROME_SOURCE}\n${SERVER_READS_BANNER_HELPER}\n${DELETE_MESSAGE_HELPER}\n${COLLECTIONS_RAIL_HELPER}\n${AGENT_MODEL_HELPER}\n${SCREEN_PREVIEW_HELPER}`;
 }
 
 const EXECUTION_ROW_ANCHOR='const De="Execution on Local Computer",ia="Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.";function da(){';
@@ -2213,6 +2216,9 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "always-allow-per-coworker",
       "reads-survive-a-dead-server",
       "delete-message",
+      "collections-in-the-rail",
+      "model-per-coworker",
+      "screen-preview-fits-its-screen",
     ],
     brandCounts: Object.fromEntries(brandCounts),
     transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher", "brand-by-backend", "always-allow-scope"],

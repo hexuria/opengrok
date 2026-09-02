@@ -56,15 +56,16 @@ function share(entryId, entry, agentId = "agent-1") {
 
 const stamp = () => "Nov 14, 2023 at 10:00";
 
-test("collections CRUD mints ids, lists bookmarks first, and renames", async () => {
+test("collections CRUD mints ids, lists most-recent first, and renames anything", async () => {
   const loaded = await loadModule("source/electron-main/collections/collections-store.ts");
   try {
     const kv = memoryKv();
     const store = new loaded.module.SandCollectionsStore(kv, { now: () => 1_000, mintId: sequentialIds() });
 
+    // Nothing is synthesized any more: an archive with no collections is empty, not seeded
+    // with a Bookmarks nobody made.
     const empty = await store.listCollections();
-    assert.deepEqual(empty.map((entry) => entry.id), ["bookmarks"]);
-    assert.equal(empty[0].count, 0);
+    assert.deepEqual(empty, []);
     assert.equal(kv.values.size, 0, "listing must not write");
 
     const created = await store.addMessages({ messages: [share("t0u", userMessage("t0u", "hello"))] });
@@ -72,12 +73,12 @@ test("collections CRUD mints ids, lists bookmarks first, and renames", async () 
     assert.equal(created.added, 1);
     assert.match(created.name, /^Collection \d{4}-\d{2}-\d{2}$/);
 
-    const bookmarked = await store.addMessages({ collectionId: "bookmarks", messages: [share("t0s0", agentMessage("t0s0", "hi"))] });
-    assert.equal(bookmarked.collectionId, "bookmarks");
-    assert.equal(bookmarked.name, "Bookmarks");
+    const second = await store.addMessages({ collectionId: "bookmarks", messages: [share("t0s0", agentMessage("t0s0", "hi"))] });
+    assert.equal(second.collectionId, "bookmarks", "an id saved before the change still works");
+    assert.equal(second.name, "Bookmarks");
 
     const listed = await store.listCollections();
-    assert.deepEqual(listed.map((entry) => entry.id), ["bookmarks", created.collectionId]);
+    assert.deepEqual(listed.map((entry) => entry.id).sort(), ["bookmarks", created.collectionId].sort());
     assert.deepEqual(listed.map((entry) => entry.count), [1, 1]);
 
     const renamed = await store.renameCollection(created.collectionId, "  Release   notes  ");
@@ -123,15 +124,20 @@ test("collections dedupe by key and stop at the 500-message cap", async () => {
   }
 });
 
-test("bookmarks is reserved: it cannot be renamed or deleted", async () => {
+// Bookmarks was a second concept: pinned, unrenamable, undeletable, with a star of its own.
+// One archive of collections people name is the whole idea, so a collection saved under that
+// id keeps its messages and is now as ordinary as the rest.
+test("a collection saved as bookmarks is ordinary: renamable, deletable, unpinned", async () => {
   const loaded = await loadModule("source/electron-main/collections/collections-store.ts");
   try {
     const store = new loaded.module.SandCollectionsStore(memoryKv(), { now: () => 1_000, mintId: sequentialIds() });
     await store.addMessages({ collectionId: "bookmarks", messages: [share("t0u", userMessage("t0u", "keep"))] });
-    await assert.rejects(() => store.renameCollection("bookmarks", "Faves"), /cannot be renamed/);
-    await assert.rejects(() => store.deleteCollection("bookmarks"), /cannot be deleted/);
-    assert.equal((await store.getCollection("bookmarks")).name, "Bookmarks");
-    assert.equal((await store.getCollection("bookmarks")).messages.length, 1);
+    assert.equal((await store.getCollection("bookmarks")).messages.length, 1, "what was saved is still there");
+    const renamed = await store.renameCollection("bookmarks", "Faves");
+    assert.equal(renamed.name, "Faves");
+    await store.deleteCollection("bookmarks");
+    assert.equal(await store.getCollection("bookmarks"), null, "and it can go, like any other");
+    assert.deepEqual(await store.listCollections(), [], "nothing is synthesized back");
   } finally {
     await loaded.dispose();
   }
@@ -247,8 +253,10 @@ test("HTML export escapes message text and keeps oversized media as placeholders
     assert.equal(exported.skipped, 1);
     const html = exported.html;
     assert.ok(!html.includes("<script"), "an exported collection must contain no scripts at all");
-    assert.ok(!html.includes("alert('x')"), "raw message text must never reach the document as markup");
-    assert.ok(html.includes("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt; &amp; &quot;quotes&quot;"));
+    // The text is present, but only as text: markdown renders a message body with HTML off, so
+    // the tags an agent was asked to write are escaped and inert wherever they appear.
+    assert.ok(html.includes("&lt;script&gt;alert('x')&lt;/script&gt;"), "the message's own words survive, escaped");
+    assert.ok(html.includes("&lt;script&gt;alert('x')&lt;/script&gt; &amp; &quot;quotes&quot;"));
     assert.ok(html.includes("data:image/png;base64,"), "the small attachment is inlined");
     assert.ok(html.includes("<span class=\"sand-col-chip sand-col-chip-media\">large.png</span>"), "the oversized attachment degrades to a chip");
     assert.ok(html.includes("<span class=\"sand-col-chip\">widget-response</span>"), "an unknown kind degrades to a named chip");
@@ -281,31 +289,3 @@ test("entry media collection covers attachments, inline images, and skips remote
   }
 });
 
-test("promote copies snapshots into bookmarks without a transcript refetch", async () => {
-  const loaded = await loadModule("source/electron-main/collections/collections-store.ts");
-  try {
-    const store = new loaded.module.SandCollectionsStore(memoryKv(), { now: () => 1_000, mintId: sequentialIds() });
-    const created = await store.addMessages({
-      messages: [share("t1u", userMessage("t1u", "keep me")), share("t2u", userMessage("t2u", "not me"))],
-    });
-    const doc = await store.getCollection(created.collectionId);
-    const keepKey = doc.messages[0].key;
-
-    const promoted = await store.promoteToBookmarks(created.collectionId, [keepKey]);
-    assert.equal(promoted.collectionId, loaded.module.BOOKMARKS_COLLECTION_ID);
-    assert.equal(promoted.added, 1);
-
-    const bookmarks = await store.getCollection(loaded.module.BOOKMARKS_COLLECTION_ID);
-    assert.equal(bookmarks.messages.length, 1);
-    assert.equal(bookmarks.messages[0].entryId, "t1u");
-    assert.deepEqual(bookmarks.messages[0].entry, doc.messages[0].entry);
-
-    const again = await store.promoteToBookmarks(created.collectionId, [keepKey]);
-    assert.equal(again.duplicates, 1);
-    assert.equal(again.added, 0);
-
-    await assert.rejects(() => store.promoteToBookmarks(created.collectionId, ["missing-key"]), /not in this collection/);
-  } finally {
-    await loaded.dispose();
-  }
-});

@@ -151,3 +151,129 @@ body {
 
 .sand-col-thread { flex: 1; overflow-y: auto; }
 .sand-col-thread .sand-col-bubble { -webkit-user-select: text; user-select: text; }
+
+/* Icon buttons: the same idiom as the chat's own toolbars — inline SVG, a label for
+   screen readers and a tooltip, no icon font and nothing fetched. */
+.sand-col-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.sand-col-icon:hover:not(:disabled) { background: var(--sand-col-hover); }
+.sand-col-icon:disabled { opacity: .35; cursor: default; }
+.sand-col-icon.sand-col-danger { color: #e5484d; }
+.sand-col-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sand-col-menu-wrap { position: relative; display: inline-flex; }
+.sand-col-menu {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  z-index: 20;
+  min-width: 128px;
+  padding: 4px;
+  border: 1px solid var(--sand-col-border);
+  border-radius: 10px;
+  background: var(--sand-col-side-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sand-col-menu[hidden] { display: none; }
+.sand-col-menu button {
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: 500 13px system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+}
+.sand-col-menu button:hover { background: var(--sand-col-hover); }
+/* The name is a heading until you double-click it. */
+.sand-col-title-field {
+  flex: 1;
+  min-width: 0;
+  font: 600 15px system-ui, -apple-system, sans-serif;
+  color: inherit;
+  background: var(--sand-col-hover);
+  border: 1px solid var(--sand-col-border);
+  border-radius: 8px;
+  padding: 5px 9px;
+}
+.sand-col-title-field[hidden] { display: none; }
+
+/* One field that turns what you type into chips, above the thread. */
+.sand-col-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--sand-col-border);
+}
+.sand-col-chips { display: contents; }
+.sand-col-chip-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--sand-col-border);
+  background: var(--sand-col-hover);
+  font: 500 12px system-ui, -apple-system, sans-serif;
+}
+.sand-col-chip-token button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  font: 500 13px system-ui, sans-serif;
+  opacity: .7;
+}
+.sand-col-chip-token button:hover { opacity: 1; }
+.sand-col-filter-input {
+  flex: 1;
+  min-width: 160px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 400 13px system-ui, -apple-system, sans-serif;
+  padding: 4px 2px;
+  outline: none;
+}
+.sand-col-filter-count { font: 500 12px system-ui, sans-serif; opacity: .55; }
+/* A collection's own group and tags, editable in place. */
+.sand-col-meta { display: flex; gap: 8px; padding: 6px 16px 10px; border-bottom: 1px solid var(--sand-col-border); }
+.sand-col-meta[hidden] { display: none; }
+.sand-col-meta-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: 400 12.5px system-ui, -apple-system, sans-serif;
+  padding: 4px 8px;
+}
+.sand-col-meta-input:hover { border-color: var(--sand-col-border); }
+.sand-col-meta-input:focus { border-color: var(--sand-col-border); background: var(--sand-col-hover); outline: none; }
+/* Sidebar sections, one per group. */
+.sand-col-section-head {
+  padding: 12px 10px 4px;
+  font: 600 10.5px system-ui, -apple-system, sans-serif;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .5;
+}
+.sand-col-empty-list { padding: 14px 12px; font-size: 12.5px; opacity: .55; }

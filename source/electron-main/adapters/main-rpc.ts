@@ -7,7 +7,7 @@ import {
 import type { MainEdge } from "../main.js";
 import type { ElectronProductionAdapterBindings } from "../production-adapters.js";
 import type { ProductionDisposable, ProductionServiceContext } from "../main-production-services.js";
-import { addCollectionMessagesFromApp, listCollectionsFromApp } from "../collections/collections-ipc.js";
+import { addCollectionMessagesFromApp, listCollectionsFromApp, openCollectionsFromApp } from "../collections/collections-ipc.js";
 import { createElectronProductionIpcMainBinding, type ElectronProductionIpcMainSource } from "./ipc.js";
 import { requireFunction, requireObject } from "./provider-guards.js";
 
@@ -97,6 +97,7 @@ export function createElectronProductionMainRpcBinding(
         deleteTranscriptEntries: (args) => context.coordinatorLegs.legs.deleteTranscriptEntries!(args),
         addCollectionMessages: (args) => addCollectionMessagesFromApp(args),
         listCollections: () => listCollectionsFromApp(),
+        openCollections: (collectionId?: string) => openCollectionsFromApp(collectionId),
         emitEgressTunnelChanged: (enabled) => context.requireMainEdge().emit("egress-tunnel-changed", enabled),
         emitWebauthnProxyChanged: (enabled) => context.requireMainEdge().emit("webauthn-proxy-changed", enabled),
         getTrustedContents: () => {

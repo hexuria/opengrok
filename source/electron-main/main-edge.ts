@@ -92,6 +92,7 @@ export interface MainEdgeDeps {
   readonly deleteTranscriptEntries: (args: UnknownRecord) => Promise<unknown>;
   /** Share/bookmark entry point for the multi-select UI; snapshots and stores in main. */
   readonly addCollectionMessages?: (args: UnknownRecord) => Promise<unknown>;
+  readonly openCollections?: (collectionId?: string) => void;
   /** Collection roster for the in-transcript share picker. */
   readonly listCollections?: () => Promise<unknown>;
   readonly recordLocalToolApproval: (approval: { id: string; action: string; target: string }) => Promise<void>;
@@ -684,6 +685,99 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       });
       return { kind, pattern };
     },
+    /**
+     * Which model a coworker runs on, and what else it could run on.
+     *
+     * The gateway keeps the catalogue; the server keeps the pin. Both come back in one answer so
+     * the settings pane can show the current model even when the catalogue is unavailable (a
+     * deployment whose model door is a mock says so in `note` and lists nothing).
+     */
+    getAgentModel: async (raw) => {
+      const agentId = req(raw).agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "getAgentModel needs an agent id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return cloneableRecord({ available: false });
+      try {
+        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const [catalogue, roster] = await Promise.all([
+          callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/models" }),
+          callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/coworkers" }),
+        ]);
+        const models = typeof catalogue === "object" && catalogue != null && Array.isArray((catalogue as UnknownRecord).models)
+          ? ((catalogue as UnknownRecord).models as unknown[]).flatMap((entry) => {
+            const id = typeof entry === "object" && entry != null ? (entry as UnknownRecord).id : entry;
+            return typeof id === "string" && id.length > 0 ? [id] : [];
+          })
+          : [];
+        const note = typeof catalogue === "object" && catalogue != null && typeof (catalogue as UnknownRecord).note === "string"
+          ? (catalogue as UnknownRecord).note as string
+          : null;
+        // The roster answers with a bare array (an empty roster must not become an object);
+        // older shapes wrapped it, so both are read.
+        const rows = Array.isArray(roster)
+          ? roster as UnknownRecord[]
+          : typeof roster === "object" && roster != null && Array.isArray((roster as UnknownRecord).coworkers)
+            ? (roster as UnknownRecord).coworkers as UnknownRecord[]
+            : [];
+        const row = rows.find((entry) => entry != null && entry.id === agentId) ?? null;
+        const model = row != null && typeof row.model === "string" ? row.model : null;
+        return cloneableRecord({ available: true, models, model, ...(note == null ? {} : { note }) });
+      } catch (error) {
+        return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    /**
+     * Repins a coworker, but only to a model the gateway will actually serve.
+     *
+     * The catalogue is what the gateway ADVERTISES, which is not the same as what it can serve on
+     * this account's credentials — `oag/auto` is advertised everywhere and refused wherever no
+     * credential matches that route. A pin that refuses every turn looks exactly like a broken
+     * coworker, so the server's probe (a real, rate-limited completion) proves the pin first and
+     * the gateway's own words come back when it will not serve.
+     */
+    setAgentModel: async (raw) => {
+      const r = req(raw);
+      const agentId = r.agentId;
+      const model = r.model;
+      invariant(typeof agentId === "string" && agentId.length > 0, "setAgentModel needs an agent id.");
+      invariant(typeof model === "string" && model.length > 0, "setAgentModel needs a model.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "This route has no OpenGrok server.");
+      const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      // A probe is a real completion, so the server rate-limits it. That is a "try again", not
+      // a broken pin, and it must not reach the pane as a raw handler failure.
+      let probe: unknown;
+      try {
+        probe = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: "/models/probe",
+          method: "POST",
+          body: { model },
+        });
+      } catch (error) {
+        const message = String(error instanceof Error ? error.message : error);
+        return cloneableRecord({
+          pinned: false,
+          model,
+          detail: message.includes("429")
+            ? "the server is limiting model checks just now; try again in a moment"
+            : `the model could not be checked (${message})`,
+        });
+      }
+      const probed = typeof probe === "object" && probe != null ? probe as UnknownRecord : {};
+      if (probed.ok !== true) {
+        const detail = typeof probed.detail === "string" && probed.detail.length > 0 ? probed.detail : "the gateway would not serve it";
+        return cloneableRecord({ pinned: false, model, detail });
+      }
+      const answer = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: `/coworkers/${encodeURIComponent(agentId)}`,
+        method: "PATCH",
+        body: { model },
+      });
+      const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : { id: agentId, model };
+      return cloneableRecord({ ...row, pinned: true, ...(typeof probed.served === "string" ? { served: probed.served } : {}) });
+    },
     getAgentAutoReview: async (raw) => {
       const agentId = req(raw).agentId;
       invariant(typeof agentId === "string" && agentId.length > 0, "getAgentAutoReview needs an agent id.");
@@ -901,6 +995,11 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       return cloneableRecord({ ...transcriptDeletionFor(read("getBoxRuntime"), read("getInferenceProvider")) });
     },
     deleteTranscriptEntries: (raw) => { const { agentId, entryIds } = req(raw); invariant(typeof agentId === "string" && agentId.length > 0 && Array.isArray(entryIds), "A transcript deletion names its agent and entry ids."); return deps.deleteTranscriptEntries({ agentId, entryIds: entryIds.filter((id): id is string => typeof id === "string") }); },
+    openCollections: async (raw) => {
+      const id = typeof req(raw).collectionId === "string" ? req(raw).collectionId as string : "";
+      deps.openCollections?.(id.length > 0 ? id : undefined);
+      return cloneableRecord({ opened: true });
+    },
     addCollectionMessages: async (raw) => {
       const { agentId, entryIds, target, collectionId, name } = req(raw);
       invariant(typeof agentId === "string" && agentId.length > 0 && Array.isArray(entryIds), "Sharing to a collection names its agent and entry ids.");

@@ -21,6 +21,14 @@ import {
 
 export const COLLECTIONS_INDEX_KEY = "sand.collections.index.v1";
 export const COLLECTIONS_ITEM_KEY_PREFIX = "sand.collections.item.v1.";
+/**
+ * "bookmarks" is a plain collection id now.
+ *
+ * It used to be a second concept beside collections: always present, pinned first, renamable by
+ * nobody, with a star that wrote to it and a "copy into Bookmarks" action. One archive with
+ * names people choose is the whole idea, so the id survives only so an existing Bookmarks
+ * collection keeps its messages and behaves like any other from here on.
+ */
 export const BOOKMARKS_COLLECTION_ID = "bookmarks";
 export const BOOKMARKS_COLLECTION_NAME = "Bookmarks";
 export const COLLECTION_MESSAGE_CAP = 500;
@@ -42,8 +50,9 @@ export function isCollectionId(value: unknown): value is string {
     && DEEP_LINK_ID_PATTERN.test(value);
 }
 
-export function isReservedCollectionId(value: string): boolean {
-  return value === BOOKMARKS_COLLECTION_ID;
+/** Nothing is reserved any more; kept so an id minted long ago still parses. */
+export function isReservedCollectionId(_value: string): boolean {
+  return false;
 }
 
 /** "col" + 16 lowercase base36 characters; always a valid deep-link id. */
@@ -69,6 +78,39 @@ export interface CollectionSummary {
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
   readonly count: number;
+  /** One bucket, the sidebar's section heading; absent means ungrouped. */
+  readonly group?: string;
+  /** Any number of labels, matched by the filter; absent means none. */
+  readonly tags?: readonly string[];
+}
+
+/** A group is one word or phrase, a tag likewise; both are trimmed, collapsed and capped. */
+export const COLLECTION_LABEL_MAX_CHARS = 40;
+export const COLLECTION_TAGS_MAX = 20;
+
+export function normalizeCollectionLabel(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, COLLECTION_LABEL_MAX_CHARS) : "";
+}
+
+export function normalizeCollectionTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    const tag = normalizeCollectionLabel(raw);
+    if (tag.length === 0) continue;
+    const key = tag.toLocaleLowerCase();
+    if (!seen.has(key)) seen.add(key);
+    if (seen.size >= COLLECTION_TAGS_MAX) break;
+  }
+  // The first spelling of a tag wins, so "Math" and "math" are one label, shown as first typed.
+  const spellings = new Map<string, string>();
+  for (const raw of value) {
+    const tag = normalizeCollectionLabel(raw);
+    if (tag.length === 0) continue;
+    const key = tag.toLocaleLowerCase();
+    if (seen.has(key) && !spellings.has(key)) spellings.set(key, tag);
+  }
+  return [...seen].map((key) => spellings.get(key) ?? key);
 }
 
 export interface CollectionsIndex {
@@ -98,6 +140,8 @@ export interface CollectionDocument {
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
   readonly messages: readonly CollectionMessage[];
+  readonly group?: string;
+  readonly tags?: readonly string[];
 }
 
 export interface CollectionMessageInput {
@@ -220,22 +264,33 @@ function parseDocument(value: unknown, fallbackId: string): CollectionDocument |
     createdAtMs: finiteNumber(value.createdAtMs, 0),
     updatedAtMs: finiteNumber(value.updatedAtMs, 0),
     messages,
+    ...metaOf(value),
   };
 }
 
-function emptyBookmarks(nowMs: number): CollectionDocument {
-  return { version: 1, id: BOOKMARKS_COLLECTION_ID, name: BOOKMARKS_COLLECTION_NAME, createdAtMs: nowMs, updatedAtMs: nowMs, messages: [] };
+/** Group and tags, read from anything: a collection saved before them simply has neither. */
+function metaOf(value: Record<string, unknown>): { group?: string; tags?: readonly string[] } {
+  const group = normalizeCollectionLabel(value.group);
+  const tags = normalizeCollectionTags(value.tags);
+  return { ...(group.length > 0 ? { group } : {}), ...(tags.length > 0 ? { tags } : {}) };
 }
+
 
 function summaryOf(document: CollectionDocument): CollectionSummary {
-  return { id: document.id, name: document.name, createdAtMs: document.createdAtMs, updatedAtMs: document.updatedAtMs, count: document.messages.length };
+  return {
+    id: document.id,
+    name: document.name,
+    createdAtMs: document.createdAtMs,
+    updatedAtMs: document.updatedAtMs,
+    count: document.messages.length,
+    ...(document.group == null ? {} : { group: document.group }),
+    ...(document.tags == null ? {} : { tags: document.tags }),
+  };
 }
 
-/** Bookmarks is always first; everything else is most-recently-touched first. */
+/** Most-recently-touched first; no collection outranks another. */
 export function sortCollectionSummaries(collections: readonly CollectionSummary[]): CollectionSummary[] {
   return [...collections].sort((left, right) => {
-    if (left.id === BOOKMARKS_COLLECTION_ID) return right.id === BOOKMARKS_COLLECTION_ID ? 0 : -1;
-    if (right.id === BOOKMARKS_COLLECTION_ID) return 1;
     return right.updatedAtMs - left.updatedAtMs || left.name.localeCompare(right.name);
   });
 }
@@ -279,6 +334,7 @@ export class SandCollectionsStore {
         createdAtMs: finiteNumber(entry.createdAtMs, 0),
         updatedAtMs: finiteNumber(entry.updatedAtMs, 0),
         count: Math.max(0, Math.trunc(finiteNumber(entry.count, 0))),
+        ...metaOf(entry),
       });
     }
     return collections;
@@ -291,10 +347,10 @@ export class SandCollectionsStore {
 
   async #readDocument(collectionId: string): Promise<CollectionDocument | null> {
     const raw = await this.#kv.read(collectionItemKey(collectionId));
-    if (raw == null) return collectionId === BOOKMARKS_COLLECTION_ID ? emptyBookmarks(this.#now()) : null;
+    if (raw == null) return null;
     let parsed: unknown;
-    try { parsed = JSON.parse(raw); } catch { return collectionId === BOOKMARKS_COLLECTION_ID ? emptyBookmarks(this.#now()) : null; }
-    return parseDocument(parsed, collectionId) ?? (collectionId === BOOKMARKS_COLLECTION_ID ? emptyBookmarks(this.#now()) : null);
+    try { parsed = JSON.parse(raw); } catch { return null; }
+    return parseDocument(parsed, collectionId);
   }
 
   async #persist(document: CollectionDocument): Promise<void> {
@@ -305,14 +361,10 @@ export class SandCollectionsStore {
     await this.#writeIndex(next);
   }
 
-  /** Bookmarks is synthesized when absent so the sidebar can always pin it first. */
   listCollections(): Promise<CollectionSummary[]> {
     return this.#run(async () => {
       const collections = await this.#readIndex();
-      const withBookmarks = collections.some((entry) => entry.id === BOOKMARKS_COLLECTION_ID)
-        ? collections
-        : [...collections, { id: BOOKMARKS_COLLECTION_ID, name: BOOKMARKS_COLLECTION_NAME, createdAtMs: 0, updatedAtMs: 0, count: 0 }];
-      return sortCollectionSummaries(withBookmarks);
+      return sortCollectionSummaries(collections);
     });
   }
 
@@ -372,31 +424,31 @@ export class SandCollectionsStore {
     });
   }
 
-  /**
-   * Copies already-snapshotted messages into Bookmarks - no transcript refetch,
-   * so promotion works even after the originals were deleted.
-   */
-  async promoteToBookmarks(collectionId: string, keys: readonly string[]): Promise<AddMessagesResult> {
-    const document = await this.getCollection(collectionId);
-    if (document == null) throw new CollectionsError("Unknown collection.");
-    const wanted = new Set(keys);
-    const messages: CollectionMessageInput[] = document.messages
-      .filter((message) => wanted.has(message.key))
-      .map((message) => ({
-        agentId: message.agentId,
-        agentName: message.agentName,
-        entryId: message.entryId,
-        entry: message.entry,
-        media: message.media,
-      }));
-    if (messages.length === 0) throw new CollectionsError("Those messages are not in this collection.");
-    return this.addMessages({ collectionId: BOOKMARKS_COLLECTION_ID, messages });
+  /** Sets a collection's group and tags; either omitted is left as it was, either empty clears it. */
+  setCollectionMeta(collectionId: string, meta: { readonly group?: string | null; readonly tags?: readonly string[] | null }): Promise<CollectionSummary> {
+    return this.#run(async () => {
+      if (!isCollectionId(collectionId)) throw new CollectionsError("Unknown collection.");
+      const document = await this.#readDocument(collectionId);
+      if (document == null) throw new CollectionsError("Unknown collection.");
+      const group = meta.group === undefined ? document.group ?? "" : normalizeCollectionLabel(meta.group ?? "");
+      const tags = meta.tags === undefined ? document.tags ?? [] : normalizeCollectionTags(meta.tags ?? []);
+      // Cleared means absent, not present-and-empty: the document should read as it did before
+      // anyone gave it a group, so a rebuilt index cannot tell the difference.
+      const { group: _oldGroup, tags: _oldTags, ...rest } = document;
+      const next: CollectionDocument = {
+        ...rest,
+        updatedAtMs: this.#now(),
+        ...(group.length > 0 ? { group } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
+      };
+      await this.#persist(next);
+      return summaryOf(next);
+    });
   }
 
   renameCollection(collectionId: string, name: string): Promise<CollectionSummary> {
     return this.#run(async () => {
       if (!isCollectionId(collectionId)) throw new CollectionsError("Unknown collection.");
-      if (isReservedCollectionId(collectionId)) throw new CollectionsError("Bookmarks cannot be renamed.");
       const document = await this.#readDocument(collectionId);
       if (document == null) throw new CollectionsError("Unknown collection.");
       const next: CollectionDocument = { ...document, name: normalizeCollectionName(name, document.name), updatedAtMs: this.#now() };
@@ -408,7 +460,6 @@ export class SandCollectionsStore {
   deleteCollection(collectionId: string): Promise<void> {
     return this.#run(async () => {
       if (!isCollectionId(collectionId)) throw new CollectionsError("Unknown collection.");
-      if (isReservedCollectionId(collectionId)) throw new CollectionsError("Bookmarks cannot be deleted.");
       await this.#kv.remove(collectionItemKey(collectionId));
       await this.#writeIndex((await this.#readIndex()).filter((entry) => entry.id !== collectionId));
     });
@@ -557,6 +608,8 @@ export async function buildCollectionHtmlExport(input: {
   readonly permalink: string;
   readonly exportedAt: string;
   readonly formatTimestamp: (timestampMs: number | undefined) => string;
+  /** The app's theme when the person pressed Export; the file carries that one only. */
+  readonly theme?: "dark" | "light";
   readonly fileMaxBytes?: number;
   readonly totalMaxBytes?: number;
 }): Promise<CollectionHtmlExportResult> {
@@ -595,6 +648,7 @@ export async function buildCollectionHtmlExport(input: {
       permalink: input.permalink,
       mediaSrc: (media) => inlined.get(media.srcPath) ?? null,
       formatTimestamp: input.formatTimestamp,
+      ...(input.theme == null ? {} : { theme: input.theme }),
     }),
     embedded,
     skipped,

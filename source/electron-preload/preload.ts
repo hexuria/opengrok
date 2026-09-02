@@ -323,6 +323,8 @@ export function createDesktopPreloadBridge(options: {
       addRemoteControlRule: (kind: string, pattern: string) => edge("addRemoteControlRule", { kind, pattern }),
       deleteRemoteControlRule: (kind: string, pattern: string) => edge("deleteRemoteControlRule", { kind, pattern }),
       getAgentAutoReview: (agentId: string) => edge("getAgentAutoReview", { agentId }),
+      getAgentModel: (agentId: string) => edge("getAgentModel", { agentId }),
+      setAgentModel: (agentId: string, model: string) => edge("setAgentModel", { agentId, model }),
       // Whether the roster and transcripts being shown are live or the last good answers from
       // before the server stopped answering. Replays the current state on subscribe.
       onServerReads: (listener: (payload: unknown) => void) => {
@@ -344,6 +346,7 @@ export function createDesktopPreloadBridge(options: {
       testWindows365: () => edge("testWindows365"),
       deleteTranscriptEntries: (args: { readonly agentId: string; readonly entryIds: readonly string[] }) => edge("deleteTranscriptEntries", args),
       getTranscriptDeletion: () => edge("getTranscriptDeletion"),
+      openCollections: (collectionId?: string) => edge("openCollections", { collectionId }),
       clientPersistence: {
         read: (key: string) => ipc.invoke(CLIENT_PERSISTENCE_CHANNELS.read, { key }),
         async write(key: string, value: string) { await ipc.invoke(CLIENT_PERSISTENCE_CHANNELS.write, { key, value }); },

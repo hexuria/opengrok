@@ -120,6 +120,15 @@ export function createCachedReadDispatch(options: {
   // past the grace put the page into its offline mode; the first live read takes it out. Sends
   // parked meanwhile would have failed at the server anyway.
   readonly postTransportState: (state: "down" | "connected") => void;
+  /**
+   * Called once when reads come back, with the coworker whose tail was last read.
+   *
+   * `openAgentTail` marks a coworker active on the server as a side effect; a tail served from
+   * the cache skips that, so after an outage the server's own idea of the active coworker is
+   * whatever it was before — and every complete-roster frame it sends says so. Re-opening the
+   * tail the person is actually looking at puts that right.
+   */
+  readonly onReadsRecovered?: (lastTailAgentId: string | null) => void;
   readonly now?: () => number;
   readonly log?: (line: string) => void;
   /** Test seam: run the save now instead of after the debounce. */
@@ -152,6 +161,8 @@ export function createCachedReadDispatch(options: {
   // The first failure starts the clock; the page hears "stale" when a failure lands past the
   // grace, or the grace runs out with no success in between. A success cancels it.
   let firstFailureAt: number | null = null;
+  /** The coworker whose transcript was read most recently, live or from the cache. */
+  let lastTailAgentId: string | null = null;
   let lastFailure: { code: string; message: string } | null = null;
   let graceTimer: ReturnType<typeof setTimeout> | null = null;
   let revalidateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -230,6 +241,7 @@ export function createCachedReadDispatch(options: {
       lastFailure = null;
       if (status.state === "stale") {
         stopRevalidating();
+        try { options.onReadsRecovered?.(lastTailAgentId); } catch (error) { log(`reads-recovered hook failed: ${String(error)}`); }
         log(`reads are live again after ${Math.round((now() - (status.since ?? now())) / 1000)}s`);
         if (announce({ state: "live", since: null, cached: false, cachedAt: null, message: null })) options.postTransportState("connected");
       } else if (wasFailing) {
@@ -268,6 +280,7 @@ export function createCachedReadDispatch(options: {
   const dispatch: ReadDispatch = async (method, args, signal) => {
     const key = keyFor(method, args);
     if (key == null) return options.dispatch(method, args, signal);
+    if (key.startsWith("tail:")) lastTailAgentId = key.slice("tail:".length);
     const entry = recall(key);
     const seq = ++readSeq;
     // The live read always runs and always settles, so the cache stays fresh and the state stays

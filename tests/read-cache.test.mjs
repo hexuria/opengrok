@@ -364,3 +364,50 @@ test("a damaged cache entry on disk is ignored, and the file is owner-only", asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// A tail served from the cache never reaches the server, so it never marks that coworker
+// active — and every complete-roster frame afterwards names whoever was active before the
+// outage. When reads come back, the tail the person is looking at is re-opened, once.
+test("when reads come back, the coworker whose transcript was being read is named", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "read-cache-"));
+  try {
+    const mod = await loadModule(dir);
+    const clock = { t: 1_000 };
+    const recovered = [];
+    const h = harness(mod, dir, [{ status: "ok", value: tail }, unreachable, { status: "ok", value: tail }], clock, { onReadsRecovered: (id) => recovered.push(id) });
+    await h.dispatch("getAgentTranscriptTail", { id: "cw_7" });
+    clock.t = 5_000;
+    await h.dispatch("getAgentTranscriptTail", { id: "cw_7" });
+    h.dispatch.graceElapsed();
+    assert.equal(h.dispatch.current().state, "stale");
+    assert.deepEqual(recovered, [], "nothing while it is still down");
+    clock.t = 9_000;
+    await h.dispatch("getAgentTranscriptTail", { id: "cw_7" });
+    assert.deepEqual(recovered, ["cw_7"], "the coworker being read, once reads are live");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a roster-only outage names nobody, and a hook that throws does not stop the recovery", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "read-cache-"));
+  try {
+    const mod = await loadModule(dir);
+    const clock = { t: 1_000 };
+    const seen = [];
+    const h = harness(mod, dir, [{ status: "ok", value: roster }, unreachable, { status: "ok", value: roster }], clock, {
+      onReadsRecovered: (id) => { seen.push(id); throw new Error("the door slammed"); },
+    });
+    await h.dispatch("listAgents", undefined);
+    clock.t = 5_000;
+    await h.dispatch("listAgents", undefined);
+    h.dispatch.graceElapsed();
+    clock.t = 9_000;
+    await h.dispatch("listAgents", undefined);
+    assert.deepEqual(seen, [null], "no transcript was being read, so there is nobody to name");
+    assert.equal(h.dispatch.current().state, "live", "and the reads are live all the same");
+    assert.deepEqual(h.transport, ["down", "connected"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

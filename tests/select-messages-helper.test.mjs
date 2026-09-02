@@ -64,9 +64,9 @@ test("entering from a message's menu selects that message; the toolbar shows Add
   assert.equal(api.count(), 1, "the seed counts, whatever its shape");
   assert.equal(count(bar), "1 selected");
   const b = buttons(bar);
-  assert.deepEqual(b.map(label), ["Add the 2 loaded messages to the selection", "Clear the selection", "Share to a collection", "Bookmark", "Delete", "Done"]);
+  assert.deepEqual(b.map(label), ["Add the 2 loaded messages to the selection", "Clear the selection", "Save to a collection", "Delete", "Done"]);
   assert.equal(b[0].disabled, false);
-  assert.equal(b[4].className.includes("sand-sel-danger"), true, "delete is the dangerous one");
+  assert.equal(b[3].className.includes("sand-sel-danger"), true, "delete is the dangerous one");
   assert.ok(b[2].innerHTML.startsWith("<svg"), "icons for the actions");
 });
 
@@ -75,16 +75,17 @@ test("Add loaded only ever adds, and says so when there is nothing left to add",
   const { api, bar, calls } = page;
   api.enter();
   assert.equal(count(bar), "0 selected");
-  assert.deepEqual(buttons(bar).slice(1, 4).map((b) => b.disabled), [true, true, true], "nothing to share, bookmark or delete yet");
+  assert.deepEqual(buttons(bar).slice(1, 3).map((b) => b.disabled), [true, true], "nothing to save or delete yet");
   buttons(bar)[0].listeners.click({ stopPropagation() {} });
   assert.equal(api.count(), 2);
   assert.equal(buttons(bar)[0].disabled, true, "everything loaded is in");
   assert.equal(buttons(bar)[0].children.at(-1).textContent, "All loaded added");
   buttons(bar)[0].listeners.click({ stopPropagation() {} });
   assert.equal(api.count(), 2, "pressing it again never removes anything");
-  buttons(bar)[3].listeners.click({ stopPropagation() {} });
-  await new Promise((r) => setImmediate(r));
-  assert.deepEqual(calls.add, [{ agentId: "cw_1", entryIds: ["e_1", "e_2"], target: "bookmarks" }], "Bookmark sends what is selected");
+  // Saving always names a collection now, so the picker is the only path; the toolbar's own
+  // button opens it rather than writing anywhere by itself.
+  assert.equal(label(buttons(bar).find((b) => label(b) === "Save to a collection") ?? {}), "Save to a collection");
+  assert.deepEqual(calls.add, [], "nothing is written until a collection is chosen");
 });
 
 test("messages loaded later can still be added; the button counts only what is new", () => {

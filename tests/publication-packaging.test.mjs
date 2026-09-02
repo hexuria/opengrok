@@ -219,7 +219,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   // An OpenGrok server is one, so every gate must consult the same rule.
   assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
   // The banner for a server that cannot be read rides with the main chrome, from its own module.
-  assert.match(rendererPatch, /\$\{MAIN_CHROME_SOURCE\}\\n\$\{SERVER_READS_BANNER_HELPER\}\\n\$\{DELETE_MESSAGE_HELPER\}/);
+  assert.match(rendererPatch, /\$\{MAIN_CHROME_SOURCE\}\\n\$\{SERVER_READS_BANNER_HELPER\}\\n\$\{DELETE_MESSAGE_HELPER\}\\n\$\{COLLECTIONS_RAIL_HELPER\}\\n\$\{AGENT_MODEL_HELPER\}\\n\$\{SCREEN_PREVIEW_HELPER\}/);
   // The login page's provider chooser replaces the old skip button.
   assert.match(rendererPatch, /const LOGIN_PROVIDER_HELPER =/);
   assert.match(rendererPatch, /sand-lp-back/);

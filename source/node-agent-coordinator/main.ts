@@ -179,24 +179,41 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
     if ((event.channel === "agents" || event.channel === "agent-upserted") && usesLocalInference(dataDir)) return;
     if (event.channel === "agents" && readCache != null && readCache.cachedRosterCount() > 0 && rosterFrameClaimsEmpty(event.payload)) {
       // The stream opens with a "complete roster" the server did not check; with its database
-      // down that is an empty one, and the page would install it over the roster it shows. Let
-      // it through only once a live read agrees the roster really is empty, and only if no
-      // roster frame overtook it meanwhile: the page's replica is ordered, an old frame after a
-      // newer one would erase the newer.
-      const heldBehind = rosterFramesRelayed;
+      // down that is an empty one, and the page would install it over the roster it shows. It
+      // is let through only once a live read agrees the roster really is empty — a coworker can
+      // genuinely be the last one retired.
+      //
+      // Everything on these two channels queues behind that check while it runs. The page's
+      // replica is ordered: releasing a later frame first would apply a delta to a roster the
+      // page is about to replace, and dropping one silently leaves a sequence gap it has to
+      // resync out of. So the frames wait, in order, and go together.
+      rosterHold.push(event);
+      if (rosterHold.length > 1) return;
       void readCache.revalidateRoster().then((rows) => {
-        const why = rows == null ? "the server could not read its roster" : rows.length > 0 ? `a live read holds ${rows.length}` : rosterFramesRelayed !== heldBehind ? "a newer roster frame overtook it" : null;
-        if (why == null) { relayGatewayEvent(event); return; }
-        process.stderr.write(`node-agent-coordinator: dropped an empty roster from the stream: ${why}\n`);
-      }).catch((error) => { process.stderr.write(`node-agent-coordinator: empty roster check failed: ${String(error)}\n`); });
+        const held = rosterHold.splice(0, rosterHold.length);
+        const empty = rows != null && rows.length === 0;
+        for (const queued of held) {
+          if (queued === event && !empty) {
+            process.stderr.write(`node-agent-coordinator: dropped an empty roster from the stream: ${rows == null ? "the server could not read its roster" : `a live read holds ${rows.length}`}\n`);
+            continue;
+          }
+          relayGatewayEvent(queued);
+        }
+      }).catch((error) => {
+        process.stderr.write(`node-agent-coordinator: empty roster check failed: ${String(error)}\n`);
+        // The check is what failed, not the stream: let everything through rather than lose it.
+        for (const queued of rosterHold.splice(0, rosterHold.length)) relayGatewayEvent(queued);
+      });
       return;
     }
+    // A roster frame that arrives while the check is running waits for it, whatever it says.
+    if (rosterHold.length > 0 && (event.channel === "agents" || event.channel === "agent-upserted")) { rosterHold.push(event); return; }
     relayGatewayEvent(event);
   }
 
-  let rosterFramesRelayed = 0;
+  /** Roster frames waiting on the empty-roster check; the first is the one being checked. */
+  const rosterHold: { channel: string; payload: unknown }[] = [];
   function relayGatewayEvent(event: { channel: string; payload: unknown }): void {
-    if (event.channel === "agents" || event.channel === "agent-upserted") rosterFramesRelayed += 1;
     if (event.channel === "agents") controlClient.postEvent("agents-event", { kind: "agents", event: event.payload });
     if (event.channel === "agent-upserted") controlClient.postEvent("agents-event", { kind: "agent-upserted", event: event.payload });
     const family = coordinatorEventFamilyForSseChannel(event.channel);
@@ -316,6 +333,15 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
       cacheFile: join(dataDir, "read-cache.json"),
       postEvent: (family, payload) => server.postEvent(family, payload),
       postTransportState: (state) => server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state }),
+      // A cached tail never reached the server, so it never marked that coworker active and
+      // the roster frames still name whoever was active before the outage. Re-open the tail
+      // the person is looking at, once, when reads come back.
+      onReadsRecovered: (agentId) => {
+        if (agentId == null || agentId.length === 0) return;
+        void gatewayClient.dispatchCommand("openAgentTail", { id: agentId }).catch((error: unknown) => {
+          process.stderr.write(`node-agent-coordinator: could not re-open the tail after recovery: ${String(error)}\n`);
+        });
+      },
       log: (line) => process.stderr.write(`node-agent-coordinator: ${line}\n`),
     })
     : null;

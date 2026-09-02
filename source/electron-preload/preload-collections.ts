@@ -11,14 +11,15 @@ export const COLLECTIONS_PRELOAD_CHANNELS = {
   list: "sand:collections-list",
   get: "sand:collections-get",
   rename: "sand:collections-rename",
+  setMeta: "sand:collections-set-meta",
   delete: "sand:collections-delete",
   removeMessages: "sand:collections-remove-messages",
   addMessages: "sand:collections-add-messages",
   exportHtml: "sand:collections-export-html",
   exportJson: "sand:collections-export-json",
+  exportPdf: "sand:collections-export-pdf",
   importJson: "sand:collections-import-json",
   openOriginal: "sand:collections-open-original",
-  promote: "sand:collections-promote",
 } as const;
 
 export const COLLECTIONS_PRELOAD_NAVIGATE_CHANNEL = "sand:collections-navigate";
@@ -33,14 +34,15 @@ export interface CollectionsPreloadBridge {
   list(): Promise<unknown>;
   get(collectionId: string): Promise<unknown>;
   rename(collectionId: string, name: string): Promise<unknown>;
+  setMeta(collectionId: string, meta: { readonly group?: string | null; readonly tags?: readonly string[] | null }): Promise<unknown>;
   deleteCollection(collectionId: string): Promise<unknown>;
   removeMessages(collectionId: string, keys: readonly string[]): Promise<unknown>;
   addMessages(request: unknown): Promise<unknown>;
-  exportHtml(collectionId: string): Promise<unknown>;
+  exportHtml(collectionId: string, theme?: string): Promise<unknown>;
   exportJson(collectionId: string): Promise<unknown>;
+  exportPdf(collectionId: string, theme?: string): Promise<unknown>;
   importJson(): Promise<unknown>;
   openOriginal(agentId: string, entryId: string): Promise<unknown>;
-  promote(collectionId: string, keys: readonly string[]): Promise<unknown>;
   onNavigate(listener: (payload: unknown) => void): () => void;
 }
 
@@ -49,14 +51,15 @@ export function createCollectionsPreloadBridge(ipc: CollectionsPreloadIpc): Coll
     list: () => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.list, {}),
     get: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.get, { collectionId }),
     rename: (collectionId, name) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.rename, { collectionId, name }),
+    setMeta: (collectionId, meta) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.setMeta, { collectionId, ...meta }),
     deleteCollection: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.delete, { collectionId }),
     removeMessages: (collectionId, keys) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.removeMessages, { collectionId, keys: [...keys] }),
     addMessages: (request) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.addMessages, request),
-    exportHtml: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportHtml, { collectionId }),
+    exportHtml: (collectionId, theme) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportHtml, { collectionId, theme }),
     exportJson: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportJson, { collectionId }),
+    exportPdf: (collectionId, theme) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportPdf, { collectionId, theme }),
     importJson: () => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.importJson, {}),
     openOriginal: (agentId, entryId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.openOriginal, { agentId, entryId }),
-    promote: (collectionId, keys) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.promote, { collectionId, keys: [...keys] }),
     onNavigate: (listener) => {
       const wrapped = (_event: unknown, payload: unknown): void => listener(payload);
       ipc.on(COLLECTIONS_PRELOAD_NAVIGATE_CHANNEL, wrapped);
