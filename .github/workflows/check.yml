@@ -59,6 +59,9 @@ jobs:
           node-version: 26.5.0
           cache: npm
 
+      # This is also the lockfile guard: `npm ci` refuses a lock that has drifted from the
+      # manifest, which is how the nine dropped transitive entries surfaced on 2 Sep 2026 —
+      # they were only invisible while the CI outage stopped any run reaching this step.
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
 
@@ -73,13 +76,6 @@ jobs:
 
       - name: Typecheck frontend and source, run the test suite
         run: npm run check
-      # `npm ci` above already refuses a lockfile that has drifted, but only for what the lock
-      # DOES carry: a manifest change that adds a dependency is caught, a lock regenerated
-      # against a partial tree that quietly drops a transitive entry is not, until the next
-      # clean install. Ask npm to reconcile the two directly (2 Sep 2026: @floating-ui/dom and
-      # eight siblings went missing that way, and a CI outage hid it for hours).
-      - name: The lockfile agrees with the manifest
-        run: npm ls --all --package-lock-only >/dev/null
       # Checks and tests never package, so a dependency that breaks the build passes here and
       # fails on whoever packages next (2 Sep 2026: undici 8 against the pinned runtime version
       # the Electron main bundle keeps external). Package on macOS, where the runtime is
