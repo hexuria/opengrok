@@ -21,6 +21,14 @@ import {
 
 export const COLLECTIONS_INDEX_KEY = "sand.collections.index.v1";
 export const COLLECTIONS_ITEM_KEY_PREFIX = "sand.collections.item.v1.";
+/**
+ * "bookmarks" is a plain collection id now.
+ *
+ * It used to be a second concept beside collections: always present, pinned first, renamable by
+ * nobody, with a star that wrote to it and a "copy into Bookmarks" action. One archive with
+ * names people choose is the whole idea, so the id survives only so an existing Bookmarks
+ * collection keeps its messages and behaves like any other from here on.
+ */
 export const BOOKMARKS_COLLECTION_ID = "bookmarks";
 export const BOOKMARKS_COLLECTION_NAME = "Bookmarks";
 export const COLLECTION_MESSAGE_CAP = 500;
@@ -42,8 +50,9 @@ export function isCollectionId(value: unknown): value is string {
     && DEEP_LINK_ID_PATTERN.test(value);
 }
 
-export function isReservedCollectionId(value: string): boolean {
-  return value === BOOKMARKS_COLLECTION_ID;
+/** Nothing is reserved any more; kept so an id minted long ago still parses. */
+export function isReservedCollectionId(_value: string): boolean {
+  return false;
 }
 
 /** "col" + 16 lowercase base36 characters; always a valid deep-link id. */
@@ -223,19 +232,14 @@ function parseDocument(value: unknown, fallbackId: string): CollectionDocument |
   };
 }
 
-function emptyBookmarks(nowMs: number): CollectionDocument {
-  return { version: 1, id: BOOKMARKS_COLLECTION_ID, name: BOOKMARKS_COLLECTION_NAME, createdAtMs: nowMs, updatedAtMs: nowMs, messages: [] };
-}
 
 function summaryOf(document: CollectionDocument): CollectionSummary {
   return { id: document.id, name: document.name, createdAtMs: document.createdAtMs, updatedAtMs: document.updatedAtMs, count: document.messages.length };
 }
 
-/** Bookmarks is always first; everything else is most-recently-touched first. */
+/** Most-recently-touched first; no collection outranks another. */
 export function sortCollectionSummaries(collections: readonly CollectionSummary[]): CollectionSummary[] {
   return [...collections].sort((left, right) => {
-    if (left.id === BOOKMARKS_COLLECTION_ID) return right.id === BOOKMARKS_COLLECTION_ID ? 0 : -1;
-    if (right.id === BOOKMARKS_COLLECTION_ID) return 1;
     return right.updatedAtMs - left.updatedAtMs || left.name.localeCompare(right.name);
   });
 }
@@ -291,10 +295,10 @@ export class SandCollectionsStore {
 
   async #readDocument(collectionId: string): Promise<CollectionDocument | null> {
     const raw = await this.#kv.read(collectionItemKey(collectionId));
-    if (raw == null) return collectionId === BOOKMARKS_COLLECTION_ID ? emptyBookmarks(this.#now()) : null;
+    if (raw == null) return null;
     let parsed: unknown;
-    try { parsed = JSON.parse(raw); } catch { return collectionId === BOOKMARKS_COLLECTION_ID ? emptyBookmarks(this.#now()) : null; }
-    return parseDocument(parsed, collectionId) ?? (collectionId === BOOKMARKS_COLLECTION_ID ? emptyBookmarks(this.#now()) : null);
+    try { parsed = JSON.parse(raw); } catch { return null; }
+    return parseDocument(parsed, collectionId);
   }
 
   async #persist(document: CollectionDocument): Promise<void> {
@@ -305,14 +309,10 @@ export class SandCollectionsStore {
     await this.#writeIndex(next);
   }
 
-  /** Bookmarks is synthesized when absent so the sidebar can always pin it first. */
   listCollections(): Promise<CollectionSummary[]> {
     return this.#run(async () => {
       const collections = await this.#readIndex();
-      const withBookmarks = collections.some((entry) => entry.id === BOOKMARKS_COLLECTION_ID)
-        ? collections
-        : [...collections, { id: BOOKMARKS_COLLECTION_ID, name: BOOKMARKS_COLLECTION_NAME, createdAtMs: 0, updatedAtMs: 0, count: 0 }];
-      return sortCollectionSummaries(withBookmarks);
+      return sortCollectionSummaries(collections);
     });
   }
 
@@ -372,31 +372,9 @@ export class SandCollectionsStore {
     });
   }
 
-  /**
-   * Copies already-snapshotted messages into Bookmarks - no transcript refetch,
-   * so promotion works even after the originals were deleted.
-   */
-  async promoteToBookmarks(collectionId: string, keys: readonly string[]): Promise<AddMessagesResult> {
-    const document = await this.getCollection(collectionId);
-    if (document == null) throw new CollectionsError("Unknown collection.");
-    const wanted = new Set(keys);
-    const messages: CollectionMessageInput[] = document.messages
-      .filter((message) => wanted.has(message.key))
-      .map((message) => ({
-        agentId: message.agentId,
-        agentName: message.agentName,
-        entryId: message.entryId,
-        entry: message.entry,
-        media: message.media,
-      }));
-    if (messages.length === 0) throw new CollectionsError("Those messages are not in this collection.");
-    return this.addMessages({ collectionId: BOOKMARKS_COLLECTION_ID, messages });
-  }
-
   renameCollection(collectionId: string, name: string): Promise<CollectionSummary> {
     return this.#run(async () => {
       if (!isCollectionId(collectionId)) throw new CollectionsError("Unknown collection.");
-      if (isReservedCollectionId(collectionId)) throw new CollectionsError("Bookmarks cannot be renamed.");
       const document = await this.#readDocument(collectionId);
       if (document == null) throw new CollectionsError("Unknown collection.");
       const next: CollectionDocument = { ...document, name: normalizeCollectionName(name, document.name), updatedAtMs: this.#now() };
@@ -408,7 +386,6 @@ export class SandCollectionsStore {
   deleteCollection(collectionId: string): Promise<void> {
     return this.#run(async () => {
       if (!isCollectionId(collectionId)) throw new CollectionsError("Unknown collection.");
-      if (isReservedCollectionId(collectionId)) throw new CollectionsError("Bookmarks cannot be deleted.");
       await this.#kv.remove(collectionItemKey(collectionId));
       await this.#writeIndex((await this.#readIndex()).filter((entry) => entry.id !== collectionId));
     });

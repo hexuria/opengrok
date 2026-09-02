@@ -13,17 +13,30 @@
 
   var render = globalThis.SandCollectionRender;
   var bridge = globalThis.collections;
-  var BOOKMARKS_ID = "bookmarks";
 
   var listEl = document.getElementById("sand-col-list");
   var threadEl = document.getElementById("sand-col-thread");
   var titleEl = document.getElementById("sand-col-title");
   var statusEl = document.getElementById("sand-col-status");
+  var titleField = document.getElementById("sand-col-title-field");
   var copyButton = document.getElementById("sand-col-copy");
-  var htmlButton = document.getElementById("sand-col-html");
-  var jsonButton = document.getElementById("sand-col-json");
+  var exportButton = document.getElementById("sand-col-export");
+  var exportMenu = document.getElementById("sand-col-export-menu");
   var deleteButton = document.getElementById("sand-col-delete");
   var importButton = document.getElementById("sand-col-import");
+
+  /* Static inline SVG, the same stroke idiom as the chat's toolbars. A stack of cards for a
+     collection, a tray-with-arrow for export and import, a bin for delete. */
+  var ICON = {
+    link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
+    exportOut: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
+    importIn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14V3"/><path d="M8 7l4-4 4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg>'
+  };
+  copyButton.innerHTML = ICON.link;
+  exportButton.innerHTML = ICON.exportOut;
+  importButton.innerHTML = ICON.importIn;
+  deleteButton.innerHTML = ICON.trash;
 
   var state = { collections: [], selectedId: null, document: null };
   var statusTimer = 0;
@@ -90,21 +103,19 @@
       mediaSrc: mediaSrc,
       formatTimestamp: formatTimestamp,
       withActions: true,
-      withPromote: state.selectedId !== BOOKMARKS_ID,
     });
   }
 
   function renderHeader() {
     var doc = state.document;
-    var isBookmarks = state.selectedId === BOOKMARKS_ID;
     titleEl.textContent = doc ? doc.name : "Collections";
-    titleEl.setAttribute("contenteditable", doc && !isBookmarks ? "true" : "false");
-    titleEl.title = doc && !isBookmarks ? "Click to rename" : "";
+    titleEl.title = doc ? "Double-click to rename" : "";
+    titleEl.hidden = false;
+    titleField.hidden = true;
     var hasSelection = Boolean(doc);
     copyButton.disabled = !hasSelection;
-    htmlButton.disabled = !hasSelection;
-    jsonButton.disabled = !hasSelection;
-    deleteButton.disabled = !hasSelection || isBookmarks;
+    exportButton.disabled = !hasSelection;
+    deleteButton.disabled = !hasSelection;
   }
 
   function paint() {
@@ -165,31 +176,36 @@
       bridge.openOriginal(message.agentId, message.entryId).catch(function (error) { setStatus(failureText(error)); });
       return;
     }
-    if (action === "bookmark") {
-      bridge.promote(state.selectedId, [key]).then(function (result) {
-        if (result && result.collections) state.collections = result.collections;
-        setStatus(result && result.duplicates > 0 ? "Already in Bookmarks." : "Copied into Bookmarks.");
-        renderSidebar();
-      }).catch(function (error) { setStatus(failureText(error)); });
-    }
   });
 
-  titleEl.addEventListener("keydown", function (event) {
-    if (event.key === "Enter") { event.preventDefault(); titleEl.blur(); return; }
-    if (event.key === "Escape") { event.preventDefault(); titleEl.textContent = state.document ? state.document.name : ""; titleEl.blur(); }
-  });
+  // The name is a heading; a double-click turns it into a field. Enter renames, Escape puts
+  // the old name back — an always-live input invited an accidental rename on every stray click.
+  function beginRename() {
+    if (!state.document) return;
+    titleField.value = state.document.name;
+    titleEl.hidden = true;
+    titleField.hidden = false;
+    titleField.focus();
+    titleField.select();
+  }
 
-  titleEl.addEventListener("blur", function () {
-    if (titleEl.getAttribute("contenteditable") !== "true" || !state.document) return;
-    var next = (titleEl.textContent || "").trim();
-    if (next.length === 0 || next === state.document.name) { titleEl.textContent = state.document.name; return; }
+  function endRename(commit) {
+    if (titleField.hidden) return;
+    var next = (titleField.value || "").trim();
+    titleField.hidden = true;
+    titleEl.hidden = false;
+    if (!commit || !state.document || next.length === 0 || next === state.document.name) return;
     bridge.rename(state.selectedId, next).then(function () {
       return refreshList(state.selectedId);
-    }).catch(function (error) {
-      setStatus(failureText(error));
-      titleEl.textContent = state.document.name;
-    });
+    }).catch(function (error) { setStatus(failureText(error)); });
+  }
+
+  titleEl.addEventListener("dblclick", beginRename);
+  titleField.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") { event.preventDefault(); endRename(true); return; }
+    if (event.key === "Escape") { event.preventDefault(); endRename(false); }
   });
+  titleField.addEventListener("blur", function () { endRename(true); });
 
   /* The async clipboard API needs a permission the second window may not hold, so a selection copy is the fallback. */
   function copyWithSelection(text) {
@@ -219,33 +235,49 @@
     try { return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; } catch (_) { return "light"; }
   }
 
-  htmlButton.addEventListener("click", function () {
+  // One Export button with a small menu, so a fourth format later costs no more room.
+  function closeExportMenu() {
+    exportMenu.hidden = true;
+    exportButton.setAttribute("aria-expanded", "false");
+  }
+
+  exportButton.addEventListener("click", function (event) {
+    event.stopPropagation();
     if (!state.selectedId) return;
+    var open = exportMenu.hidden;
+    exportMenu.hidden = !open;
+    exportButton.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  document.addEventListener("click", function () { closeExportMenu(); });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape") closeExportMenu(); });
+  exportMenu.addEventListener("click", function (event) { event.stopPropagation(); });
+
+  exportMenu.addEventListener("click", function (event) {
+    var item = event.target && event.target.closest ? event.target.closest("[data-export]") : null;
+    if (!item || !state.selectedId) return;
+    var format = item.getAttribute("data-export");
+    closeExportMenu();
     setStatus("Exporting…", true);
-    bridge.exportHtml(state.selectedId, currentTheme()).then(function (result) {
-      if (!result || !result.saved) { setStatus(""); return; }
+    var call = format === "json" ? bridge.exportJson(state.selectedId)
+      : format === "pdf" ? bridge.exportPdf(state.selectedId, currentTheme())
+        : bridge.exportHtml(state.selectedId, currentTheme());
+    call.then(function (result) {
+      if (!result || !result.saved) { setStatus(result && result.error ? result.error : ""); return; }
       setStatus(result.skipped > 0
         ? "Exported to " + result.path + " (" + result.skipped + " attachment(s) left as placeholders)."
         : "Exported to " + result.path + ".");
     }).catch(function (error) { setStatus(failureText(error)); });
   });
 
-  jsonButton.addEventListener("click", function () {
-    if (!state.selectedId) return;
-    setStatus("Exporting…", true);
-    bridge.exportJson(state.selectedId).then(function (result) {
-      setStatus(result && result.saved ? "Exported to " + result.path + "." : "");
-    }).catch(function (error) { setStatus(failureText(error)); });
-  });
-
   deleteButton.addEventListener("click", function () {
-    if (!state.selectedId || state.selectedId === BOOKMARKS_ID || !state.document) return;
-    if (!confirm("Delete “" + state.document.name + "”? The original messages stay in their chats.")) return;
+    if (!state.selectedId || !state.document) return;
+    if (!confirm("Delete \u201c" + state.document.name + "\u201d? The original messages stay in their chats.")) return;
     bridge.deleteCollection(state.selectedId).then(function () {
       state.selectedId = null;
       state.document = null;
       setStatus("Collection deleted.");
-      return refreshList(BOOKMARKS_ID);
+      return refreshList();
     }).catch(function (error) { setStatus(failureText(error)); });
   });
 

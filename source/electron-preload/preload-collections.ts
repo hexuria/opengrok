@@ -16,9 +16,9 @@ export const COLLECTIONS_PRELOAD_CHANNELS = {
   addMessages: "sand:collections-add-messages",
   exportHtml: "sand:collections-export-html",
   exportJson: "sand:collections-export-json",
+  exportPdf: "sand:collections-export-pdf",
   importJson: "sand:collections-import-json",
   openOriginal: "sand:collections-open-original",
-  promote: "sand:collections-promote",
 } as const;
 
 export const COLLECTIONS_PRELOAD_NAVIGATE_CHANNEL = "sand:collections-navigate";
@@ -38,9 +38,9 @@ export interface CollectionsPreloadBridge {
   addMessages(request: unknown): Promise<unknown>;
   exportHtml(collectionId: string, theme?: string): Promise<unknown>;
   exportJson(collectionId: string): Promise<unknown>;
+  exportPdf(collectionId: string, theme?: string): Promise<unknown>;
   importJson(): Promise<unknown>;
   openOriginal(agentId: string, entryId: string): Promise<unknown>;
-  promote(collectionId: string, keys: readonly string[]): Promise<unknown>;
   onNavigate(listener: (payload: unknown) => void): () => void;
 }
 
@@ -54,9 +54,9 @@ export function createCollectionsPreloadBridge(ipc: CollectionsPreloadIpc): Coll
     addMessages: (request) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.addMessages, request),
     exportHtml: (collectionId, theme) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportHtml, { collectionId, theme }),
     exportJson: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportJson, { collectionId }),
+    exportPdf: (collectionId, theme) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportPdf, { collectionId, theme }),
     importJson: () => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.importJson, {}),
     openOriginal: (agentId, entryId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.openOriginal, { agentId, entryId }),
-    promote: (collectionId, keys) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.promote, { collectionId, keys: [...keys] }),
     onNavigate: (listener) => {
       const wrapped = (_event: unknown, payload: unknown): void => listener(payload);
       ipc.on(COLLECTIONS_PRELOAD_NAVIGATE_CHANNEL, wrapped);

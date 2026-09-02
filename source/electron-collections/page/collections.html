@@ -18,18 +18,25 @@
   <aside class="sand-col-side">
     <div class="sand-col-side-head">
       <span class="sand-col-side-title">Collections</span>
-      <button type="button" id="sand-col-import" class="sand-col-ghost" title="Import a collection file">Import</button>
+      <button type="button" id="sand-col-import" class="sand-col-icon" aria-label="Import a collection file" title="Import a collection file"></button>
     </div>
     <nav id="sand-col-list" class="sand-col-list" aria-label="Collections"></nav>
   </aside>
   <main class="sand-col-main">
     <header class="sand-col-topbar">
       <h1 id="sand-col-title" class="sand-col-title" tabindex="0">Collections</h1>
+      <input id="sand-col-title-field" class="sand-col-title-field" type="text" hidden aria-label="Collection name">
       <div class="sand-col-topbar-actions">
-        <button type="button" id="sand-col-copy" class="sand-col-ghost">Copy link</button>
-        <button type="button" id="sand-col-html" class="sand-col-ghost">Export HTML</button>
-        <button type="button" id="sand-col-json" class="sand-col-ghost">Export JSON</button>
-        <button type="button" id="sand-col-delete" class="sand-col-ghost sand-col-danger">Delete</button>
+        <button type="button" id="sand-col-copy" class="sand-col-icon" aria-label="Copy link" title="Copy link"></button>
+        <div class="sand-col-menu-wrap">
+          <button type="button" id="sand-col-export" class="sand-col-icon" aria-label="Export" title="Export" aria-haspopup="menu" aria-expanded="false"></button>
+          <div id="sand-col-export-menu" class="sand-col-menu" role="menu" hidden>
+            <button type="button" role="menuitem" data-export="html">HTML</button>
+            <button type="button" role="menuitem" data-export="json">JSON</button>
+            <button type="button" role="menuitem" data-export="pdf">PDF</button>
+          </div>
+        </div>
+        <button type="button" id="sand-col-delete" class="sand-col-icon sand-col-danger" aria-label="Delete collection" title="Delete collection"></button>
       </div>
     </header>
     <div id="sand-col-status" class="sand-col-status" role="status" hidden></div>

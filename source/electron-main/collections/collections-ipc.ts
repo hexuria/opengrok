@@ -22,7 +22,6 @@ import { buildSandMediaUrl, handleSandMediaRequest } from "../media/media-protoc
 import { reportDesktopEdgeFailure } from "../desktop-edge-failures.js";
 import type { ProductionServiceContext } from "../main-production-services.js";
 import {
-  BOOKMARKS_COLLECTION_ID,
   CollectionsError,
   SandCollectionsStore,
   buildCollectionHtmlExport,
@@ -53,9 +52,9 @@ export const COLLECTIONS_CHANNELS = {
   addMessages: "sand:collections-add-messages",
   exportHtml: "sand:collections-export-html",
   exportJson: "sand:collections-export-json",
+  exportPdf: "sand:collections-export-pdf",
   importJson: "sand:collections-import-json",
   openOriginal: "sand:collections-open-original",
-  promote: "sand:collections-promote",
 } as const;
 
 /** A defensive ceiling on backwards paging; a transcript is not infinite. */
@@ -88,6 +87,9 @@ export interface CollectionsIpcDeps {
   readonly showSaveDialog: (options: { readonly defaultPath: string; readonly filters: readonly { name: string; extensions: string[] }[] }) => Promise<CollectionsSaveDialogResult>;
   readonly showOpenDialog: (options: { readonly filters: readonly { name: string; extensions: string[] }[] }) => Promise<CollectionsOpenDialogResult>;
   readonly writeTextFile: (path: string, data: string) => Promise<void>;
+  readonly writeBinaryFile?: (path: string, data: Uint8Array) => Promise<void>;
+  /** Prints one self-contained HTML document to PDF bytes; absent where printing is not wired. */
+  readonly printHtmlToPdf?: (html: string) => Promise<Uint8Array>;
   readonly readTextFile: (path: string) => Promise<string>;
   readonly openWindow: (collectionId?: string) => void;
   readonly getTrustedContents: () => { readonly mainFrame?: unknown } | null | undefined;
@@ -206,11 +208,8 @@ function createService(deps: CollectionsIpcDeps): CollectionsService {
       const agentId = stringField(request, "agentId");
       const entryIds = [...new Set(stringList(isRecord(request) ? request.entryIds : null))].slice(0, COLLECTIONS_MAX_SHARE_ENTRIES);
       if (agentId.length === 0 || entryIds.length === 0) throw new CollectionsError("Select at least one message first.");
-      const target = stringField(request, "target");
       const requestedId = stringField(request, "collectionId");
-      const collectionId = target === "bookmarks"
-        ? BOOKMARKS_COLLECTION_ID
-        : isCollectionId(requestedId) ? requestedId : null;
+      const collectionId = isCollectionId(requestedId) ? requestedId : null;
       const [entries, names] = await Promise.all([
         snapshotTranscriptEntries(deps, agentId, entryIds),
         agentNames(deps),
@@ -318,6 +317,32 @@ export function registerCollectionsIpc(deps: CollectionsIpcDeps): { dispose(): v
     await deps.writeTextFile(chosen.filePath, JSON.stringify(payload));
     return { saved: true, path: chosen.filePath };
   });
+  // PDF is the HTML export, printed. One document, one renderer, one palette: whatever the
+  // window was showing when the person pressed Export goes into the file, because a printed
+  // page has no reader to ask what it prefers.
+  deps.ipcMain.handle(COLLECTIONS_CHANNELS.exportPdf, async (event, request) => {
+    guard(event);
+    const print = deps.printHtmlToPdf;
+    const writeBinary = deps.writeBinaryFile;
+    if (print == null || writeBinary == null) return { saved: false, error: "Printing is not available in this build." };
+    const document = await requireDocument(stringField(request, "collectionId"));
+    const chosen = await deps.showSaveDialog({
+      defaultPath: `${safeFileName(document.name)}.pdf`,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (chosen.canceled || chosen.filePath == null || chosen.filePath.length === 0) return { saved: false };
+    const nowMs = now();
+    const exported = await buildCollectionHtmlExport({
+      document,
+      readMedia: deps.readMedia,
+      permalink: buildCollectionDeepLinkUrl(document.id),
+      exportedAt: exportTimestampFormatter()(nowMs),
+      formatTimestamp: exportTimestampFormatter(),
+      theme: themeField(request),
+    });
+    await writeBinary(chosen.filePath, await print(exported.html));
+    return { saved: true, path: chosen.filePath, embedded: exported.embedded, skipped: exported.skipped };
+  });
   deps.ipcMain.handle(COLLECTIONS_CHANNELS.importJson, async (event) => {
     guard(event);
     const chosen = await deps.showOpenDialog({ filters: [{ name: "JSON", extensions: ["json"] }] });
@@ -332,14 +357,6 @@ export function registerCollectionsIpc(deps: CollectionsIpcDeps): { dispose(): v
       materialize: (collectionId) => materializeImportedMessages(parsed, collectionId, deps.writeImportedMedia, nowMs),
     });
     return { imported: true, collection: summary, collections: await deps.store.listCollections() };
-  });
-  deps.ipcMain.handle(COLLECTIONS_CHANNELS.promote, async (event, request) => {
-    guard(event);
-    const result = await deps.store.promoteToBookmarks(
-      stringField(request, "collectionId"),
-      stringList(isRecord(request) ? request.keys : null),
-    );
-    return { ...result, collections: await deps.store.listCollections() };
   });
   deps.ipcMain.handle(COLLECTIONS_CHANNELS.openOriginal, async (event, request) => {
     guard(event);
@@ -407,6 +424,23 @@ export function createProductionCollectionsIpcRegistrar(): (
       showSaveDialog: (options) => dialog().showSaveDialog(options),
       showOpenDialog: (options) => dialog().showOpenDialog({ ...options, properties: ["openFile"] }),
       writeTextFile: async (path, data) => { await fs.writeFile(path, data, "utf8"); },
+      writeBinaryFile: async (path, data) => { await fs.writeFile(path, data); },
+      // An offscreen window loads the export as a data: url and prints itself. Nothing is
+      // fetched: the document is self-contained, its media already inlined.
+      printHtmlToPdf: async (html) => {
+        const electron = require("electron") as { readonly BrowserWindow: new (options: unknown) => any };
+        const printer = new electron.BrowserWindow({
+          show: false,
+          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false, images: true },
+        });
+        try {
+          await printer.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+          const pdf = await printer.webContents.printToPDF({ printBackground: true, margins: { marginType: "default" }, pageSize: "A4" });
+          return new Uint8Array(pdf);
+        } finally {
+          if (!printer.isDestroyed()) printer.destroy();
+        }
+      },
       readTextFile: (path) => fs.readFile(path, "utf8"),
       openWindow,
       getTrustedContents: () => getCollectionsWindowContents() as { readonly mainFrame?: unknown } | null,

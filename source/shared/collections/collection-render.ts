@@ -35,8 +35,6 @@ export interface CollectionRenderOptions {
   readonly formatTimestamp: (timestampMs: number | undefined) => string;
   /** Emits the per-message hover actions; the exporter leaves this out. */
   readonly withActions?: boolean;
-  /** Adds the "copy into Bookmarks" action; the Bookmarks view itself omits it. */
-  readonly withPromote?: boolean;
 }
 
 const IMAGE_EXTENSIONS = ["avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"];
@@ -250,9 +248,6 @@ export function renderCollectionMessage(message: CollectionRenderMessage, option
   const actions = options.withActions === true
     ? "<div class=\"sand-col-actions\">"
       + "<button type=\"button\" data-collection-action=\"open\">Open original</button>"
-      + (options.withPromote === true
-        ? "<button type=\"button\" data-collection-action=\"bookmark\" title=\"Copy into Bookmarks\">☆ Bookmark</button>"
-        : "")
       + "<button type=\"button\" data-collection-action=\"remove\">Remove</button>"
       + "</div>"
     : "";
