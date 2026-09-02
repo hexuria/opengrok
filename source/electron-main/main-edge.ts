@@ -10,6 +10,7 @@ import { sandWebauthnProxyMirroredEnablement } from "../shared/webauthn-proxy-av
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
 import { askpassBiometricKind, askpassService, authorizeSudoEnableProduction } from "./askpass/askpass-runtime.js";
 import { isSandInferenceProvider, parseOpenRouterModelId } from "../shared/inference-router.js";
+import { transcriptDeletionFor } from "../shared/transcript-deletion.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
 import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_DAEMON_MACHINE_SECRET, OPENGROK_DAEMON_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
 import { getOpenGrokServerStatus, noteOpenGrokServerStatus } from "./box/opengrok-server-status.js";
@@ -894,6 +895,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     checkinWindows365: async () => await checkinWindows365Session(String(Reflect.get(deps.settingsStore, "settingsPath"))),
     resetWindows365: async () => await resetWindows365Session(String(Reflect.get(deps.settingsStore, "settingsPath"))),
     testWindows365: async () => await testWindows365Credentials(String(Reflect.get(deps.settingsStore, "settingsPath"))),
+    getTranscriptDeletion: async () => cloneableRecord({ ...transcriptDeletionFor(invoke(deps.settingsStore, "getBoxRuntime"), invoke(deps.settingsStore, "getInferenceProvider")) }),
     deleteTranscriptEntries: (raw) => { const { agentId, entryIds } = req(raw); invariant(typeof agentId === "string" && agentId.length > 0 && Array.isArray(entryIds), "A transcript deletion names its agent and entry ids."); return deps.deleteTranscriptEntries({ agentId, entryIds: entryIds.filter((id): id is string => typeof id === "string") }); },
     addCollectionMessages: async (raw) => {
       const { agentId, entryIds, target, collectionId, name } = req(raw);

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { createRealExpiryPolicy, createRealPollingPolicy, createRealRetryPolicy, realClock } from "../internal/scheduling.js";
 import { COORDINATOR_TRANSPORT_STATE_FAMILY } from "../shared/rpc/coordinator-port.js";
+import { serverDeletionArgs } from "../shared/transcript-deletion.js";
 import { createCachedReadDispatch, rosterFrameClaimsEmpty } from "./gateway/read-cache.js";
 import { isCoordinatorMainMethod } from "../shared/rpc/coordinator-main.js";
 import { SAND_WEBAUTHN_HEARTBEAT_INTERVAL_MS, type WebAuthnCeremony } from "../shared/webauthn-gateway.js";
@@ -387,6 +388,15 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
         if (method === "clearAgentImageMetadata") {
           const routed = await inferenceRouter!.dispatch(method, args);
           if (routed.handled) return { status: "ok" as const, value: routed.value };
+        }
+        if (method === "deleteTranscriptEntries") {
+          // One door for deleting a message, whichever route keeps the transcript: the local
+          // router (Claude, Codex, OpenRouter) holds its own and answers first; the OpenGrok
+          // server names the ids `ids`; Cursor keeps its transcripts out of reach.
+          const routed = await inferenceRouter?.dispatch(method, args);
+          if (routed?.handled) return { status: "ok" as const, value: routed.value };
+          if (usesOpenGrokServer(dataDir)) return mainDispatch(method, serverDeletionArgs(args), signal);
+          return { status: "failed" as const, failure: { code: "gateway-command-failed", message: "This route keeps its transcripts where nothing here can delete a message." } };
         }
       return mainDispatch(method, args, signal);
     } }
