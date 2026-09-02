@@ -194,6 +194,14 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
       controlClient.postEvent("agents-roster-seed", { agents });
     } catch (error) {
       process.stderr.write(`node-agent-coordinator: agents roster seed skipped: ${String(error)}\n`);
+      // Without this the page never hears that the read failed, so it renders the roster it has —
+      // nothing, on a fresh launch — and a server that cannot answer looks exactly like an account
+      // with no bots. That is the worst way to fail: a database outage read as "your work is gone"
+      // (2 Sep 2026). Saying the transport is down puts the reconnect notice and its Retry in front
+      // of the person instead. It is posted after the caller's "connected", because that post is
+      // synchronous and this catch is not, so the state the page keeps is this one. The next
+      // transport event, or the retry, puts it back.
+      if (!usesLocalCoordinator(dataDir)) server.postEvent(COORDINATOR_TRANSPORT_STATE_FAMILY, { state: "down" });
     }
   }
 
