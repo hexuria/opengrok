@@ -266,25 +266,27 @@ The server emits a transcript entry when `user_machine_shell` suspends on Ask:
 
 ### Still open
 
-- "Always allow this command" — **not unconfirmed: unbuilt on the client.**
-  Checked 2 Sep 2026 by reading, not guessing. The server mints the rule
-  (`gateway/cards.rs:167 proposed_rule(tool, arguments)`) and puts it on the
-  card as `proposedRule`. Nothing consumes it: the shipped 0.30 renderer has
-  **zero** occurrences of the string in either patched chunk, so it is never
-  shown and never sent back; `resolveAutoReviewApproval` carries only
-  approved/declined; the coordinator's resolutions are
-  `allow-once|allow-session|deny|always|never`
-  (`routed-messages-tools.ts:187`), where "always" sets the machine's local
-  Execution permission rather than a per-command rule; and on the server
-  nothing writes `allow_instructions` on approval — that column is only ever
-  written by the client's whole-row `PUT /auto-review/policy`
-  (`main-edge.ts putAutoReviewPolicyRow`).
-  So the path exists at both ends and is joined by nothing. Building it is a
-  renderer patch (a new affordance in the pinned bundle, which is exact-string
-  patch work), a client-side append to the allow list, and the existing policy
-  PUT — plus a decision about scope: the rule the server proposes is
-  per-coworker, and the allow list has a global tier too. **Ask the operator
-  before starting; it is a feature, not a fix.**
+- "Always allow this command" — **done 2 Sep 2026: the rule goes to the coworker
+  whose card it was.**
+  A note here previously said the feature was unbuilt. That was wrong, and it
+  was wrong because the search covered only the two chunks the build patches.
+  The approval card is in neither: it has its own lazily imported chunk,
+  `src/app/dist/renderer/assets/view-QqBtBG74.js`, which holds the renderer's
+  only use of `proposedRule` and always consumed it. What was actually wrong is
+  that the accepted rule went to the **global** allow list, so one answer on one
+  coworker's card governed every coworker.
+  `scripts/lib/always-allow-patch.mjs` now patches that chunk so the rule is
+  appended to that coworker's own list through `setAgentAutoReview`: the block
+  list is carried through, since the PUT is whole-row and would otherwise erase
+  it; a rule already present is not written twice; the list is capped at the
+  same 20 rules as the global tier. On the Cursor route, with no bridge, or when
+  the server cannot answer, it declines and the original global write runs
+  unchanged, because a rule the person was told was saved must not vanish. The
+  settled note names the coworker instead of "your settings" in that mode.
+  The pipeline and the package verification learned one new role, "card": three
+  chunks instead of two, still found by content rather than hash, still named,
+  counted once each and hashed both ways, with roles now required to be unique
+  and every patched chunk parsed before it ships.
 - Passkey ceremony test (RP `opengrok.app`) — needs the user's go.
 - Per-bot desktops (one box, several displays — verdict in
   docs/per-bot-desktops-plan.md), parked next in line.
