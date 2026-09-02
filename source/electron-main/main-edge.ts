@@ -895,7 +895,11 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     checkinWindows365: async () => await checkinWindows365Session(String(Reflect.get(deps.settingsStore, "settingsPath"))),
     resetWindows365: async () => await resetWindows365Session(String(Reflect.get(deps.settingsStore, "settingsPath"))),
     testWindows365: async () => await testWindows365Credentials(String(Reflect.get(deps.settingsStore, "settingsPath"))),
-    getTranscriptDeletion: async () => cloneableRecord({ ...transcriptDeletionFor(invoke(deps.settingsStore, "getBoxRuntime"), invoke(deps.settingsStore, "getInferenceProvider")) }),
+    getTranscriptDeletion: async () => {
+      // Some settings stores lack these getters; missing means unknown, which is "not available".
+      const read = (name: string): unknown => (typeof Reflect.get(deps.settingsStore, name) === "function" ? invoke(deps.settingsStore, name) : undefined);
+      return cloneableRecord({ ...transcriptDeletionFor(read("getBoxRuntime"), read("getInferenceProvider")) });
+    },
     deleteTranscriptEntries: (raw) => { const { agentId, entryIds } = req(raw); invariant(typeof agentId === "string" && agentId.length > 0 && Array.isArray(entryIds), "A transcript deletion names its agent and entry ids."); return deps.deleteTranscriptEntries({ agentId, entryIds: entryIds.filter((id): id is string => typeof id === "string") }); },
     addCollectionMessages: async (raw) => {
       const { agentId, entryIds, target, collectionId, name } = req(raw);

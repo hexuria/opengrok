@@ -390,13 +390,15 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
           if (routed.handled) return { status: "ok" as const, value: routed.value };
         }
         if (method === "deleteTranscriptEntries") {
-          // One door for deleting a message, whichever route keeps the transcript: the local
-          // router (Claude, Codex, OpenRouter) holds its own and answers first; the OpenGrok
-          // server names the ids `ids`; Cursor keeps its transcripts out of reach.
+          // One door for deleting a message, whichever route keeps the transcript. On the
+          // OpenGrok route the server is the only truth and names the ids `ids`; the local
+          // router never gets first refusal there (same rule as dispatchRequest above). On the
+          // other routes the local router (Claude, Codex, OpenRouter) answers for what it
+          // holds, and anything it does not hold goes where it always went, the gateway.
+          if (usesOpenGrokServer(dataDir)) return mainDispatch(method, serverDeletionArgs(args), signal);
           const routed = await inferenceRouter?.dispatch(method, args);
           if (routed?.handled) return { status: "ok" as const, value: routed.value };
-          if (usesOpenGrokServer(dataDir)) return mainDispatch(method, serverDeletionArgs(args), signal);
-          return { status: "failed" as const, failure: { code: "gateway-command-failed", message: "This route keeps its transcripts where nothing here can delete a message." } };
+          return mainDispatch(method, args, signal);
         }
       return mainDispatch(method, args, signal);
     } }
