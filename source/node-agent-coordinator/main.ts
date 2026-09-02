@@ -8,6 +8,7 @@ import { COORDINATOR_TRANSPORT_STATE_FAMILY } from "../shared/rpc/coordinator-po
 import { isCoordinatorMainMethod } from "../shared/rpc/coordinator-main.js";
 import { SAND_WEBAUTHN_HEARTBEAT_INTERVAL_MS, type WebAuthnCeremony } from "../shared/webauthn-gateway.js";
 import { adoptCarrier, type CarrierIntake } from "./carrier.js";
+import { trustSystemCertificateAuthorities } from "../shared/node/trust-system-ca.js";
 import { createControlPortClient } from "./control-port-client.js";
 import { CoordinatorGatewayClient, HOST_ACCOUNT_SLOT, createCoordinatorGatewayClientTiming, type GatewayConnection } from "./gateway/gateway-client.js";
 import { createGatewayDnsDiagnosticReporter } from "./gateway/gateway-dns-diagnostics.js";
@@ -115,6 +116,11 @@ export interface ComposeCoordinatorDependencies {
 }
 
 export async function composeCoordinator(dependencies: ComposeCoordinatorDependencies = {}): Promise<void> {
+  // Every gateway call and the /events stream leave this process over Node's TLS, which does
+  // not read the OS keychain: trust the OS roots first. This is the production entry (the bundle
+  // calls composeCoordinator directly), so it lives here and not behind the argv check below.
+  const trusted = trustSystemCertificateAuthorities();
+  if (trusted != null && trusted.system > 0) process.stderr.write(`node-agent-coordinator: trusting ${trusted.system} system CA roots alongside ${trusted.bundled} bundled\n`);
   const carrierIntake = await (dependencies.adoptCarrier ?? adoptCarrier)();
   if (!carrierIntake.adopted) {
     process.stderr.write(`node-agent-coordinator: ${carrierIntake.rejection.detail}\n`);
