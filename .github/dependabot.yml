@@ -22,6 +22,11 @@ updates:
       interval: weekly
       day: monday
     groups:
+      # zod is a peer dependency of the AI SDKs, so they only move together: the Claude Agent
+      # SDK's 0.3 line requires zod ^4 while @ai-sdk/* 1.x requires ^3, and a lone bump of any
+      # one of them fails `npm ci` with ERESOLVE (seen on #29). One PR, one decision.
+      zod-and-ai-sdks:
+        patterns: ["zod", "zod-to-json-schema", "ai", "@ai-sdk/*", "@anthropic-ai/claude-agent-sdk"]
       npm-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
