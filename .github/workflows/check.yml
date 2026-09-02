@@ -36,10 +36,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Fetch the recovered material
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: hexuria/opengrok-stow
           # No lfs: the archive's release DMGs are hundreds of MB and no
@@ -54,7 +54,7 @@ jobs:
           scripts/ci-restore-recovered.sh .stow-material
           rm -rf .stow-material
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.5.0
           cache: npm
