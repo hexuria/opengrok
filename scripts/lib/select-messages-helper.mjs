@@ -42,7 +42,11 @@ const CSS =
   + '+".sand-sel-box.on{background:#e8e8ec;border-color:#e8e8ec}"'
   + '+".sand-sel-box.on::after{content:\\"\\";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #1b1b1f;border-width:0 2px 2px 0;transform:rotate(45deg)}"'
   + '+"html[data-theme*=light] .sand-sel-box.on{background:#1b1b1f;border-color:#1b1b1f}html[data-theme*=light] .sand-sel-box.on::after{border-color:#fff}"'
-  + '+".sand-sel-bar{position:fixed;z-index:10001;display:flex;align-items:center;gap:6px;padding:6px 12px;box-sizing:border-box;font:500 13px system-ui;background:#f4f4f5;color:#222;border-bottom:1px solid rgba(0,0,0,.12)}"'
+  // The toolbar covers the chat header, which is a window-drag region: on macOS a drag
+  // rectangle keeps taking the mouse unless something above it says no-drag, so every button
+  // here was dead to a real click while working fine to a synthetic one.
+  + '+".sand-sel-bar{position:fixed;z-index:10001;display:flex;align-items:center;gap:6px;padding:6px 12px;box-sizing:border-box;font:500 13px system-ui;background:#f4f4f5;color:#222;border-bottom:1px solid rgba(0,0,0,.12);-webkit-app-region:no-drag}"'
+  + '+".sand-sel-bar button,.sand-sel-bar input{-webkit-app-region:no-drag}"'
   + '+"html[data-theme*=dark] .sand-sel-bar{background:#1b1b1f;color:#eee;border-color:rgba(255,255,255,.12)}"'
   + '+"@media (prefers-color-scheme:dark){html:not([data-theme*=light]) .sand-sel-bar{background:#1b1b1f;color:#eee;border-color:rgba(255,255,255,.12)}}"'
   + '+".sand-sel-bar[hidden]{display:none}"'
@@ -139,7 +143,7 @@ export const SELECT_MODE_HELPER =
   + 'var iv=0;var mo=new MutationObserver(queue);'
   + 'var api={active:function(){return st.on},count:function(){return st.ids.size},ids:function(){return Array.from(st.ids)},idsOf:idsOf,entryIdOf:entryIdOf,'
   + 'enter:function(seed){if(st.on)return;st.on=true;st.ids=new Set();st.anchor=null;st.agent=agentIdNow()||null;if(seed!=null&&String(seed).length>0)st.ids.add(String(seed));var sc=scroller();sc&&mo.observe(sc,{childList:true,subtree:true,attributes:true,attributeFilter:["style"]});iv=setInterval(queue,300);document.addEventListener("click",onClick,true);document.addEventListener("keydown",onKey,true);document.addEventListener("scroll",queue,true);window.addEventListener("resize",queue);renderBar();queue()},'
-  + 'exit:function(){if(!st.on)return;st.on=false;st.ids.clear();st.agent=null;lastSig="";gutter(false);mo.disconnect();clearInterval(iv);document.removeEventListener("click",onClick,true);document.removeEventListener("keydown",onKey,true);document.removeEventListener("scroll",queue,true);window.removeEventListener("resize",queue);bar.hidden=true;layer.hidden=true;layer.textContent=""},'
+  + 'exit:function(){if(!st.on)return;st.on=false;st.ids.clear();st.agent=null;lastSig="";bar.textContent="";gutter(false);mo.disconnect();clearInterval(iv);document.removeEventListener("click",onClick,true);document.removeEventListener("keydown",onKey,true);document.removeEventListener("scroll",queue,true);window.removeEventListener("resize",queue);bar.hidden=true;layer.hidden=true;layer.textContent=""},'
   + 'toggle:function(id){st.ids.has(id)?st.ids.delete(id):st.ids.add(id);renderBar();queue()},'
   + 'paint:paint,'
   + 'addLoaded:function(){loadedIds().forEach(function(i){st.ids.add(i)});renderBar();queue()},'
