@@ -1,7 +1,13 @@
 // Selection mode for the transcript: entered from a message's "Select messages" item or
-// Cmd/Ctrl+Shift+A. A toolbar sits under the chat header with a master checkbox, the count,
-// and icon buttons (share to a collection, bookmark, delete, close); every message row gets a
-// checkbox on its left and a tint when chosen; click toggles, shift-click ranges.
+// Cmd/Ctrl+Shift+A. A toolbar takes the chat header's place while selecting: an "Add N loaded"
+// button, the count, and icon buttons (share to a collection, bookmark, delete, close); every
+// message row gets a checkbox on its left; click toggles, shift-click ranges.
+//
+// There is no "select all". The feed is virtualized, so the app only knows the messages it has
+// loaded; a select-all could only ever mean "select what happens to be loaded", which read as a
+// promise it could not keep and, once pressed, left nothing to add. "Add N loaded" says exactly
+// what it does: it adds, it never takes away, and pressing it again after scrolling adds the
+// newly loaded ones. Clear takes the selection back to nothing.
 //
 // Rows are React's, so nothing is written into them: the checkboxes and tints are painted on a
 // fixed overlay from the rows' boxes, repainted on scroll, mutation and a slow tick. A short
@@ -49,11 +55,12 @@ const CSS =
   + '+".sand-sel-bar button.sand-sel-danger{color:#e5484d}"'
   + '+".sand-sel-bar button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}"'
   + '+".sand-sel-bar button.sand-sel-text{border:1px solid rgba(127,127,127,.4)}"'
-  + '+".sand-sel-master{width:18px;height:18px;border-radius:4px;border:1.5px solid rgba(127,127,127,.75);box-sizing:border-box;position:relative;display:block}"'
-  + '+".sand-sel-master[data-state=all],.sand-sel-master[data-state=some]{background:#e8e8ec;border-color:#e8e8ec}"'
-  + '+".sand-sel-master[data-state=all]::after{content:\\"\\";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #1b1b1f;border-width:0 2px 2px 0;transform:rotate(45deg)}"'
-  + '+".sand-sel-master[data-state=some]::after{content:\\"\\";position:absolute;left:4px;top:7px;width:8px;height:2px;background:#1b1b1f}"'
-  + '+"html[data-theme*=light] .sand-sel-master[data-state=all],html[data-theme*=light] .sand-sel-master[data-state=some]{background:#1b1b1f;border-color:#1b1b1f}html[data-theme*=light] .sand-sel-master[data-state=all]::after{border-color:#fff}html[data-theme*=light] .sand-sel-master[data-state=some]::after{background:#fff}"'
+  + '+".sand-sel-bar button.sand-sel-add{gap:7px;padding:0 12px;border:1px solid rgba(127,127,127,.4)}"'
+  + '+".sand-sel-plus{position:relative;width:14px;height:14px;flex:0 0 auto;opacity:.9}"'
+  + '+".sand-sel-plus::before,.sand-sel-plus::after{content:\\"\\";position:absolute;background:currentColor;border-radius:1px}"'
+  + '+".sand-sel-plus::before{left:0;top:6px;width:14px;height:2px}"'
+  + '+".sand-sel-plus::after{left:6px;top:0;width:2px;height:14px}"'
+  + '+".sand-sel-bar button.sand-sel-clear{margin-left:2px;opacity:.85}"'
   + '+".sand-sel-bar input{font:500 13px system-ui;border:1px solid rgba(127,127,127,.4);border-radius:8px;padding:5px 9px;background:transparent;color:inherit;min-width:180px}"';
 
 // Static inline SVG (Lucide-style strokes); nothing from the page goes into innerHTML.
@@ -101,9 +108,13 @@ export const SELECT_MODE_HELPER =
   // The toolbar: [master checkbox] N selected · M loaded ……… share · bookmark · delete · close
   + 'var renderBar=function(msg){if(!st.on){bar.hidden=true;return}bar.hidden=false;bar.textContent="";placeBar();lastSig=sig();var n=st.ids.size;'
   + 'if(msg){note(msg,"sand-sel-count");var sp=document.createElement("span");sp.className="sand-sel-spacer";bar.appendChild(sp);iconButton("x","Done",function(){api.exit()});return}'
-  + 'var loaded=loadedIds();var all=loaded.length>0&&loaded.every(function(i){return st.ids.has(i)});var some=!all&&loaded.some(function(i){return st.ids.has(i)});'
-  + 'var master=document.createElement("button");master.type="button";master.setAttribute("role","checkbox");master.setAttribute("aria-checked",all?"true":some?"mixed":"false");master.setAttribute("aria-label",all?"Deselect all":"Select all loaded messages");master.title=all?"Deselect all":"Select all loaded messages";var box=document.createElement("span");box.className="sand-sel-master";box.setAttribute("data-state",all?"all":some?"some":"none");master.appendChild(box);master.addEventListener("click",function(ev){ev.stopPropagation();all?api.selectNone():api.selectAll()});bar.appendChild(master);'
-  + 'note(n+" selected","sand-sel-count");if(loaded.length)note("\\u00b7 "+loaded.length+" loaded");'
+  + 'var loaded=loadedIds();var fresh=loaded.filter(function(i){return!st.ids.has(i)});'
+  // The left control adds; it never removes, so it cannot lock. When every loaded message is
+  // already in, it says so instead of turning into a trap.
+  + 'var add=document.createElement("button");add.type="button";add.className="sand-sel-add";add.disabled=fresh.length===0;add.setAttribute("aria-label",fresh.length>0?"Add the "+fresh.length+" loaded messages to the selection":"Every loaded message is already selected");add.title=add.getAttribute("aria-label");var plus=document.createElement("span");plus.className="sand-sel-plus";plus.setAttribute("aria-hidden","true");add.appendChild(plus);var addLabel=document.createElement("span");addLabel.textContent=fresh.length>0?"Add "+fresh.length+" loaded":"All loaded added";add.appendChild(addLabel);add.addEventListener("click",function(ev){ev.stopPropagation();api.addLoaded()});bar.appendChild(add);'
+  + 'note(n+" selected","sand-sel-count");'
+  + 'if(n>0){var clear=document.createElement("button");clear.type="button";clear.className="sand-sel-text sand-sel-clear";clear.textContent="Clear";clear.setAttribute("aria-label","Clear the selection");clear.addEventListener("click",function(ev){ev.stopPropagation();api.selectNone()});bar.appendChild(clear)}'
+  + 'if(loaded.length)note("\\u00b7 "+loaded.length+" loaded, scroll for more");'
   + 'var sp=document.createElement("span");sp.className="sand-sel-spacer";bar.appendChild(sp);'
   + 'var col=window.desktop&&window.desktop.collections;'
   + 'if(col&&col.addMessages){iconButton("share","Share to a collection",function(){picker()}).disabled=!n;iconButton("star","Bookmark",function(){act("bookmark")}).disabled=!n}'
@@ -123,7 +134,7 @@ export const SELECT_MODE_HELPER =
   + 'textButton("New collection\\u2026",function(){bar.textContent="";placeBar();note("Name:","sand-sel-count");var inp=document.createElement("input");inp.type="text";inp.placeholder="Collection name";inp.addEventListener("keydown",function(ev){ev.stopPropagation();if(ev.key==="Enter"&&inp.value.trim())send({name:inp.value.trim()},"Sharing\\u2026");if(ev.key==="Escape")renderBar()});bar.appendChild(inp);textButton("Create",function(){inp.value.trim()&&send({name:inp.value.trim()},"Sharing\\u2026")});textButton("Back",function(){picker()});inp.focus()});'
   + 'var sp=document.createElement("span");sp.className="sand-sel-spacer";bar.appendChild(sp);iconButton("x","Back",function(){renderBar()})}).catch(function(){send({},"Sharing\\u2026")})};'
   + 'var onClick=function(ev){if(!st.on)return;if(bar.contains(ev.target))return;var sc=scroller();if(!sc||!sc.contains(ev.target))return;ev.preventDefault();ev.stopPropagation();var row=ev.target&&ev.target.closest?ev.target.closest("[data-row-key]"):null;var ids=idsOf(row);if(!ids.length)return;var idx=row.getAttribute("data-index");if(ev.shiftKey&&st.anchor!=null&&idx!=null){var lo=Math.min(st.anchor,+idx),hi=Math.max(st.anchor,+idx);rows().forEach(function(r){var i=+r.getAttribute("data-index");if(i>=lo&&i<=hi)idsOf(r).forEach(function(x){st.ids.add(x)})})}else{var on=ids.every(function(i){return st.ids.has(i)});ids.forEach(function(i){on?st.ids.delete(i):st.ids.add(i)});if(idx!=null)st.anchor=+idx}renderBar();queue()};'
-  + 'var onKey=function(ev){if(!st.on)return;if(ev.key==="Escape"){if(ev.target&&(/^(INPUT|TEXTAREA)$/.test(ev.target.tagName)||ev.target.isContentEditable))return;if(document.querySelector("[role=menu],[role=dialog],[role=alertdialog]:not(.sand-delete-confirm)"))return;ev.preventDefault();ev.stopPropagation();api.exit()}else if((ev.metaKey||ev.ctrlKey)&&(ev.key==="a"||ev.key==="A")&&!(ev.target&&/^(INPUT|TEXTAREA)$/.test(ev.target.tagName))&&!(ev.target&&ev.target.isContentEditable)){ev.preventDefault();ev.stopPropagation();api.selectAll()}};'
+  + 'var onKey=function(ev){if(!st.on)return;if(ev.key==="Escape"){if(ev.target&&(/^(INPUT|TEXTAREA)$/.test(ev.target.tagName)||ev.target.isContentEditable))return;if(document.querySelector("[role=menu],[role=dialog],[role=alertdialog]:not(.sand-delete-confirm)"))return;ev.preventDefault();ev.stopPropagation();api.exit()}else if((ev.metaKey||ev.ctrlKey)&&(ev.key==="a"||ev.key==="A")&&!(ev.target&&/^(INPUT|TEXTAREA)$/.test(ev.target.tagName))&&!(ev.target&&ev.target.isContentEditable)){ev.preventDefault();ev.stopPropagation();api.addLoaded()}};'
   + 'document.addEventListener("keydown",function(ev){if((ev.metaKey||ev.ctrlKey)&&ev.shiftKey&&(ev.key==="A"||ev.key==="a")&&!st.on&&scroller()){ev.preventDefault();api.enter()}},true);'
   + 'var iv=0;var mo=new MutationObserver(queue);'
   + 'var api={active:function(){return st.on},count:function(){return st.ids.size},ids:function(){return Array.from(st.ids)},idsOf:idsOf,entryIdOf:entryIdOf,'
@@ -131,7 +142,7 @@ export const SELECT_MODE_HELPER =
   + 'exit:function(){if(!st.on)return;st.on=false;st.ids.clear();st.agent=null;lastSig="";gutter(false);mo.disconnect();clearInterval(iv);document.removeEventListener("click",onClick,true);document.removeEventListener("keydown",onKey,true);document.removeEventListener("scroll",queue,true);window.removeEventListener("resize",queue);bar.hidden=true;layer.hidden=true;layer.textContent=""},'
   + 'toggle:function(id){st.ids.has(id)?st.ids.delete(id):st.ids.add(id);renderBar();queue()},'
   + 'paint:paint,'
-  + 'selectAll:function(){loadedIds().forEach(function(i){st.ids.add(i)});renderBar();queue()},'
+  + 'addLoaded:function(){loadedIds().forEach(function(i){st.ids.add(i)});renderBar();queue()},'
   + 'selectNone:function(){st.ids.clear();renderBar();queue()}};'
   + 'window.__sandSelect=api'
   + '}catch(_){}})();\n';

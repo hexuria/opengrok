@@ -21,6 +21,7 @@ function fakePage({ rows, collections = true, deleteResult } = {}) {
   };
   const rowEls = rows.map((r, i) => { const el = element("div"); el.attrs["data-row-key"] = r.key; if (r.label) el.attrs["aria-labelledby"] = r.label; if (r.entryId) el.attrs["data-entry-id"] = r.entryId; if (r.entryIds) el.attrs["data-entry-ids"] = r.entryIds; el.attrs["data-index"] = String(i); el.getBoundingClientRect = () => ({ left: 100, top: 100 + i * 40, bottom: 130 + i * 40, height: 30, width: 800 }); return el; });
   const scroller = element("div"); scroller.querySelectorAll = (sel) => (sel === "[data-row-key]" ? rowEls : []);
+  const addRow = (r) => { const i = rowEls.length; const el = element("div"); el.attrs["data-row-key"] = r.key; if (r.label) el.attrs["aria-labelledby"] = r.label; el.attrs["data-index"] = String(i); el.getBoundingClientRect = () => ({ left: 100, top: 100 + i * 40, bottom: 130 + i * 40, height: 30, width: 800 }); rowEls.push(el); return el; };
   scroller.closest = () => scroller;
   const head = element("head"); const body = element("body");
   const docListeners = {};
@@ -39,7 +40,7 @@ function fakePage({ rows, collections = true, deleteResult } = {}) {
   const globals = { document, window, self, localStorage: { getItem: (k) => stored[k] ?? null, setItem(k, v) { stored[k] = v; } }, MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: () => 1, setInterval: () => 1, clearInterval() {}, setTimeout: (fn) => { timers.push(fn); return timers.length; } };
   new Function(...Object.keys(globals), SELECT_MODE_HELPER)(...Object.values(globals));
   const bar = body.children.find((c) => c.className === "sand-sel-bar");
-  return { api: window.__sandSelect, bar, rowEls, calls, docListeners, self, stored, document, ask: desktop, timers };
+  return { api: window.__sandSelect, bar, rowEls, addRow, calls, docListeners, self, stored, document, ask: desktop, timers };
 }
 const labelled = (id) => `sand-conversation-entry-${id}-author sand-conversation-entry-${id}-timestamp`;
 const buttons = (bar) => bar.children.filter((c) => c.tag === "button");
@@ -57,40 +58,61 @@ test("every entry row is selectable on every route: the id comes from the row's 
   assert.deepEqual(api.idsOf(el({ "data-row-key": "e_7" }, false)), [], "a date separator borrows the next entry's key and is not a row");
 });
 
-test("entering from a message's menu selects that message; the toolbar shows the count, the master checkbox, and icon buttons", () => {
+test("entering from a message's menu selects that message; the toolbar shows Add loaded, the count, Clear, and icon buttons", () => {
   const { api, bar } = fakePage({ rows: [{ key: "nonce:1", label: labelled("e_1") }, { key: "e_2", label: labelled("e_2") }, { key: "e_3", label: labelled("e_3") }] });
   api.enter("e_2");
   assert.equal(api.count(), 1, "the seed counts, whatever its shape");
   assert.equal(count(bar), "1 selected");
   const b = buttons(bar);
-  assert.deepEqual(b.map(label), ["Select all loaded messages", "Share to a collection", "Bookmark", "Delete", "Done"]);
-  assert.equal(b[0].attrs["aria-checked"], "mixed");
-  assert.equal(b[3].className.includes("sand-sel-danger"), true, "delete is the dangerous one");
-  assert.ok(b[1].innerHTML.startsWith("<svg"), "icons, not words");
+  assert.deepEqual(b.map(label), ["Add the 2 loaded messages to the selection", "Clear the selection", "Share to a collection", "Bookmark", "Delete", "Done"]);
+  assert.equal(b[0].disabled, false);
+  assert.equal(b[4].className.includes("sand-sel-danger"), true, "delete is the dangerous one");
+  assert.ok(b[2].innerHTML.startsWith("<svg"), "icons for the actions");
 });
 
-test("the master checkbox selects every loaded message and clears them again; actions are disabled at zero", async () => {
-  const { api, bar, calls } = fakePage({ rows: [{ key: "nonce:1", label: labelled("e_1") }, { key: "e_2", label: labelled("e_2") }] });
+test("Add loaded only ever adds, and says so when there is nothing left to add", async () => {
+  const page = fakePage({ rows: [{ key: "nonce:1", label: labelled("e_1") }, { key: "e_2", label: labelled("e_2") }] });
+  const { api, bar, calls } = page;
   api.enter();
   assert.equal(count(bar), "0 selected");
   assert.deepEqual(buttons(bar).slice(1, 4).map((b) => b.disabled), [true, true, true], "nothing to share, bookmark or delete yet");
   buttons(bar)[0].listeners.click({ stopPropagation() {} });
   assert.equal(api.count(), 2);
-  assert.equal(buttons(bar)[0].attrs["aria-checked"], "true");
-  assert.equal(label(buttons(bar)[0]), "Deselect all");
-  buttons(bar)[2].listeners.click({ stopPropagation() {} });
+  assert.equal(buttons(bar)[0].disabled, true, "everything loaded is in");
+  assert.equal(buttons(bar)[0].children.at(-1).textContent, "All loaded added");
+  buttons(bar)[0].listeners.click({ stopPropagation() {} });
+  assert.equal(api.count(), 2, "pressing it again never removes anything");
+  buttons(bar)[3].listeners.click({ stopPropagation() {} });
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(calls.add, [{ agentId: "cw_1", entryIds: ["e_1", "e_2"], target: "bookmarks" }], "Bookmark sends what is selected");
-  api.enter();
-  buttons(bar)[0].listeners.click({ stopPropagation() {} });
-  buttons(bar)[0].listeners.click({ stopPropagation() {} });
-  assert.equal(api.count(), 0, "and back to none");
+});
+
+test("messages loaded later can still be added; the button counts only what is new", () => {
+  const page = fakePage({ rows: [{ key: "e_1", label: labelled("e_1") }] });
+  page.api.enter();
+  buttons(page.bar)[0].listeners.click({ stopPropagation() {} });
+  assert.equal(page.api.count(), 1);
+  page.addRow({ key: "e_2", label: labelled("e_2") });
+  page.addRow({ key: "e_3", label: labelled("e_3") });
+  page.api.paint();
+  assert.equal(label(buttons(page.bar)[0]), "Add the 2 loaded messages to the selection", "the two that scrolled in");
+  buttons(page.bar)[0].listeners.click({ stopPropagation() {} });
+  assert.deepEqual(page.api.ids(), ["e_1", "e_2", "e_3"]);
+});
+
+test("Clear takes the selection back to nothing, and goes away at zero", () => {
+  const { api, bar } = fakePage({ rows: [{ key: "e_1", label: labelled("e_1") }] });
+  api.enter("e_1");
+  const clear = buttons(bar).find((b) => label(b) === "Clear the selection");
+  clear.listeners.click({ stopPropagation() {} });
+  assert.equal(api.count(), 0);
+  assert.equal(buttons(bar).some((b) => label(b) === "Clear the selection"), false);
 });
 
 test("delete asks first, names the server when it will really delete, and sends the ids through the door", async () => {
   const { api, bar, calls } = fakePage({ rows: [{ key: "e_2", label: labelled("e_2") }] });
   api.enter("e_2");
-  buttons(bar)[3].listeners.click({ stopPropagation() {} });
+  buttons(bar).find((b) => label(b) === "Delete").listeners.click({ stopPropagation() {} });
   assert.match(count(bar), /Delete 1 message for everyone on this server\?/);
   const del = buttons(bar).find((b) => b.textContent === "Delete");
   del.listeners.click({ stopPropagation() {} });
@@ -104,7 +126,7 @@ const settle = () => new Promise((r) => setImmediate(r));
 
 test("a server count short of the selection is reported, not passed off as done; the rest stay selected", async () => {
   const page = fakePage({ rows: [{ key: "e_1", label: labelled("e_1") }, { key: "e_2", label: labelled("e_2") }], deleteResult: { deleted: 1 } });
-  page.api.enter(); page.api.selectAll();
+  page.api.enter(); page.api.addLoaded();
   clickDelete(page.bar);
   await settle();
   assert.equal(count(page.bar), "Deleted 1 of 2; the rest are still selected.");
@@ -113,7 +135,7 @@ test("a server count short of the selection is reported, not passed off as done;
 
 test("the local router's list is honoured; blocked ids are named and stay selected", async () => {
   const page = fakePage({ rows: [{ key: "t1u", label: labelled("t1u") }, { key: "t2u", label: labelled("t2u") }], deleteResult: { deleted: ["t1u"], blocked: [{ id: "t2u", reason: "pending" }] } });
-  page.api.enter(); page.api.selectAll();
+  page.api.enter(); page.api.addLoaded();
   clickDelete(page.bar);
   await settle();
   assert.equal(count(page.bar), "1 deleted · 1 blocked (pending)");
@@ -130,7 +152,7 @@ test("a failure where the server can delete is a failure, not a device hide; onl
   const cursor = fakePage({ rows: [{ key: "t1u", label: labelled("t1u") }], deleteResult: new Error("no such method") });
   cursor.self.__sandDeleteAvailable = false;
   cursor.api.enter("t1u");
-  assert.equal(label(buttons(cursor.bar)[3]), "Hide on this device");
+  assert.equal(buttons(cursor.bar).some((b) => label(b) === "Hide on this device"), true);
   clickDelete(cursor.bar);
   await settle();
   assert.match(JSON.parse(cursor.stored["sandTombstones.v1"]).cw_1.join(","), /t1u/, "hidden on this device, as the button said");

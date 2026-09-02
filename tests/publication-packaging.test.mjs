@@ -294,8 +294,9 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(selectHelper, /deleteTranscriptEntries\(\{agentId:ag,entryIds:ids\}\)/);
   assert.match(selectHelper, /for everyone on this server\?/);
   assert.match(selectHelper, /on this device\? The server copy is unchanged\./);
-  assert.match(selectHelper, /role","checkbox"/);
-  assert.match(selectHelper, /Select all loaded messages/);
+  assert.match(selectHelper, /Add "\+fresh\.length\+" loaded/);
+  assert.match(selectHelper, /All loaded added/);
+  assert.doesNotMatch(selectHelper, /Select all/, "a virtualized feed cannot promise all");
   assert.doesNotMatch(rendererPatch, /coordinatorPort/);
   assert.doesNotMatch(selectHelper, /coordinatorPort/);
   // Remote-box agents answer through Cursor's in-box gateway (not extensible),
