@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { createRealExpiryPolicy, createRealPollingPolicy, createRealRetryPolicy, realClock } from "../internal/scheduling.js";
 import { COORDINATOR_TRANSPORT_STATE_FAMILY } from "../shared/rpc/coordinator-port.js";
+import { serverDeletionArgs } from "../shared/transcript-deletion.js";
 import { createCachedReadDispatch, rosterFrameClaimsEmpty } from "./gateway/read-cache.js";
 import { isCoordinatorMainMethod } from "../shared/rpc/coordinator-main.js";
 import { SAND_WEBAUTHN_HEARTBEAT_INTERVAL_MS, type WebAuthnCeremony } from "../shared/webauthn-gateway.js";
@@ -387,6 +388,17 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
         if (method === "clearAgentImageMetadata") {
           const routed = await inferenceRouter!.dispatch(method, args);
           if (routed.handled) return { status: "ok" as const, value: routed.value };
+        }
+        if (method === "deleteTranscriptEntries") {
+          // One door for deleting a message, whichever route keeps the transcript. On the
+          // OpenGrok route the server is the only truth and names the ids `ids`; the local
+          // router never gets first refusal there (same rule as dispatchRequest above). On the
+          // other routes the local router (Claude, Codex, OpenRouter) answers for what it
+          // holds, and anything it does not hold goes where it always went, the gateway.
+          if (usesOpenGrokServer(dataDir)) return mainDispatch(method, serverDeletionArgs(args), signal);
+          const routed = await inferenceRouter?.dispatch(method, args);
+          if (routed?.handled) return { status: "ok" as const, value: routed.value };
+          return mainDispatch(method, args, signal);
         }
       return mainDispatch(method, args, signal);
     } }

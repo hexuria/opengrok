@@ -1,6 +1,7 @@
 import * as acorn from "acorn";
 import { ALWAYS_ALLOW_ANCHORS, patchOriginalAlwaysAllowScope } from "./always-allow-patch.mjs";
 import { SERVER_READS_BANNER_HELPER } from "./server-reads-banner.mjs";
+import { DELETE_MESSAGE_HELPER } from "./delete-message-helper.mjs";
 import { patchOriginalBrandText } from "./brand-text-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -1820,7 +1821,7 @@ const ROW_ENTRY_ID_BEFORE = '"data-index":Nt.transcriptIndex,"data-pending":Ft.i
 const ROW_ENTRY_ID_AFTER = '"data-entry-id":vs!=null?vs.id:void 0,"data-entry-ids":Yt.kind==="attachment-group"?Yt.entries.map(function(sdEn){return sdEn.id}).join(" "):void 0,"data-index":Nt.transcriptIndex,"data-pending":Ft.isPending||void 0,"data-role":Ft.role,"data-row-key":Nt.key,ref:nQ(Nt)';
 
 const MENU_COPY_ID_BEFORE = 'let lt;e[107]!==tt||e[108]!==ct?(lt=p.jsxs(It.Content,{"aria-label":"More message actions",minWidth:200,ref:A,size:"md",children:[tt,ct]}),e[107]=tt,e[108]=ct,e[109]=lt):lt=e[109];';
-const MENU_COPY_ID_AFTER = 'const sandCID=p.jsx(It.Item,{leading:p.jsx(bt,{name:"copy",size:"base"}),onSelect:()=>{try{navigator.clipboard.writeText(String(t&&t.id||""))}catch(_e){}_()},children:"Copy message ID"});const sandCURL=p.jsx(It.Item,{leading:p.jsx(bt,{name:"link",size:"base"}),onSelect:()=>{try{var ag=(t&&(t.agentId||t.agent))||(self.__sandCurrentAgent?self.__sandCurrentAgent():"")||"";var mid=String(t&&t.id||"");var row=document.querySelector("[data-entry-id="+JSON.stringify(mid)+"]");var ih=row?row.getAttribute("data-index"):null;navigator.clipboard.writeText("opengrok://app/v1/message?agent="+encodeURIComponent(ag)+"&id="+encodeURIComponent(mid)+(ih?"&i="+ih:""))}catch(_e){}_()},children:"Copy message URL"});const sandBust=p.jsx(It.Item,{leading:p.jsx(bt,{name:"refresh",size:"base"}),onSelect:()=>{try{var row=document.querySelector("[data-entry-id=\'"+String(t&&t.id||"")+"\']");var n=0;if(row&&self.__sandMediaMeta&&self.__sandMediaMeta.clearKey){row.querySelectorAll("img,video").forEach(function(m){var src=m.currentSrc||m.src;if(src&&src.indexOf("data:")!==0)n+=self.__sandMediaMeta.clearKey(src)})}console.log("[sand] busted media cache entries:",n)}catch(_e){}_()},children:"Clear media cache (message)"});const sandSel=p.jsx(It.Item,{leading:p.jsx(bt,{name:"check",size:"base"}),onSelect:()=>{try{window.__sandSelect&&window.__sandSelect.enter(String(t&&t.id||""))}catch(_e){}_()},children:"Select messages"});let lt;e[107]!==tt||e[108]!==ct?(lt=p.jsxs(It.Content,{"aria-label":"More message actions",minWidth:200,ref:A,size:"md",children:[tt,ct,sandCID,sandCURL,sandBust,sandSel]}),e[107]=tt,e[108]=ct,e[109]=lt):lt=e[109];';
+const MENU_COPY_ID_AFTER = 'const sandCID=p.jsx(It.Item,{leading:p.jsx(bt,{name:"copy",size:"base"}),onSelect:()=>{try{navigator.clipboard.writeText(String(t&&t.id||""))}catch(_e){}_()},children:"Copy message ID"});const sandCURL=p.jsx(It.Item,{leading:p.jsx(bt,{name:"link",size:"base"}),onSelect:()=>{try{var ag=(t&&(t.agentId||t.agent))||(self.__sandCurrentAgent?self.__sandCurrentAgent():"")||"";var mid=String(t&&t.id||"");var row=document.querySelector("[data-entry-id="+JSON.stringify(mid)+"]");var ih=row?row.getAttribute("data-index"):null;navigator.clipboard.writeText("opengrok://app/v1/message?agent="+encodeURIComponent(ag)+"&id="+encodeURIComponent(mid)+(ih?"&i="+ih:""))}catch(_e){}_()},children:"Copy message URL"});const sandBust=p.jsx(It.Item,{leading:p.jsx(bt,{name:"refresh",size:"base"}),onSelect:()=>{try{var row=document.querySelector("[data-entry-id=\'"+String(t&&t.id||"")+"\']");var n=0;if(row&&self.__sandMediaMeta&&self.__sandMediaMeta.clearKey){row.querySelectorAll("img,video").forEach(function(m){var src=m.currentSrc||m.src;if(src&&src.indexOf("data:")!==0)n+=self.__sandMediaMeta.clearKey(src)})}console.log("[sand] busted media cache entries:",n)}catch(_e){}_()},children:"Clear media cache (message)"});const sandSel=p.jsx(It.Item,{leading:p.jsx(bt,{name:"check",size:"base"}),onSelect:()=>{try{window.__sandSelect&&window.__sandSelect.enter(String(t&&t.id||""))}catch(_e){}_()},children:"Select messages"});const sandAvail=self.__sandDeleteAvailable===!0&&!!(t&&t.id);try{self.__sandDeleteRefresh&&self.__sandDeleteRefresh()}catch(_e){}const sandDel=sandAvail?p.jsx(It.Item,{leading:p.jsx(bt,{name:"trash",size:"base"}),onSelect:()=>{try{self.__sandDeleteMessage&&self.__sandDeleteMessage(String(t&&t.id||""),(t&&(t.agentId||t.agent))||"")}catch(_e){}_()},children:"Delete message"}):null;let lt;e[107]!==tt||e[108]!==ct||e[110]!==sandAvail?(lt=p.jsxs(It.Content,{"aria-label":"More message actions",minWidth:200,ref:A,size:"md",children:[tt,ct,sandCID,sandCURL,sandBust,sandSel,sandDel]}),e[107]=tt,e[108]=ct,e[109]=lt,e[110]=sandAvail):lt=e[109];';
 
 // Avatar eye placement (0.29 parity). The live mark controller seeds its
 // committed shape from the prop, but sidebar marks mount before the roster
@@ -2136,7 +2137,7 @@ export function patchOriginalMainChrome(source) {
   }
   // The banner for a server that cannot be read is chrome, not a feature of any one surface,
   // so it rides with the main chrome rather than in the helper chain the tests pin.
-  return `${source}\n${MAIN_CHROME_SOURCE}\n${SERVER_READS_BANNER_HELPER}`;
+  return `${source}\n${MAIN_CHROME_SOURCE}\n${SERVER_READS_BANNER_HELPER}\n${DELETE_MESSAGE_HELPER}`;
 }
 
 const EXECUTION_ROW_ANCHOR='const De="Execution on Local Computer",ia="Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.";function da(){';
@@ -2284,6 +2285,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "brand-by-backend",
       "always-allow-per-coworker",
       "reads-survive-a-dead-server",
+      "delete-message",
     ],
     brandCounts: Object.fromEntries(brandCounts),
     transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher", "brand-by-backend", "always-allow-scope"],

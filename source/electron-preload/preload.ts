@@ -343,6 +343,7 @@ export function createDesktopPreloadBridge(options: {
       resetWindows365: () => edge("resetWindows365"),
       testWindows365: () => edge("testWindows365"),
       deleteTranscriptEntries: (args: { readonly agentId: string; readonly entryIds: readonly string[] }) => edge("deleteTranscriptEntries", args),
+      getTranscriptDeletion: () => edge("getTranscriptDeletion"),
       clientPersistence: {
         read: (key: string) => ipc.invoke(CLIENT_PERSISTENCE_CHANNELS.read, { key }),
         async write(key: string, value: string) { await ipc.invoke(CLIENT_PERSISTENCE_CHANNELS.write, { key, value }); },

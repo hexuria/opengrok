@@ -108,6 +108,7 @@ export const MAIN_METHOD_TABLE = {
   resetWindows365: { args: "none" },
   testWindows365: { args: "none" },
   deleteTranscriptEntries: { args: "object" },
+  getTranscriptDeletion: { args: "none" },
   addCollectionMessages: { args: "object" },
   listCollections: { args: "none" },
   transcribeAudio: { args: "object" },
