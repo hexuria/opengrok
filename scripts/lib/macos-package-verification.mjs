@@ -100,8 +100,11 @@ export async function verifyChecksumPinnedRendererPackage({
     // brandCounts joined the record when the brand pass began reporting per-chunk counts; the
     // contract had not been told, so this diagnostic would have refused a record the packager
     // writes on every build. It is diagnostic-only, which is why packaging never noticed.
-    const allowedKeys = ["schemaVersion", "mode", "chunks", "features", "transformations", "brandCounts"];
-    if (Object.keys(parsed).sort().join("\0") !== allowedKeys.sort().join("\0")) throw new Error("Renderer extension provenance has unknown fields");
+    const requiredKeys = ["schemaVersion", "mode", "chunks", "features", "transformations"];
+    const optionalKeys = ["brandCounts"];
+    const keys = Object.keys(parsed);
+    if (requiredKeys.some((key) => !keys.includes(key))) throw new Error("Renderer extension provenance is missing fields");
+    if (keys.some((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key))) throw new Error("Renderer extension provenance has unknown fields");
     const chunks = new Map();
     for (const row of parsed.chunks) {
       const relative = typeof row?.path === "string" && row.path.startsWith("dist/renderer/") ? row.path.slice("dist/renderer/".length) : null;
@@ -118,10 +121,10 @@ export async function verifyChecksumPinnedRendererPackage({
       if (row.original.bytes !== expected.bytes || row.original.sha256 !== expected.sha256) throw new Error(`Renderer extension source identity drift at ${relative}`);
       chunks.set(relative, row);
     }
-    if (chunks.size < 1 || chunks.size > 3) throw new Error("Renderer extension chunk cardinality is invalid");
-    // Roles are unique: two rows claiming "registry" would let one patched chunk vouch for another.
-    const roles = parsed.chunks.map((row) => row.role);
-    if (new Set(roles).size !== roles.length) throw new Error("Renderer extension roles are not unique");
+    // Every role, once. A build that silently lost the panel or the card patch must not verify
+    // clean, so the bound is exact rather than a range.
+    const roles = parsed.chunks.map((row) => row.role).sort();
+    if (roles.join(",") !== "card,panel,registry") throw new Error(`Renderer extension roles must be exactly card, panel and registry; got ${roles.join(",") || "none"}`);
     rendererExtension = { bytes, parsed, chunks };
   } catch (error) {
     if (!(error instanceof Error) || !/not found in archive|Cannot find/.test(error.message)) throw error;

@@ -8,6 +8,7 @@ import * as acorn from "acorn";
 
 import {
   ALLOW_RULE_CEILING,
+  ALLOW_RULE_MAX_CHARS,
   ALWAYS_ALLOW_ANCHORS,
   OPENGROK_MODE_STORAGE_KEY,
   patchOriginalAlwaysAllowScope,
@@ -66,7 +67,7 @@ function runHelpers({ mode, bridge }) {
   const source = readCardChunk();
   if (source === null) return null;
   const patched = patchOriginalAlwaysAllowScope(source);
-  const start = patched.indexOf("function __sandPerCoworkerAllow()");
+  const start = patched.indexOf("var __sandAllowScope=new Map();");
   const end = patched.indexOf("async function de(");
   const helpers = patched.slice(start, end);
   const store = new Map();
@@ -76,7 +77,7 @@ function runHelpers({ mode, bridge }) {
   const factory = new Function(
     "localStorage",
     "globalThis",
-    `${helpers} return { perCoworker: __sandPerCoworkerAllow, write: __sandAlwaysAllowForCoworker };`,
+    `${helpers} return { perCoworker: __sandPerCoworkerAllow, write: __sandAlwaysAllowForCoworker, scope: __sandAllowScope };`,
   );
   return factory(localStorage, globalThisStub);
 }
@@ -166,4 +167,84 @@ test("it declines, so the global path runs, when there is no coworker tier to wr
 
   assert.equal(await off.write("", "run `ls`"), false, "no coworker on the card");
   assert.equal(await off.write("cw_1", ""), false, "no rule proposed");
+});
+
+// Precedence on the server is per field: a coworker with an allow list of its own no longer
+// inherits the global one. Writing only the new rule to a coworker that had been inheriting
+// would silently strip every global allow rule from it — review finding, 2 Sep 2026.
+test("a coworker that inherits the global allow list keeps it: the list is seeded from the effective policy first", async () => {
+  let written = null;
+  const helpers = runHelpers({
+    mode: true,
+    bridge: {
+      getAgentAutoReview: async () => ({
+        available: true,
+        row: { enabled: true, allowInstructions: null, blockInstructions: null },
+        effective: { enabled: true, allowInstructions: "read files under my project\nrun tests", blockInstructions: "" },
+      }),
+      setAgentAutoReview: async (_id, policy) => { written = policy; },
+    },
+  });
+  if (helpers === null) return;
+  assert.equal(await helpers.write("cw_1", "run `ls`"), true);
+  assert.deepEqual(written.allowInstructions, ["read files under my project", "run tests", "run `ls`"], "inherited rules survive, then the new one");
+  assert.equal(written.blockInstructions, null, "null block list stays null: it still inherits");
+});
+
+test("a rule longer than the upstream cap is cut to it, so both tiers hold the same text", async () => {
+  let written = null;
+  const helpers = runHelpers({
+    mode: true,
+    bridge: {
+      getAgentAutoReview: async () => ({ available: true, row: { allowInstructions: [] } }),
+      setAgentAutoReview: async (_id, policy) => { written = policy; },
+    },
+  });
+  if (helpers === null) return;
+  const long = "x".repeat(ALLOW_RULE_MAX_CHARS + 50);
+  await helpers.write("cw_1", long);
+  assert.equal(written.allowInstructions[0].length, ALLOW_RULE_MAX_CHARS);
+});
+
+// A read that succeeded and a write that failed used to throw out of the helper into the card's
+// own catch, which aborted the whole attempt: the rule was written nowhere and the card said
+// "Allowed once". The helper now answers false, so the global write runs.
+test("a write the server refuses declines, so the global path still saves the rule", async () => {
+  const helpers = runHelpers({
+    mode: true,
+    bridge: {
+      getAgentAutoReview: async () => ({ available: true, row: { allowInstructions: [] } }),
+      setAgentAutoReview: async () => { throw new Error("500 from the server"); },
+    },
+  });
+  if (helpers === null) return;
+  assert.equal(await helpers.write("cw_1", "run `ls`"), false);
+});
+
+// The settled note is keyed on where the rule actually went. Keyed on the mode flag, it said
+// "this coworker's settings" on every path that had quietly fallen back to the global list.
+test("the settled note says where the rule went, not where the mode flag pointed", () => {
+  const source = readCardChunk();
+  if (source === null) return;
+  const patched = patchOriginalAlwaysAllowScope(source);
+  const start = patched.indexOf("function ue(t,e)");
+  const end = patched.indexOf("function ce(t)", start);
+  const note = new Function("__sandAllowScope", `${patched.slice(start, end)} return ue;`);
+  const scope = new Map();
+  const ue = note(scope);
+  assert.equal(ue("always", "run `ls`"), "A rule always allowing this was added to your Auto-review settings: “run `ls`”", "unknown scope reads as upstream did");
+  scope.set("run `ls`", "coworker");
+  assert.match(ue("always", "run `ls`"), /this coworker’s Auto-review settings/);
+  scope.set("run `ls`", "global");
+  assert.match(ue("always", "run `ls`"), /your Auto-review settings/);
+  assert.equal(ue("approved", "run `ls`"), undefined, "no note unless the rule was kept");
+});
+
+test("the card chunk names the product, so it must go through the brand pass like the other two", async () => {
+  const source = readCardChunk();
+  if (source === null) return;
+  const { patchOriginalBrandText } = await import("../scripts/lib/brand-text-patch.mjs");
+  const branded = patchOriginalBrandText(patchOriginalAlwaysAllowScope(source));
+  assert.equal(branded.wrapped + branded.templates, 2, "\"Runs on Grok Bot's computer\" and \"Run a command on Grok Bot's computer\"");
+  parses(branded.source);
 });

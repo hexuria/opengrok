@@ -2239,15 +2239,20 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   if (registryCandidates.length !== 1 || panelCandidates.length !== 1 || cardCandidates.length !== 1) {
     throw new Error(`Expected one original Settings registry, panel and approval-card chunk, found ${registryCandidates.length}/${panelCandidates.length}/${cardCandidates.length}.`);
   }
+  // Three roles, three files. If an upstream bundle ever folded the card into the registry chunk,
+  // both roles would pass their own count and the second write would silently discard the first
+  // patch; refuse here rather than let the packager's duplicate-path check be the one to notice.
+  const targets = new Set([registryCandidates[0].name, panelCandidates[0].name, cardCandidates[0].name]);
+  if (targets.size !== 3) throw new Error("The registry, panel and card patches resolved to the same chunk");
   const indexHtmlPath = path.join(stageRoot, "dist", "renderer", "index.html");
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
     ["registry", registryCandidates[0], (source) => brandLast(source, (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalTranscriptFetchFlag(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))), "registry")],
     ["panel", panelCandidates[0], (source) => brandLast(source, patchOriginalSettingsPanel, "panel")],
-    // The card chunk carries no "Grok Bot" copy, so it is patched directly rather than through
-    // brandLast; it gets the same parse check, below.
-    ["card", cardCandidates[0], patchOriginalAlwaysAllowScope],
+    // The card names the product twice ("Runs on Grok Bot's computer"), so it goes through the
+    // brand pass like the other two.
+    ["card", cardCandidates[0], (source) => brandLast(source, patchOriginalAlwaysAllowScope, "card")],
   ]) {
     const patched = transform(candidate.source);
     // Every patched chunk is parsed before it ships, whatever produced it.
