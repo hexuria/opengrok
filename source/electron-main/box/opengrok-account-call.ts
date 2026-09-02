@@ -6,7 +6,7 @@ export interface OpenGrokAccountSecrets {
 
 export interface OpenGrokAccountCall {
   readonly path: string;
-  readonly method?: "GET" | "POST" | "PUT" | "DELETE";
+  readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   readonly body?: Record<string, unknown>;
   readonly query?: Record<string, string>;
 }

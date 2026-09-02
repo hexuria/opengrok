@@ -323,6 +323,8 @@ export function createDesktopPreloadBridge(options: {
       addRemoteControlRule: (kind: string, pattern: string) => edge("addRemoteControlRule", { kind, pattern }),
       deleteRemoteControlRule: (kind: string, pattern: string) => edge("deleteRemoteControlRule", { kind, pattern }),
       getAgentAutoReview: (agentId: string) => edge("getAgentAutoReview", { agentId }),
+      getAgentModel: (agentId: string) => edge("getAgentModel", { agentId }),
+      setAgentModel: (agentId: string, model: string) => edge("setAgentModel", { agentId, model }),
       // Whether the roster and transcripts being shown are live or the last good answers from
       // before the server stopped answering. Replays the current state on subscribe.
       onServerReads: (listener: (payload: unknown) => void) => {

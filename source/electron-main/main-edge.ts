@@ -685,6 +685,64 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       });
       return { kind, pattern };
     },
+    /**
+     * Which model a coworker runs on, and what else it could run on.
+     *
+     * The gateway keeps the catalogue; the server keeps the pin. Both come back in one answer so
+     * the settings pane can show the current model even when the catalogue is unavailable (a
+     * deployment whose model door is a mock says so in `note` and lists nothing).
+     */
+    getAgentModel: async (raw) => {
+      const agentId = req(raw).agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "getAgentModel needs an agent id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return cloneableRecord({ available: false });
+      try {
+        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const [catalogue, roster] = await Promise.all([
+          callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/models" }),
+          callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/coworkers" }),
+        ]);
+        const models = typeof catalogue === "object" && catalogue != null && Array.isArray((catalogue as UnknownRecord).models)
+          ? ((catalogue as UnknownRecord).models as unknown[]).flatMap((entry) => {
+            const id = typeof entry === "object" && entry != null ? (entry as UnknownRecord).id : entry;
+            return typeof id === "string" && id.length > 0 ? [id] : [];
+          })
+          : [];
+        const note = typeof catalogue === "object" && catalogue != null && typeof (catalogue as UnknownRecord).note === "string"
+          ? (catalogue as UnknownRecord).note as string
+          : null;
+        // The roster answers with a bare array (an empty roster must not become an object);
+        // older shapes wrapped it, so both are read.
+        const rows = Array.isArray(roster)
+          ? roster as UnknownRecord[]
+          : typeof roster === "object" && roster != null && Array.isArray((roster as UnknownRecord).coworkers)
+            ? (roster as UnknownRecord).coworkers as UnknownRecord[]
+            : [];
+        const row = rows.find((entry) => entry != null && entry.id === agentId) ?? null;
+        const model = row != null && typeof row.model === "string" ? row.model : null;
+        return cloneableRecord({ available: true, models, model, ...(note == null ? {} : { note }) });
+      } catch (error) {
+        return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    setAgentModel: async (raw) => {
+      const r = req(raw);
+      const agentId = r.agentId;
+      const model = r.model;
+      invariant(typeof agentId === "string" && agentId.length > 0, "setAgentModel needs an agent id.");
+      invariant(typeof model === "string" && model.length > 0, "setAgentModel needs a model.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "This route has no OpenGrok server.");
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      const answer = await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+        path: `/coworkers/${encodeURIComponent(agentId)}`,
+        method: "PATCH",
+        body: { model },
+      });
+      return cloneableRecord(typeof answer === "object" && answer != null ? answer as UnknownRecord : { id: agentId, model });
+    },
     getAgentAutoReview: async (raw) => {
       const agentId = req(raw).agentId;
       invariant(typeof agentId === "string" && agentId.length > 0, "getAgentAutoReview needs an agent id.");

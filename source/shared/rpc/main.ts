@@ -111,6 +111,8 @@ export const MAIN_METHOD_TABLE = {
   getTranscriptDeletion: { args: "none" },
   addCollectionMessages: { args: "object" },
   openCollections: { args: "object" },
+  getAgentModel: { args: "object" },
+  setAgentModel: { args: "object" },
   listCollections: { args: "none" },
   transcribeAudio: { args: "object" },
   getTranscribeSettings: { args: "none" },
