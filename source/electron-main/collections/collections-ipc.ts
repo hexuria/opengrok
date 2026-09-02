@@ -123,6 +123,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** The window says which theme it is showing; anything else exports light. */
+function themeField(request: unknown): "dark" | "light" {
+  const value = typeof request === "object" && request != null ? (request as Record<string, unknown>).theme : undefined;
+  return value === "dark" ? "dark" : "light";
+}
+
 function stringField(request: unknown, name: string): string {
   if (!isRecord(request)) return "";
   const value = request[name];
@@ -295,6 +301,7 @@ export function registerCollectionsIpc(deps: CollectionsIpcDeps): { dispose(): v
       permalink: buildCollectionDeepLinkUrl(document.id),
       exportedAt: exportTimestampFormatter()(nowMs),
       formatTimestamp: exportTimestampFormatter(),
+      theme: themeField(request),
     });
     await deps.writeTextFile(chosen.filePath, exported.html);
     return { saved: true, path: chosen.filePath, embedded: exported.embedded, skipped: exported.skipped };

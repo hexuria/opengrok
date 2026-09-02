@@ -214,10 +214,15 @@
     navigator.clipboard.writeText(link).then(function () { setStatus("Link copied: " + link); }, fallback);
   });
 
+  // The file should look like the window it came from, on whatever machine opens it.
+  function currentTheme() {
+    try { return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; } catch (_) { return "light"; }
+  }
+
   htmlButton.addEventListener("click", function () {
     if (!state.selectedId) return;
     setStatus("Exporting…", true);
-    bridge.exportHtml(state.selectedId).then(function (result) {
+    bridge.exportHtml(state.selectedId, currentTheme()).then(function (result) {
       if (!result || !result.saved) { setStatus(""); return; }
       setStatus(result.skipped > 0
         ? "Exported to " + result.path + " (" + result.skipped + " attachment(s) left as placeholders)."

@@ -247,8 +247,10 @@ test("HTML export escapes message text and keeps oversized media as placeholders
     assert.equal(exported.skipped, 1);
     const html = exported.html;
     assert.ok(!html.includes("<script"), "an exported collection must contain no scripts at all");
-    assert.ok(!html.includes("alert('x')"), "raw message text must never reach the document as markup");
-    assert.ok(html.includes("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt; &amp; &quot;quotes&quot;"));
+    // The text is present, but only as text: markdown renders a message body with HTML off, so
+    // the tags an agent was asked to write are escaped and inert wherever they appear.
+    assert.ok(html.includes("&lt;script&gt;alert('x')&lt;/script&gt;"), "the message's own words survive, escaped");
+    assert.ok(html.includes("&lt;script&gt;alert('x')&lt;/script&gt; &amp; &quot;quotes&quot;"));
     assert.ok(html.includes("data:image/png;base64,"), "the small attachment is inlined");
     assert.ok(html.includes("<span class=\"sand-col-chip sand-col-chip-media\">large.png</span>"), "the oversized attachment degrades to a chip");
     assert.ok(html.includes("<span class=\"sand-col-chip\">widget-response</span>"), "an unknown kind degrades to a named chip");

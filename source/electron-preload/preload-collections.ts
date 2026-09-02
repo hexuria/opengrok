@@ -36,7 +36,7 @@ export interface CollectionsPreloadBridge {
   deleteCollection(collectionId: string): Promise<unknown>;
   removeMessages(collectionId: string, keys: readonly string[]): Promise<unknown>;
   addMessages(request: unknown): Promise<unknown>;
-  exportHtml(collectionId: string): Promise<unknown>;
+  exportHtml(collectionId: string, theme?: string): Promise<unknown>;
   exportJson(collectionId: string): Promise<unknown>;
   importJson(): Promise<unknown>;
   openOriginal(agentId: string, entryId: string): Promise<unknown>;
@@ -52,7 +52,7 @@ export function createCollectionsPreloadBridge(ipc: CollectionsPreloadIpc): Coll
     deleteCollection: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.delete, { collectionId }),
     removeMessages: (collectionId, keys) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.removeMessages, { collectionId, keys: [...keys] }),
     addMessages: (request) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.addMessages, request),
-    exportHtml: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportHtml, { collectionId }),
+    exportHtml: (collectionId, theme) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportHtml, { collectionId, theme }),
     exportJson: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.exportJson, { collectionId }),
     importJson: () => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.importJson, {}),
     openOriginal: (agentId, entryId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.openOriginal, { agentId, entryId }),

@@ -557,6 +557,8 @@ export async function buildCollectionHtmlExport(input: {
   readonly permalink: string;
   readonly exportedAt: string;
   readonly formatTimestamp: (timestampMs: number | undefined) => string;
+  /** The app's theme when the person pressed Export; the file carries that one only. */
+  readonly theme?: "dark" | "light";
   readonly fileMaxBytes?: number;
   readonly totalMaxBytes?: number;
 }): Promise<CollectionHtmlExportResult> {
@@ -595,6 +597,7 @@ export async function buildCollectionHtmlExport(input: {
       permalink: input.permalink,
       mediaSrc: (media) => inlined.get(media.srcPath) ?? null,
       formatTimestamp: input.formatTimestamp,
+      ...(input.theme == null ? {} : { theme: input.theme }),
     }),
     embedded,
     skipped,
