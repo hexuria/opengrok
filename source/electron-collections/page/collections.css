@@ -6,34 +6,36 @@
 
 :root {
   color-scheme: light dark;
+  /* The chat window's own colours, sampled from it: both bubbles are greys, the
+     person's a lighter grey than the agent's. No accent hue anywhere. */
   --sand-col-bg: #fff;
-  --sand-col-fg: #16161a;
-  --sand-col-side-bg: #f7f7f9;
-  --sand-col-border: rgba(0, 0, 0, .12);
+  --sand-col-fg: #0d0d0d;
+  --sand-col-side-bg: #f4f4f4;
+  --sand-col-border: rgba(0, 0, 0, .1);
   --sand-col-hover: rgba(0, 0, 0, .05);
-  --sand-col-active: rgba(29, 155, 240, .14);
-  --sand-col-agent-bg: #f1f1f4;
-  --sand-col-agent-fg: #16161a;
-  --sand-col-user-bg: #1d9bf0;
-  --sand-col-user-fg: #fff;
+  --sand-col-active: rgba(0, 0, 0, .08);
+  --sand-col-agent-bg: #ededed;
+  --sand-col-agent-fg: #0d0d0d;
+  --sand-col-user-bg: #d6d6d6;
+  --sand-col-user-fg: #0d0d0d;
   --sand-col-code-bg: rgba(0, 0, 0, .06);
-  --sand-col-chip-border: rgba(0, 0, 0, .22);
+  --sand-col-chip-border: rgba(0, 0, 0, .2);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --sand-col-bg: #161619;
-    --sand-col-fg: #ececf0;
-    --sand-col-side-bg: #1c1c20;
-    --sand-col-border: rgba(255, 255, 255, .12);
+    --sand-col-bg: #070707;
+    --sand-col-fg: #fcfcfc;
+    --sand-col-side-bg: #131313;
+    --sand-col-border: rgba(255, 255, 255, .1);
     --sand-col-hover: rgba(255, 255, 255, .06);
-    --sand-col-active: rgba(29, 155, 240, .2);
-    --sand-col-agent-bg: #26262b;
-    --sand-col-agent-fg: #ececf0;
-    --sand-col-user-bg: #1d6fd0;
-    --sand-col-user-fg: #fff;
+    --sand-col-active: rgba(119, 119, 119, .32);
+    --sand-col-agent-bg: #262626;
+    --sand-col-agent-fg: #fcfcfc;
+    --sand-col-user-bg: #5a5a5a;
+    --sand-col-user-fg: #fcfcfc;
     --sand-col-code-bg: rgba(255, 255, 255, .08);
-    --sand-col-chip-border: rgba(255, 255, 255, .24);
+    --sand-col-chip-border: rgba(255, 255, 255, .22);
   }
 }
 
