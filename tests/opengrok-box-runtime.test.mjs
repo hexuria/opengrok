@@ -184,6 +184,9 @@ test("the cached box runtime still follows a change to settings.json", async () 
         entryPoints: [path.join(repoRoot, entry)],
         outfile, bundle: true, format: "esm", platform: "node",
         external: ["electron"], logLevel: "silent",
+        // The AI SDK reaches a CommonJS dependency, and esbuild leaves that dependency's require() calls to a
+        // shim that only resolves when a real require is in scope, which an ESM bundle has to supply itself.
+        banner: { js: 'import { createRequire as __nodeCreateRequire } from "node:module";\nconst require = __nodeCreateRequire(import.meta.url);' },
       });
       return await import(pathToFileURL(outfile).href);
     };

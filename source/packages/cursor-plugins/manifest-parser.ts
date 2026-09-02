@@ -60,7 +60,8 @@ export interface PluginVariableSchema {
   format?: string | undefined;
   writeOnly?: boolean | undefined;
   default?: unknown;
-  enum?: [unknown, ...unknown[]] | undefined;
+  // zod 4 keeps the plain array type through .nonempty(), so the non-empty guarantee is a runtime check only.
+  enum?: unknown[] | undefined;
   const?: unknown;
   properties?: Record<string, PluginVariableSchema> | undefined;
   required?: string[] | undefined;
@@ -101,7 +102,7 @@ const PluginVariableSchemaSchema: z.ZodType<PluginVariableSchema> = z.lazy(() =>
   minLength: z.number().int().nonnegative().optional(), maxLength: z.number().int().nonnegative().optional(), minimum: z.number().optional(), maximum: z.number().optional(), exclusiveMinimum: z.number().optional(), exclusiveMaximum: z.number().optional(), multipleOf: z.number().positive().optional(), minItems: z.number().int().nonnegative().optional(), maxItems: z.number().int().nonnegative().optional(), uniqueItems: z.boolean().optional(), minProperties: z.number().int().nonnegative().optional(), maxProperties: z.number().int().nonnegative().optional(),
 }).strict().superRefine(validatePluginVariableSchemaShape));
 
-export function parsePluginVariablesJsonSchema(schema: unknown): z.SafeParseReturnType<unknown, PluginVariableSchema> {
+export function parsePluginVariablesJsonSchema(schema: unknown): z.ZodSafeParseResult<PluginVariableSchema> {
   const result = PluginVariableSchemaSchema.superRefine((value, ctx) => {
     if (value.type !== "object") ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Plugin variable schemas must declare type "object"', path: ["type"] });
   }).safeParse(schema);
@@ -110,17 +111,17 @@ export function parsePluginVariablesJsonSchema(schema: unknown): z.SafeParseRetu
 
 const PluginVariablesJsonSchemaSchema = z.unknown().superRefine((value, ctx) => {
   const result = parsePluginVariablesJsonSchema(value);
-  if (!result.success) for (const issue of result.error.issues) ctx.addIssue(issue);
+  if (!result.success) for (const issue of result.error.issues) ctx.addIssue({ ...issue });
 }).transform(value => value as PluginVariableSchema);
 
 const MarketplacePluginEntrySchema = z.object({
   name: z.string().min(1).transform(name => name.toLowerCase()).refine(name => KEBAB_CASE_PATTERN.test(name), "Name must be kebab-case (lowercase alphanumeric with hyphens and periods)"),
-  displayName: z.string().optional(), source: PluginSourceSchema, description: z.string().optional(), version: z.string().optional(), author: AuthorSchema.optional(), publisher: z.string().min(1).optional(), homepage: z.string().url().optional(), repository: z.string().url().optional(), license: z.string().optional(), keywords: z.array(z.string()).optional(), capabilities: CapabilitiesSchema.optional(), logo: z.string().optional(), category: z.string().optional(), tags: z.array(z.string()).optional(), minClientVersions: MinClientVersionsSchema.optional(), strict: z.boolean().default(true), commands: z.union([z.string(), z.array(z.string())]).optional(), agents: z.union([z.string(), z.array(z.string())]).optional(), skills: z.union([z.string(), z.array(z.string())]).optional(), rules: z.union([z.string(), z.array(z.string())]).optional(), hooks: z.union([z.string(), z.record(z.unknown())]).optional(), variables: PluginVariablesJsonSchemaSchema.optional(), mcpServers: z.union([z.string(), z.record(z.unknown()), z.array(z.union([z.string(), z.record(z.unknown())]))]).optional(),
+  displayName: z.string().optional(), source: PluginSourceSchema, description: z.string().optional(), version: z.string().optional(), author: AuthorSchema.optional(), publisher: z.string().min(1).optional(), homepage: z.string().url().optional(), repository: z.string().url().optional(), license: z.string().optional(), keywords: z.array(z.string()).optional(), capabilities: CapabilitiesSchema.optional(), logo: z.string().optional(), category: z.string().optional(), tags: z.array(z.string()).optional(), minClientVersions: MinClientVersionsSchema.optional(), strict: z.boolean().default(true), commands: z.union([z.string(), z.array(z.string())]).optional(), agents: z.union([z.string(), z.array(z.string())]).optional(), skills: z.union([z.string(), z.array(z.string())]).optional(), rules: z.union([z.string(), z.array(z.string())]).optional(), hooks: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(), variables: PluginVariablesJsonSchemaSchema.optional(), mcpServers: z.union([z.string(), z.record(z.string(), z.unknown()), z.array(z.union([z.string(), z.record(z.string(), z.unknown())]))]).optional(),
 });
 export type MarketplacePluginEntry = z.infer<typeof MarketplacePluginEntrySchema>;
 
 const PluginManifestSchema = z.object({
-  name: z.string().min(1).regex(KEBAB_CASE_PATTERN, "Name must be kebab-case (lowercase alphanumeric with hyphens and periods)"), displayName: z.string().optional(), description: z.string().optional(), version: z.string().optional(), author: AuthorSchema.optional(), publisher: z.string().min(1).optional(), homepage: z.string().url().optional(), repository: z.string().url().optional(), license: z.string().optional(), logo: z.string().optional(), keywords: z.array(z.string()).optional(), capabilities: CapabilitiesSchema.optional(), minClientVersions: MinClientVersionsSchema.optional(), commands: z.union([z.string(), z.array(z.string())]).optional(), agents: z.union([z.string(), z.array(z.string())]).optional(), skills: z.union([z.string(), z.array(z.string())]).optional(), rules: z.union([z.string(), z.array(z.string())]).optional(), hooks: z.union([z.string(), z.record(z.unknown())]).optional(), variables: PluginVariablesJsonSchemaSchema.optional(), mcpServers: z.union([z.string(), z.record(z.unknown()), z.array(z.union([z.string(), z.record(z.unknown())]))]).optional(),
+  name: z.string().min(1).regex(KEBAB_CASE_PATTERN, "Name must be kebab-case (lowercase alphanumeric with hyphens and periods)"), displayName: z.string().optional(), description: z.string().optional(), version: z.string().optional(), author: AuthorSchema.optional(), publisher: z.string().min(1).optional(), homepage: z.string().url().optional(), repository: z.string().url().optional(), license: z.string().optional(), logo: z.string().optional(), keywords: z.array(z.string()).optional(), capabilities: CapabilitiesSchema.optional(), minClientVersions: MinClientVersionsSchema.optional(), commands: z.union([z.string(), z.array(z.string())]).optional(), agents: z.union([z.string(), z.array(z.string())]).optional(), skills: z.union([z.string(), z.array(z.string())]).optional(), rules: z.union([z.string(), z.array(z.string())]).optional(), hooks: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(), variables: PluginVariablesJsonSchemaSchema.optional(), mcpServers: z.union([z.string(), z.record(z.string(), z.unknown()), z.array(z.union([z.string(), z.record(z.string(), z.unknown())]))]).optional(),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
@@ -230,7 +231,7 @@ export function parsePluginManifest(content: string): { success: true; data: Plu
   let json: unknown; try { json = JSON.parse(content); } catch (error) { return { success: false, error: `Invalid JSON: ${error instanceof Error ? error.message : "Unknown error"}` }; }
   const schema = resolveSchemaVersion(readSchemaId(json));
   const result = PluginManifestSchema.safeParse(json);
-  if (!result.success) return { success: false, error: `Invalid plugin manifest: ${result.error.errors.map(error => `${error.path.join(".")}: ${error.message}`).join(", ")}`, details: result.error };
+  if (!result.success) return { success: false, error: `Invalid plugin manifest: ${result.error.issues.map(error => `${error.path.join(".")}: ${error.message}`).join(", ")}`, details: result.error };
   return { success: true, data: result.data, ...(schema.kind === "unsupported" ? { unrecognizedSchemaId: schema.id } : {}) };
 }
 
