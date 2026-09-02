@@ -1,5 +1,6 @@
 import * as acorn from "acorn";
 import { ALWAYS_ALLOW_ANCHORS, patchOriginalAlwaysAllowScope } from "./always-allow-patch.mjs";
+import { SERVER_READS_BANNER_HELPER } from "./server-reads-banner.mjs";
 import { patchOriginalBrandText } from "./brand-text-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -2133,7 +2134,9 @@ export function patchOriginalMainChrome(source) {
   if (containsUnquotedCodexIdentifier(MAIN_CHROME_SOURCE)) {
     throw new SyntaxError("Router renderer patch must quote the string 'codex' (or \"codex\"). An unquoted codex identifier breaks npm run package.");
   }
-  return `${source}\n${MAIN_CHROME_SOURCE}`;
+  // The banner for a server that cannot be read is chrome, not a feature of any one surface,
+  // so it rides with the main chrome rather than in the helper chain the tests pin.
+  return `${source}\n${MAIN_CHROME_SOURCE}\n${SERVER_READS_BANNER_HELPER}`;
 }
 
 const EXECUTION_ROW_ANCHOR='const De="Execution on Local Computer",ia="Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.";function da(){';
@@ -2280,6 +2283,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "transcript-fetch-flag-release",
       "brand-by-backend",
       "always-allow-per-coworker",
+      "reads-survive-a-dead-server",
     ],
     brandCounts: Object.fromEntries(brandCounts),
     transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher", "brand-by-backend", "always-allow-scope"],
