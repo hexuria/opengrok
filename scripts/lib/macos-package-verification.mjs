@@ -97,12 +97,22 @@ export async function verifyChecksumPinnedRendererPackage({
     if (parsed?.schemaVersion !== 1 || parsed?.mode !== "original-renderer-settings-extension" || !Array.isArray(parsed.chunks)) {
       throw new Error("Renderer extension provenance contract is invalid");
     }
-    const allowedKeys = ["schemaVersion", "mode", "chunks", "features", "transformations"];
-    if (Object.keys(parsed).sort().join("\0") !== allowedKeys.sort().join("\0")) throw new Error("Renderer extension provenance has unknown fields");
+    // brandCounts joined the record when the brand pass began reporting per-chunk counts; the
+    // contract had not been told, so this diagnostic would have refused a record the packager
+    // writes on every build. It is diagnostic-only, which is why packaging never noticed.
+    const requiredKeys = ["schemaVersion", "mode", "chunks", "features", "transformations"];
+    const optionalKeys = ["brandCounts"];
+    const keys = Object.keys(parsed);
+    if (requiredKeys.some((key) => !keys.includes(key))) throw new Error("Renderer extension provenance is missing fields");
+    if (keys.some((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key))) throw new Error("Renderer extension provenance has unknown fields");
     const chunks = new Map();
     for (const row of parsed.chunks) {
       const relative = typeof row?.path === "string" && row.path.startsWith("dist/renderer/") ? row.path.slice("dist/renderer/".length) : null;
-      if (relative == null || !expectedFiles.has(relative) || chunks.has(relative) || !["registry", "panel"].includes(row.role)
+      // "card" joined "registry" and "panel" when the approval card's own lazily imported chunk
+      // began carrying a patch. The contract is widened by exactly one named role, not relaxed:
+      // an unknown role is still refused, a chunk is still named, still counted once, and still
+      // matched byte for byte against both its recorded hashes below.
+      if (relative == null || !expectedFiles.has(relative) || chunks.has(relative) || !["registry", "panel", "card"].includes(row.role)
         || !Number.isInteger(row.original?.bytes) || !/^[0-9a-f]{64}$/.test(row.original?.sha256)
         || !Number.isInteger(row.patched?.bytes) || !/^[0-9a-f]{64}$/.test(row.patched?.sha256)) {
         throw new Error("Renderer extension chunk provenance is invalid");
@@ -111,7 +121,10 @@ export async function verifyChecksumPinnedRendererPackage({
       if (row.original.bytes !== expected.bytes || row.original.sha256 !== expected.sha256) throw new Error(`Renderer extension source identity drift at ${relative}`);
       chunks.set(relative, row);
     }
-    if (chunks.size < 1 || chunks.size > 2) throw new Error("Renderer extension chunk cardinality is invalid");
+    // Every role, once. A build that silently lost the panel or the card patch must not verify
+    // clean, so the bound is exact rather than a range.
+    const roles = parsed.chunks.map((row) => row.role).sort();
+    if (roles.join(",") !== "card,panel,registry") throw new Error(`Renderer extension roles must be exactly card, panel and registry; got ${roles.join(",") || "none"}`);
     rendererExtension = { bytes, parsed, chunks };
   } catch (error) {
     if (!(error instanceof Error) || !/not found in archive|Cannot find/.test(error.message)) throw error;

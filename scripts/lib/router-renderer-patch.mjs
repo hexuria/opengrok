@@ -1,4 +1,5 @@
 import * as acorn from "acorn";
+import { ALWAYS_ALLOW_ANCHORS, patchOriginalAlwaysAllowScope } from "./always-allow-patch.mjs";
 import { patchOriginalBrandText } from "./brand-text-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -2224,24 +2225,38 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   const assetsRoot = path.join(stageRoot, "dist", "renderer", "assets");
   const registryCandidates = [];
   const panelCandidates = [];
+  // The approval card is lazily imported and lives in neither of the two chunks above, so it is
+  // found the same way they are: by content, never by hash.
+  const cardCandidates = [];
   for (const name of await readdir(assetsRoot)) {
     if (!name.endsWith(".js")) continue;
     const target = path.join(assetsRoot, name);
     const source = await readFile(target, "utf8");
+    if (ALWAYS_ALLOW_ANCHORS.every((anchor) => source.includes(anchor))) cardCandidates.push({ name, target, source });
     if (source.includes(REGISTRY_BEFORE)) registryCandidates.push({ name, target, source });
     if (source.includes(COMPONENT_ANCHOR) && source.includes(GENERAL_BEFORE) && source.includes(USAGE_BEFORE)) panelCandidates.push({ name, target, source });
   }
-  if (registryCandidates.length !== 1 || panelCandidates.length !== 1) {
-    throw new Error(`Expected one original Settings registry and panel chunk, found ${registryCandidates.length}/${panelCandidates.length}.`);
+  if (registryCandidates.length !== 1 || panelCandidates.length !== 1 || cardCandidates.length !== 1) {
+    throw new Error(`Expected one original Settings registry, panel and approval-card chunk, found ${registryCandidates.length}/${panelCandidates.length}/${cardCandidates.length}.`);
   }
+  // Three roles, three files. If an upstream bundle ever folded the card into the registry chunk,
+  // both roles would pass their own count and the second write would silently discard the first
+  // patch; refuse here rather than let the packager's duplicate-path check be the one to notice.
+  const targets = new Set([registryCandidates[0].name, panelCandidates[0].name, cardCandidates[0].name]);
+  if (targets.size !== 3) throw new Error("The registry, panel and card patches resolved to the same chunk");
   const indexHtmlPath = path.join(stageRoot, "dist", "renderer", "index.html");
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
     ["registry", registryCandidates[0], (source) => brandLast(source, (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalTranscriptFetchFlag(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))), "registry")],
     ["panel", panelCandidates[0], (source) => brandLast(source, patchOriginalSettingsPanel, "panel")],
+    // The card names the product twice ("Runs on Grok Bot's computer"), so it goes through the
+    // brand pass like the other two.
+    ["card", cardCandidates[0], (source) => brandLast(source, patchOriginalAlwaysAllowScope, "card")],
   ]) {
     const patched = transform(candidate.source);
+    // Every patched chunk is parsed before it ships, whatever produced it.
+    acorn.parse(patched, { ecmaVersion: "latest", sourceType: "module" });
     await writeFile(candidate.target, patched);
     changes.push({
       role,
@@ -2264,9 +2279,10 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "computer-screen-switcher",
       "transcript-fetch-flag-release",
       "brand-by-backend",
+      "always-allow-per-coworker",
     ],
     brandCounts: Object.fromEntries(brandCounts),
-    transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher", "brand-by-backend"],
+    transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher", "brand-by-backend", "always-allow-scope"],
   };
   const provenancePath = path.join(stageRoot, "dist", "renderer-router-extension.json");
   await writeFile(provenancePath, `${JSON.stringify(record, null, 2)}\n`);
