@@ -56,6 +56,7 @@ test("default packaging keeps the polished checksum-pinned renderer", async () =
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {
   const rendererPatch = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const selectHelper = await readFile(path.join(repoRoot, "scripts/lib/select-messages-helper.mjs"), "utf8");
   const preload = await readFile(path.join(repoRoot, "source", "electron-preload", "preload.ts"), "utf8");
   const mainEdge = await readFile(path.join(repoRoot, "source", "electron-main", "main-edge.ts"), "utf8");
   const inference = await readFile(path.join(repoRoot, "source", "host", "extensions", "inference", "inference-service.ts"), "utf8");
@@ -282,21 +283,28 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /__sandLocalToolAskTitle/);
   assert.match(rendererPatch, /"read-file":"read files on your local computer"/);
   assert.match(rendererPatch, /self\.__sandLocalToolAskTitle\(s\.action\)\|\|TLn/);
-  // Multi-select mode: JS-store selection (virtualization-safe), overlay
-  // chrome, native menu entry point, feature-detected Collections actions,
-  // and the delete confirm that names the device-local scope.
-  assert.match(rendererPatch, /const SELECT_MODE_HELPER =/);
-  assert.match(rendererPatch, /__sandSelect/);
+  // Multi-select mode (scripts/lib/select-messages-helper.mjs): JS-store selection
+  // (virtualization-safe), a toolbar under the chat header with a master checkbox and
+  // icon buttons, checkboxes painted on an overlay, ids from the row's entry label on
+  // every route, the native menu entry point, feature-detected Collections actions, and a
+  // delete confirm that says whether the server deletes or only this device hides.
+  assert.match(rendererPatch, /import \{ SELECT_MODE_HELPER \} from "\.\/select-messages-helper\.mjs"/);
   assert.match(rendererPatch, /Select messages/);
-  assert.match(rendererPatch, /deleteTranscriptEntries\(\{agentId:ag,entryIds:ids\}\)/);
-  assert.match(rendererPatch, /from this device\?/);
+  assert.match(selectHelper, /sand-conversation-entry-\(\.\+\?\)-\(\?:author\|timestamp\|body\)/);
+  assert.match(selectHelper, /deleteTranscriptEntries\(\{agentId:ag,entryIds:ids\}\)/);
+  assert.match(selectHelper, /for everyone on this server\?/);
+  assert.match(selectHelper, /on this device\? The server copy is unchanged\./);
+  assert.match(selectHelper, /Add "\+fresh\.length\+" loaded/);
+  assert.match(selectHelper, /All loaded added/);
+  assert.doesNotMatch(selectHelper, /Select all/, "a virtualized feed cannot promise all");
   assert.doesNotMatch(rendererPatch, /coordinatorPort/);
+  assert.doesNotMatch(selectHelper, /coordinatorPort/);
   // Remote-box agents answer through Cursor's in-box gateway (not extensible),
   // so delete falls back to device-local tombstones filtered in the row
   // builder before grouping.
-  assert.match(rendererPatch, /__sandTombstones/);
+  assert.match(selectHelper, /__sandTombstones/);
   assert.match(rendererPatch, /patchOriginalRowTombstones/);
-  assert.match(rendererPatch, /sandTombstones\.v1/);
+  assert.match(selectHelper, /sandTombstones\.v1/);
   // Deep links teleport via the engine's own find-in-chat navigate instead of
   // sweeping the virtualized transcript from the top; the hover inspector
   // replaced the always-on overlay's boot auto-restore.
@@ -306,8 +314,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.doesNotMatch(rendererPatch, /localStorage\.getItem\(K\)==="1"&&setTimeout/);
   // Share picker (named collections instead of silently minted names) and the
   // Cmd+Shift+A selection entry point.
-  assert.match(rendererPatch, /New collection\\\\u2026/);
-  assert.match(rendererPatch, /ev\.key==="A"\|\|ev\.key==="a"/);
+  assert.match(selectHelper, /New collection\\\\u2026/);
+  assert.match(selectHelper, /ev\.key==="A"\|\|ev\.key==="a"/);
   // Width-keyed text-height cache (user-approved rule amendment): heights are
   // keyed by transcript width + root font size, replayed only on exact
   // condition match, and pending/streaming rows never record or replay.

@@ -220,7 +220,7 @@ export const COLLECTION_BUBBLE_CSS = `
 .sand-col-msg.sand-col-agent{align-self:flex-start;align-items:flex-start}
 .sand-col-head{display:flex;gap:8px;align-items:baseline;font-size:11px;opacity:.62;padding:0 4px}
 .sand-col-who{font-weight:600}
-.sand-col-bubble{border-radius:14px;padding:10px 14px;background:var(--sand-col-agent-bg);color:var(--sand-col-agent-fg);overflow-wrap:anywhere;line-height:1.45;font-size:14px}
+.sand-col-bubble{border-radius:18px;padding:8px 12px;background:var(--sand-col-agent-bg);color:var(--sand-col-agent-fg);overflow-wrap:anywhere;line-height:1.45;font-size:14px}
 .sand-col-user .sand-col-bubble{background:var(--sand-col-user-bg);color:var(--sand-col-user-fg)}
 .sand-col-bubble:empty{display:none}
 .sand-col-text{margin:0 0 8px}
@@ -242,9 +242,9 @@ export const COLLECTION_BUBBLE_CSS = `
 `;
 
 const EXPORT_PAGE_CSS = `
-:root{color-scheme:light dark;--sand-col-agent-bg:#f1f1f4;--sand-col-agent-fg:#16161a;--sand-col-user-bg:#1d9bf0;--sand-col-user-fg:#fff;--sand-col-code-bg:rgba(0,0,0,.06);--sand-col-chip-border:rgba(0,0,0,.22)}
-@media (prefers-color-scheme:dark){:root{--sand-col-agent-bg:#26262b;--sand-col-agent-fg:#ececf0;--sand-col-user-bg:#1d6fd0;--sand-col-user-fg:#fff;--sand-col-code-bg:rgba(255,255,255,.08);--sand-col-chip-border:rgba(255,255,255,.24)}body{background:#161619;color:#ececf0}}
-body{margin:0;background:#fff;color:#16161a;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+:root{color-scheme:light dark;--sand-col-agent-bg:#ededed;--sand-col-agent-fg:#0d0d0d;--sand-col-user-bg:#d6d6d6;--sand-col-user-fg:#0d0d0d;--sand-col-code-bg:rgba(0,0,0,.06);--sand-col-chip-border:rgba(0,0,0,.2)}
+@media (prefers-color-scheme:dark){:root{--sand-col-agent-bg:#262626;--sand-col-agent-fg:#fcfcfc;--sand-col-user-bg:#5a5a5a;--sand-col-user-fg:#fcfcfc;--sand-col-code-bg:rgba(255,255,255,.08);--sand-col-chip-border:rgba(255,255,255,.22)}body{background:#070707;color:#fcfcfc}}
+body{margin:0;background:#fff;color:#0d0d0d;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .sand-col-export{max-width:860px;margin:0 auto}
 .sand-col-export-head{padding:28px 20px 10px;border-bottom:1px solid var(--sand-col-chip-border)}
 .sand-col-export-head h1{margin:0 0 6px;font-size:20px}

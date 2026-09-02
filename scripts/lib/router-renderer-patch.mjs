@@ -2,6 +2,7 @@ import * as acorn from "acorn";
 import { ALWAYS_ALLOW_ANCHORS, patchOriginalAlwaysAllowScope } from "./always-allow-patch.mjs";
 import { SERVER_READS_BANNER_HELPER } from "./server-reads-banner.mjs";
 import { DELETE_MESSAGE_HELPER } from "./delete-message-helper.mjs";
+import { SELECT_MODE_HELPER } from "./select-messages-helper.mjs";
 import { patchOriginalBrandText } from "./brand-text-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -968,12 +969,17 @@ const JUMP_PILL_HELPER = ';(()=>{try{'
 // sweeps the virtualized transcript until the row with that entry id
 // mounts, then centers and briefly highlights it.
 const DEEPLINK_MSG_HELPER = ';(()=>{try{'
-  + 'var openMessage=function(agentId,messageId,indexHint){var tries=0;var sel=function(id){var q=JSON.stringify(String(id));return "[data-entry-id="+q+"],[data-row-key="+q+"]"};var found=function(el){var n=0;var center=function(){el.scrollIntoView({block:"center"});if(++n<6)setTimeout(center,350)};center();el.style.transition="box-shadow .3s";el.style.boxShadow="0 0 0 3px #1d9bf0";setTimeout(function(){el.style.boxShadow=""},5000)};var jump=function(idx){var sc=document.querySelector(".sand-virtual-transcript");if(!sc)return;var lo=0,hi=sc.scrollHeight,it=0;var step=function(){var el=document.querySelector(sel(messageId));if(el){found(el);return}var rows=Array.prototype.slice.call(document.querySelectorAll("[data-index]")).map(function(r){return parseInt(r.getAttribute("data-index"),10)}).filter(isFinite);if(rows.length){var mn=Math.min.apply(null,rows),mx=Math.max.apply(null,rows);if(idx<mn)hi=sc.scrollTop;else if(idx>mx)lo=sc.scrollTop;sc.scrollTop=(lo+hi)/2}if(++it<26)setTimeout(step,280);else hunt()};sc.scrollTop=sc.scrollHeight/2;setTimeout(step,450)};var openChat=function(){var row=document.querySelector(".sand-agent-item[data-agent-id="+JSON.stringify(String(agentId))+"]");if(!row){if(++tries<20)setTimeout(openChat,400);return}row.click();'
+  // Landing on a message reads as the app's own hover, held for a moment: a rounded wash in the
+  // page's own text colour with a hairline edge, not a focus rectangle in a colour from
+  // elsewhere. The row's inline styles are put back exactly as they were.
+  + 'var tint=function(a){try{var c=getComputedStyle(document.body).color;var m=/rgba?\\(([^)]+)\\)/.exec(c);if(m){var p=m[1].split(",");return "rgba("+p[0].trim()+","+p[1].trim()+","+p[2].trim()+","+a+")"}}catch(_){}return "rgba(150,150,158,"+a+")"};'
+  + 'var mark=function(el,ms){if(!el||!el.style)return;var had={r:el.style.borderRadius,s:el.style.boxShadow,b:el.style.background,t:el.style.transition};el.style.transition="box-shadow .35s,background .35s";el.style.borderRadius="14px";el.style.boxShadow="0 0 0 1px "+tint(".22");el.style.background=tint(".07");setTimeout(function(){el.style.boxShadow=had.s;el.style.background=had.b;setTimeout(function(){el.style.borderRadius=had.r;el.style.transition=had.t},450)},ms||4500)};'
+  + 'var openMessage=function(agentId,messageId,indexHint){var tries=0;var sel=function(id){var q=JSON.stringify(String(id));return "[data-entry-id="+q+"],[data-row-key="+q+"]"};var found=function(el){var n=0;var center=function(){el.scrollIntoView({block:"center"});if(++n<6)setTimeout(center,350)};center();mark(el,5000)};var jump=function(idx){var sc=document.querySelector(".sand-virtual-transcript");if(!sc)return;var lo=0,hi=sc.scrollHeight,it=0;var step=function(){var el=document.querySelector(sel(messageId));if(el){found(el);return}var rows=Array.prototype.slice.call(document.querySelectorAll("[data-index]")).map(function(r){return parseInt(r.getAttribute("data-index"),10)}).filter(isFinite);if(rows.length){var mn=Math.min.apply(null,rows),mx=Math.max.apply(null,rows);if(idx<mn)hi=sc.scrollTop;else if(idx>mx)lo=sc.scrollTop;sc.scrollTop=(lo+hi)/2}if(++it<26)setTimeout(step,280);else hunt()};sc.scrollTop=sc.scrollHeight/2;setTimeout(step,450)};var openChat=function(){var row=document.querySelector(".sand-agent-item[data-agent-id="+JSON.stringify(String(agentId))+"]");if(!row){if(++tries<20)setTimeout(openChat,400);return}row.click();'
   // Some rows are keyed by their send nonce rather than the entry id (and
   // grouped rows key by a sibling), so after a successful engine navigate the
   // target key may not exist in the DOM at all. The engine still centered the
   // right row - fall back to ringing the row at the viewport center.
-  + 'var glow=function(){var w=0;var wait=function(){var el2=document.querySelector(sel(messageId));if(!el2&&w>5){var mid=document.elementFromPoint(innerWidth/2,innerHeight/2);el2=mid&&mid.closest?mid.closest("[data-row-key]"):null}if(el2){el2.style.transition="box-shadow .3s";el2.style.boxShadow="0 0 0 3px #1d9bf0";setTimeout(function(){el2.style.boxShadow=""},5000);return}if(++w<24)setTimeout(wait,250)};wait()};'
+  + 'var glow=function(){var w=0;var wait=function(){var el2=document.querySelector(sel(messageId));if(!el2&&w>5){var mid=document.elementFromPoint(innerWidth/2,innerHeight/2);el2=mid&&mid.closest?mid.closest("[data-row-key]"):null}if(el2){mark(el2,5000);return}if(++w<24)setTimeout(wait,250)};wait()};'
   // The transcript is windowed: the engine can only navigate to rows whose
   // entries are loaded. Try the engine teleport first (smooth centered jump +
   // glow); when the target predates the loaded window, fast-rewind a few
@@ -985,92 +991,13 @@ const DEEPLINK_MSG_HELPER = ';(()=>{try{'
   // the target enters the window; scroll-rewind only if the store global is
   // unavailable, DOM sweep as the final fallback.
   + 'var go=function(n){var ok=false;try{ok=self.__sandNavToRow&&self.__sandNavToRow(String(messageId))===true}catch(_){}if(ok){glow();return}var ts=self.__sandTranscript;if(ts&&ts.loadOlder){try{ts.loadOlder(String(agentId))}catch(_){}}else{var sc=document.querySelector(".sand-virtual-transcript");if(sc)sc.scrollTop=Math.max(0,sc.scrollTop-sc.clientHeight*3)}if(n<90){setTimeout(function(){go(n+1)},250);return}typeof indexHint==="number"&&isFinite(indexHint)?jump(indexHint):hunt()};setTimeout(function(){go(0)},900)};'
-  + 'var steps=0;var hunt=function(){var sc=document.querySelector(".sand-virtual-transcript");if(!sc)return;var el=document.querySelector("[data-entry-id=\'"+messageId+"\']");if(el){el.scrollIntoView({block:"center"});el.style.transition="box-shadow .3s";el.style.boxShadow="0 0 0 3px #1d9bf0";setTimeout(function(){el.style.boxShadow=""},4000);return}if(steps===0)sc.scrollTop=0;else{var before=sc.scrollTop;sc.scrollTop=Math.min(sc.scrollHeight,before+sc.clientHeight*0.95);if(sc.scrollTop>=sc.scrollHeight-sc.clientHeight-4&&steps>2)return}if(++steps<120)setTimeout(hunt,320)};openChat()};'
+  + 'var steps=0;var hunt=function(){var sc=document.querySelector(".sand-virtual-transcript");if(!sc)return;var el=document.querySelector("[data-entry-id=\'"+messageId+"\']");if(el){el.scrollIntoView({block:"center"});mark(el,4000);return}if(steps===0)sc.scrollTop=0;else{var before=sc.scrollTop;sc.scrollTop=Math.min(sc.scrollHeight,before+sc.clientHeight*0.95);if(sc.scrollTop>=sc.scrollHeight-sc.clientHeight-4&&steps>2)return}if(++steps<120)setTimeout(hunt,320)};openChat()};'
   + 'self.__sandOpenMessage=openMessage;'
   + 'var arm=function(){if(window.desktop&&window.desktop.onDeepLink){window.desktop.onDeepLink(function(l){try{if(l&&l.route==="message"&&l.agentId&&l.messageId)openMessage(l.agentId,l.messageId,l.indexHint)}catch(_){}});var rdy=0;var ready=function(){rdy++;try{var pr=window.desktop.deepLinksReady&&window.desktop.deepLinksReady();if(pr&&pr.catch)pr.catch(function(){})}catch(_){}rdy<20&&setTimeout(ready,3000)};ready();return true}return false};'
   + 'arm()||setTimeout(arm,2000)'
   + '}catch(_){}})();\n';
 
-// Multi-select mode: entered from the message hover menu ("Select messages"),
-// exited with Esc/Cancel. Selection state lives in a JS store, never the DOM -
-// the transcript is virtualized and rows unmount constantly. Selection chrome
-// (checkbox chips + tint) is an overlay in its own fixed layer repainted per
-// frame, same idiom as the media debugger; the app's React tree is never
-// touched. Entry ids come from data-entry-id / data-entry-ids (groups) or,
-// for plain entry rows, from data-row-key which IS the entry id (verified
-// live: entry rows key by id, group rows suffix ":attachment-group" etc).
-// Share/Bookmark feature-detect window.desktop.collections so this merges
-// ahead of the Collections page; Delete feature-detects the PR-A bridge.
-const SELECT_MODE_HELPER = ';(()=>{try{'
-  + 'var ADDR=/^t(?:\\d+u(?:a\\d+)?|(?:\\d+|b)[as]\\d+)$/;'
-  // Device-local tombstones: the host-side delete only exists where OUR host
-  // owns the agent store (local runtimes). Agents living on Cursor's remote
-  // box answer through Cursor's own in-box gateway, which we can never extend
-  // - so for those, delete falls back to hiding the entries in the renderer's
-  // row projection. Persisted per agent in localStorage; the row builder
-  // (npt) filters through this before grouping.
-  + 'var TK="sandTombstones.v1";var tcache=null;var tload=function(){if(tcache)return tcache;try{tcache=JSON.parse(localStorage.getItem(TK)||"{}")}catch(_){tcache={}}return tcache};'
-  + 'var tsave=function(){try{localStorage.setItem(TK,JSON.stringify(tcache||{}))}catch(_){}};'
-  + 'var tsets={};var tset=function(ag){if(!ag)return null;if(!tsets[ag]){var o=tload();tsets[ag]=new Set(o[ag]||[])}return tsets[ag]};'
-  + 'window.__sandTombstones={'
-  + 'add:function(ag,ids){if(!ag||!ids||!ids.length)return;var o=tload();var s=tset(ag);ids.forEach(function(i){s.add(i)});o[ag]=Array.from(s);tsave()},'
-  + 'clearAgent:function(ag){var o=tload();delete o[ag];delete tsets[ag];tsave()},'
-  + 'size:function(){var o=tload();var n=0;for(var k in o)n+=o[k].length;return n},'
-  + 'filter:function(list){try{var ag=self.__sandCurrentAgent&&self.__sandCurrentAgent();var s=tset(ag);if(!s||!s.size)return list;return list.filter(function(en){return!(en&&s.has(en.id))})}catch(_){return list}}};'
-  + 'var st={on:false,ids:new Set(),anchor:null};'
-  + 'var css=document.createElement("style");css.textContent='
-  + '".sand-sel-layer{position:fixed;inset:0;pointer-events:none;z-index:9998}"'
-  + '+".sand-sel-chip{position:absolute;width:20px;height:20px;border-radius:50%;border:2px solid rgba(127,127,127,.75);background:rgba(255,255,255,.92);box-sizing:border-box}"'
-  + '+".sand-sel-chip.on{background:#1d9bf0;border-color:#1d9bf0}"'
-  + '+".sand-sel-chip.on::after{content:\\"\\";position:absolute;left:5px;top:2px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}"'
-  + '+".sand-sel-tint{position:absolute;background:rgba(29,155,240,.10);border-radius:10px}"'
-  + '+".sand-sel-bar{position:fixed;z-index:10001;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:#fff;color:#222;border:1px solid rgba(0,0,0,.14);box-shadow:0 6px 22px rgba(0,0,0,.16);border-radius:12px;padding:8px 14px;font:500 13px system-ui}"'
-  + '+"html[data-theme*=dark] .sand-sel-bar{background:#26262b;color:#eee;border-color:rgba(255,255,255,.14)}"'
-  + '+".sand-sel-bar button{font:600 12px system-ui;border:1px solid rgba(127,127,127,.4);background:transparent;border-radius:8px;padding:5px 11px;cursor:pointer;color:inherit}"'
-  + '+".sand-sel-bar button.sand-sel-danger{color:#d34b3e;border-color:#d34b3e}"'
-  + '+".sand-sel-bar button:disabled{opacity:.4;cursor:default}"'
-  // display:flex beats the [hidden] attribute's UA default - without this the
-  // bar never actually hides (it once stuck showing the tombstone message
-  // across chats until relaunch).
-  + '+".sand-sel-bar[hidden]{display:none}";'
-  + 'document.head.appendChild(css);'
-  + 'var layer=document.createElement("div");layer.className="sand-sel-layer";layer.hidden=true;document.body.appendChild(layer);'
-  + 'var bar=document.createElement("div");bar.className="sand-sel-bar";bar.hidden=true;document.body.appendChild(bar);'
-  + 'var idsOf=function(row){if(!row)return[];var multi=row.getAttribute("data-entry-ids");if(multi)return multi.split(" ").filter(Boolean);var one=row.getAttribute("data-entry-id");if(one)return[one];var key=row.getAttribute("data-row-key")||"";return ADDR.test(key)?[key]:[]};'
-  + 'var rows=function(){var sc=document.querySelector(".sand-virtual-transcript");return sc?Array.prototype.slice.call(sc.querySelectorAll("[data-row-key]")):[]};'
-  + 'var agentIdNow=function(){try{var a=self.__sandCurrentAgent&&self.__sandCurrentAgent();if(a)return a}catch(_){}var el=document.querySelector(".sand-agent-item[aria-pressed=true]");return el?el.getAttribute("data-agent-id")||"":""};'
-  + 'var raf=0;var paint=function(){raf=0;if(!st.on){layer.hidden=true;return}layer.hidden=false;layer.textContent="";var sc=document.querySelector(".sand-virtual-transcript");if(!sc)return;var vr=sc.getBoundingClientRect();rows().forEach(function(row){var ids=idsOf(row);if(!ids.length)return;var r=row.getBoundingClientRect();if(r.bottom<vr.top||r.top>vr.bottom||r.height<8)return;var on=ids.every(function(i){return st.ids.has(i)});if(on){var t=document.createElement("div");t.className="sand-sel-tint";t.style.left=(vr.left+4)+"px";t.style.top=r.top+"px";t.style.width=(vr.width-8)+"px";t.style.height=r.height+"px";layer.appendChild(t)}var c=document.createElement("div");c.className="sand-sel-chip"+(on?" on":"");c.style.left=(vr.left+10)+"px";c.style.top=(r.top+Math.max(4,r.height/2-10))+"px";layer.appendChild(c)})};'
-  + 'var queue=function(){raf||(raf=requestAnimationFrame(paint))};'
-  + 'var flash=null;var renderBar=function(msg){if(!st.on){bar.hidden=true;return}bar.hidden=false;bar.textContent="";var n=st.ids.size;var span=document.createElement("span");span.textContent=msg||(n+" selected");bar.appendChild(span);if(msg)return;var mk=function(label,fn,cls){var b=document.createElement("button");b.textContent=label;cls&&b.classList.add(cls);b.addEventListener("click",function(ev){ev.stopPropagation();fn()});bar.appendChild(b);return b};'
-  + 'var col=window.desktop&&window.desktop.collections;'
-  + 'if(col&&col.addMessages){mk("Share to Collection\\u2026",function(){picker()});mk("Bookmark",function(){act("bookmark")})}'
-  + 'var del=window.desktop&&window.desktop.agent&&window.desktop.agent.deleteTranscriptEntries;'
-  + 'var db=mk("Delete",function(){confirmDelete()},"sand-sel-danger");if(!del||!n)db.disabled=true;'
-  + 'mk("Cancel",function(){api.exit()})};'
-  + 'var confirmDelete=function(){var n=st.ids.size;bar.textContent="";var span=document.createElement("span");span.textContent="Delete "+n+" message"+(n===1?"":"s")+" from this device? The agent\\u2019s own memory keeps them.";bar.appendChild(span);var ok=document.createElement("button");ok.textContent="Delete";ok.className="sand-sel-danger";ok.addEventListener("click",function(ev){ev.stopPropagation();doDelete()});bar.appendChild(ok);var back=document.createElement("button");back.textContent="Back";back.addEventListener("click",function(ev){ev.stopPropagation();renderBar()});bar.appendChild(back)};'
-  + 'var bounce=function(ag){try{var rows=document.querySelectorAll(".sand-agent-item[data-agent-id]");var cur=null,other=null;rows.forEach(function(r){var id=r.getAttribute("data-agent-id");if(id===ag)cur=r;else if(!other)other=r});if(cur&&other){other.click();setTimeout(function(){cur.click()},400)}}catch(_){}};'
-  + 'var doDelete=function(){var ag=agentIdNow();if(!ag){renderBar("No active agent detected");setTimeout(function(){renderBar()},2500);return}var ids=Array.from(st.ids);renderBar("Deleting\\u2026");window.desktop.agent.deleteTranscriptEntries({agentId:ag,entryIds:ids}).then(function(res){var del=(res&&res.deleted)||[];var blocked=(res&&res.blocked)||[];del.forEach(function(i){st.ids.delete(i)});if(blocked.length){renderBar(del.length+" deleted \\u00b7 "+blocked.length+" blocked ("+blocked.map(function(b){return b.reason}).filter(function(v,i,a){return a.indexOf(v)===i}).join(", ")+")");setTimeout(function(){st.ids.size?renderBar():api.exit()},3200)}else{api.exit()}queue()}).catch(function(_e){window.__sandTombstones.add(ag,ids);renderBar("Hidden on this device (remote agent \\u2014 the server copy is unchanged)");setTimeout(function(){api.exit();bounce(ag)},1600)})};'
-  + 'var send=function(extra,label){var ag=agentIdNow();var ids=Array.from(st.ids);var col=window.desktop&&window.desktop.collections;if(!col||!col.addMessages)return;renderBar(label);var req={agentId:ag,entryIds:ids};for(var k in extra)req[k]=extra[k];col.addMessages(req).then(function(){api.exit()}).catch(function(e){renderBar("Failed: "+(e&&e.message||e));setTimeout(function(){renderBar()},3000)})};'
-  + 'var act=function(kind){send({target:"bookmarks"},"Bookmarking\\u2026")};'
-  // Share picker: existing collections listed by name (Bookmarks included),
-  // plus an inline "New collection" name field - no more silently minted
-  // "Collection <date>" names.
-  + 'var picker=function(){var col=window.desktop&&window.desktop.collections;if(!col||!col.list){send({},"Sharing\\u2026");return}bar.textContent="";var span=document.createElement("span");span.textContent="Add "+st.ids.size+" to\\u2026";bar.appendChild(span);var mkb=function(label,fn){var b=document.createElement("button");b.textContent=label;b.addEventListener("click",function(ev){ev.stopPropagation();fn()});bar.appendChild(b);return b};'
-  + 'col.list().then(function(r){var cols=(r&&r.collections)||[];cols.slice(0,6).forEach(function(c){mkb(c.name+" ("+(c.count||0)+")",function(){send(c.id==="bookmarks"?{target:"bookmarks"}:{collectionId:c.id},"Sharing\\u2026")})});'
-  + 'mkb("New collection\\u2026",function(){bar.textContent="";var lab=document.createElement("span");lab.textContent="Name:";bar.appendChild(lab);var inp=document.createElement("input");inp.type="text";inp.placeholder="Collection name";inp.style.cssText="font:500 13px system-ui;border:1px solid rgba(127,127,127,.4);border-radius:8px;padding:5px 9px;background:transparent;color:inherit;min-width:180px";inp.addEventListener("keydown",function(ev){ev.stopPropagation();if(ev.key==="Enter"&&inp.value.trim())send({name:inp.value.trim()},"Sharing\\u2026");if(ev.key==="Escape")renderBar()});bar.appendChild(inp);mkb("Create",function(){inp.value.trim()&&send({name:inp.value.trim()},"Sharing\\u2026")});mkb("Back",function(){picker()});inp.focus()});'
-  + 'mkb("Back",function(){renderBar()})}).catch(function(){send({},"Sharing\\u2026")})};'
-  + 'var onClick=function(ev){if(!st.on)return;if(bar.contains(ev.target))return;var sc=document.querySelector(".sand-virtual-transcript");if(!sc||!sc.contains(ev.target))return;ev.preventDefault();ev.stopPropagation();var row=ev.target&&ev.target.closest?ev.target.closest("[data-row-key]"):null;var ids=idsOf(row);if(!ids.length)return;var idx=row.getAttribute("data-index");if(ev.shiftKey&&st.anchor!=null&&idx!=null){var lo=Math.min(st.anchor,+idx),hi=Math.max(st.anchor,+idx);rows().forEach(function(r){var i=+r.getAttribute("data-index");if(i>=lo&&i<=hi)idsOf(r).forEach(function(x){st.ids.add(x)})})}else{var on=ids.every(function(i){return st.ids.has(i)});ids.forEach(function(i){on?st.ids.delete(i):st.ids.add(i)});if(idx!=null)st.anchor=+idx}renderBar();queue()};'
-  + 'var onKey=function(ev){if(st.on&&ev.key==="Escape"){ev.preventDefault();ev.stopPropagation();api.exit()}};'
-  // Cmd/Ctrl+Shift+A enters selection mode from anywhere in a chat - the
-  // hover-menu item stays, this is the discoverable fast path.
-  + 'document.addEventListener("keydown",function(ev){if((ev.metaKey||ev.ctrlKey)&&ev.shiftKey&&(ev.key==="A"||ev.key==="a")&&!st.on&&document.querySelector(".sand-virtual-transcript")){ev.preventDefault();api.enter()}},true);'
-  + 'var iv=0;var mo=new MutationObserver(queue);'
-  + 'var api={active:function(){return st.on},count:function(){return st.ids.size},'
-  + 'enter:function(seed){if(st.on)return;st.on=true;st.ids=new Set();st.anchor=null;if(seed&&ADDR.test(String(seed)))st.ids.add(String(seed));var sc=document.querySelector(".sand-virtual-transcript");sc&&mo.observe(sc,{childList:true,subtree:true,attributes:true,attributeFilter:["style"]});iv=setInterval(queue,300);document.addEventListener("click",onClick,true);document.addEventListener("keydown",onKey,true);document.addEventListener("scroll",queue,true);renderBar();queue()},'
-  + 'exit:function(){if(!st.on)return;st.on=false;st.ids.clear();mo.disconnect();clearInterval(iv);document.removeEventListener("click",onClick,true);document.removeEventListener("keydown",onKey,true);document.removeEventListener("scroll",queue,true);bar.hidden=true;layer.hidden=true;layer.textContent=""},'
-  + 'toggle:function(id){st.ids.has(id)?st.ids.delete(id):st.ids.add(id);renderBar();queue()}};'
-  + 'window.__sandSelect=api'
-  + '}catch(_){}})();\n';
+// Multi-select mode lives in ./select-messages-helper.mjs (toolbar, checkboxes, tombstones).
 
 // Media/component inspector (runtime toggle, DevTools-style). Cmd/Ctrl+Shift+D
 // cycles off -> INSPECTOR -> SWEEP -> off. Inspector is the default mode: one
