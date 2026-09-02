@@ -59,6 +59,9 @@ jobs:
           node-version: 26.5.0
           cache: npm
 
+      # This is also the lockfile guard: `npm ci` refuses a lock that has drifted from the
+      # manifest, which is how the nine dropped transitive entries surfaced on 2 Sep 2026 —
+      # they were only invisible while the CI outage stopped any run reaching this step.
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
 
@@ -73,3 +76,15 @@ jobs:
 
       - name: Typecheck frontend and source, run the test suite
         run: npm run check
+      # Checks and tests never package, so a dependency that breaks the build passes here and
+      # fails on whoever packages next (2 Sep 2026: undici 8 against the pinned runtime version
+      # the Electron main bundle keeps external). Package on macOS, where the runtime is
+      # recoverable; the bootstrap step above is best-effort, so skip when it did not land.
+      - name: Package the app
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d ".cache/runtime/Grok Bot.app" ] && [ -d "src/app/dist" ]; then
+            npm run package
+          else
+            echo "no pinned runtime or upstream app on this runner; packaging skipped"
+          fi
