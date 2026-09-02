@@ -1,3 +1,4 @@
+import * as acorn from "acorn";
 import { patchOriginalBrandText } from "./brand-text-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -2200,11 +2201,22 @@ export function patchOriginalTranscriptFetchFlag(source) {
 
 // Brand by backend runs last so every anchor above still matches its original "Grok Bot" text
 // and every string a patch injected is covered too.
-function brandLast(source, transform) {
+const brandCounts = new Map();
+
+function brandLast(source, transform, role) {
   const branded = patchOriginalBrandText(transform(source));
+  // Recorded per chunk in the provenance so the next upstream bundle can be diffed for a string
+  // that stopped matching: a sudden drop in `wrapped` means copy moved out of reach.
+  brandCounts.set(role, { wrapped: branded.wrapped, templates: branded.templates, kept: branded.kept });
   if (branded.skippedKeys > 0 || branded.skippedTagged > 0) {
     throw new Error(`Brand pass left ${branded.skippedKeys} object keys and ${branded.skippedTagged} tagged templates unbranded`);
   }
+  // Parse what we are about to ship. A rewrite that produces valid-but-wrong JavaScript
+  // (`return__sandBrandText(...)` — an undeclared identifier) would otherwise reach the renderer
+  // and throw only when that line runs.
+  acorn.parse(branded.source, { ecmaVersion: "latest", sourceType: "module" });
+  const glued = branded.source.match(/[\p{ID_Continue}$]__sandBrandText\(/u);
+  if (glued != null) throw new Error(`Brand pass glued a call onto ${glued[0]}`);
   return branded.source;
 }
 
@@ -2226,8 +2238,8 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   await writeFile(indexHtmlPath, patchOriginalRendererHtml(await readFile(indexHtmlPath, "utf8")));
   const changes = [];
   for (const [role, candidate, transform] of [
-    ["registry", registryCandidates[0], (source) => brandLast(source, (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalTranscriptFetchFlag(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))))],
-    ["panel", panelCandidates[0], (source) => brandLast(source, patchOriginalSettingsPanel)],
+    ["registry", registryCandidates[0], (source) => brandLast(source, (source) => patchOriginalMainChrome(patchOriginalExpandedPlaceholder(patchOriginalSilentSend(patchOriginalComputerPlaceholder(patchOriginalTranscriptFetchFlag(patchOriginalMediaMeta(patchOriginalOverscan(patchOriginalScrollInput(patchOriginalClampRoot(patchOriginalClampObserver(patchOriginalAssistantClamp(patchOriginalImageTiles(patchOriginalVncQuality(patchOriginalViewFallback(patchOriginalComposerAttach(patchOriginalLoginWall(patchOriginalSettingsRegistry(source))))))))))))))))), "registry")],
+    ["panel", panelCandidates[0], (source) => brandLast(source, patchOriginalSettingsPanel, "panel")],
   ]) {
     const patched = transform(candidate.source);
     await writeFile(candidate.target, patched);
@@ -2253,6 +2265,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "transcript-fetch-flag-release",
       "brand-by-backend",
     ],
+    brandCounts: Object.fromEntries(brandCounts),
     transformations: ["settings-registry", "router-panel", "usage-panel", "first-run-logins", "first-run-login-skip", "computer-screen-switcher", "brand-by-backend"],
   };
   const provenancePath = path.join(stageRoot, "dist", "renderer-router-extension.json");

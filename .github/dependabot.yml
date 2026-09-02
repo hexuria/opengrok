@@ -30,15 +30,23 @@ updates:
       npm-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    # Every ignore names its update-types on purpose: a bare `dependency-name` would mute
+    # Dependabot's SECURITY updates for that package too, so a Chromium CVE in the pinned
+    # Electron line would arrive as silence. Naming the three version-update types blocks
+    # routine bumps and still lets a security advisory open a PR.
     ignore:
       - dependency-name: electron
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: "@bufbuild/protobuf"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@connectrpc/*"
         update-types: ["version-update:semver-major"]
       - dependency-name: tree-sitter
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: tree-sitter-bash
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: web-tree-sitter
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
     open-pull-requests-limit: 6
   - package-ecosystem: github-actions
     directory: /

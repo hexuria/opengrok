@@ -14,6 +14,8 @@ export const OPENGROK_MODE_STORAGE_KEY = "sand-opengrok-mode";
 export const BRAND_KEEP_PATTERNS = [/official Grok Bot/i, /Grok Bot Lab/, /Grok Bot Helper/];
 /** ...and so does a literal in these positions: the first-run card for the Cursor backend names the official product. */
 export const BRAND_KEEP_BEFORE = [/label:"Cursor",title:$/];
+/** Keywords a class member key may follow: `get "x"(){}`, `async "x"(){}`. */
+const KEY_PREFIX_KEYWORDS = new Set(["get", "set", "static", "async"]);
 
 export const BRAND_HELPER_SOURCE =
   `var ${BRAND_HELPER_NAME}=(function(){var on=null,at=0;return function(s){`
@@ -47,11 +49,22 @@ export function patchOriginalBrandText(source) {
     if (label === "string") {
       if (typeof token.value !== "string" || !token.value.includes(BRAND_SOURCE_NAME)) continue;
       if (keep(token.value) || BRAND_KEEP_BEFORE.some((pattern) => pattern.test(source.slice(Math.max(0, token.start - 48), token.start)))) { kept += 1; continue; }
-      const previous = tokens[index - 1]?.type.label;
+      const previous = tokens[index - 1];
+      const previousLabel = previous?.type.label;
       const next = tokens[index + 1]?.type.label;
-      if ((previous === "{" || previous === ",") && next === ":") { skippedKeys += 1; continue; }
-      if (previous === "import" || previous === "from") continue;
-      edits.push({ start: token.start, end: token.end, text: `${BRAND_HELPER_NAME}(${source.slice(token.start, token.end)})` });
+      // A property key, however it is written: {"x":1}, class C{"x"(){}}, {get "x"(){}}.
+      if (next === ":" && (previousLabel === "{" || previousLabel === ",")) { skippedKeys += 1; continue; }
+      // `get`/`set`/`static`/`async` are plain names to the tokenizer, so match their text.
+      const previousText = previous == null ? "" : source.slice(previous.start, previous.end);
+      if (next === "(" && (previousLabel === "{" || previousLabel === "}" || previousLabel === ";"
+        || previousLabel === "," || KEY_PREFIX_KEYWORDS.has(previousText))) { skippedKeys += 1; continue; }
+      // A module specifier is a path, not copy: rewriting it would break the import.
+      if (previousLabel === "import" || (previousLabel === "(" && tokens[index - 2]?.type.label === "import")) continue;
+      if (previousText === "from") continue;
+      // Minified code writes `return"x"` with no space; without one the call glues onto the
+      // keyword and becomes `return__sandBrandText("x")`, which parses and then throws at runtime.
+      const glued = previous != null && /[\p{ID_Continue}$]/u.test(source[token.start - 1] ?? "");
+      edits.push({ start: token.start, end: token.end, text: `${glued ? " " : ""}${BRAND_HELPER_NAME}(${source.slice(token.start, token.end)})` });
       wrapped += 1;
       continue;
     }
@@ -60,13 +73,18 @@ export function patchOriginalBrandText(source) {
       if (!raw.includes(BRAND_SOURCE_NAME)) continue;
       if (keep(raw)) { kept += 1; continue; }
       // Walk back to this template's opening backquote; the token before it is the tag, if any.
+      // Walk back to this template's opening backquote. Only the `}` that closes an
+      // interpolation may cancel a `${`; a block or object brace inside one must not, or the
+      // walk runs off the front and a tagged template is mistaken for a plain one.
       let open = index - 1;
-      let depth = 0;
+      let interpolations = 0;
+      let braces = 0;
       for (; open >= 0; open -= 1) {
         const l = tokens[open].type.label;
-        if (l === "}" ) depth += 1;
-        else if (l === "${" && depth > 0) depth -= 1;
-        else if (l === "`" && depth === 0) break;
+        if (l === "}") braces += 1;
+        else if (l === "{") { if (braces > 0) braces -= 1; }
+        else if (l === "${") { if (braces > 0) braces -= 1; else if (interpolations > 0) interpolations -= 1; }
+        else if (l === "`" && interpolations === 0 && braces === 0) break;
       }
       const tag = open > 0 ? tokens[open - 1].type.label : null;
       const tagged = tag === "name" || tag === ")" || tag === "]" || tag === "this" || tag === "super";
