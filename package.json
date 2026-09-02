@@ -114,7 +114,7 @@
     "katex": "0.16.45",
     "mime-types": "3.0.1",
     "minimatch": "10.2.6",
-    "pdfjs-dist": "5.4.296",
+    "pdfjs-dist": "6.3.289",
     "piscina": "4.9.0",
     "re2js": "1.2.2",
     "react": "19.2.1",
