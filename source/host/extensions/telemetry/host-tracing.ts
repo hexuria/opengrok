@@ -48,6 +48,9 @@ export class TokenRefreshingSpanExporter implements SpanExporter {
       this.delegate = this.createExporter({
         url: this.url,
         headers: { ...this.baseHeaders, authorization: `Bearer ${token}` },
+        // `insecure` is a test seam: it defaults to false and no production caller sets it
+        // (initSandHostTracing in host-telemetry-service.ts passes only url/token/version), so
+        // the app never disables certificate checks on the exporter.
         ...(this.insecure
           ? { httpAgentOptions: { rejectUnauthorized: false } }
           : {}),

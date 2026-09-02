@@ -63,3 +63,43 @@ test("the runtime helper swaps the name only when the page is in OpenGrok mode",
   const throwing = { getItem: () => { throw new Error("blocked"); } };
   assert.equal(fn(throwing), "Grok Bot can run commands on your computer.", "a blocked storage means the official name");
 });
+
+// The bug this file exists to prevent: minified code writes `return"x"` with no space, so a
+// naive rewrite produces `return__sandBrandText("x")` — valid JavaScript calling an undeclared
+// identifier. It parses, ships, and throws only when that line runs. Found in review after the
+// first version reached a packaged build.
+test("a call is never glued onto the keyword before it", () => {
+  for (const source of ['function f(){return"Grok Bot"}', 'throw"Grok Bot";', 'switch(x){case"Grok Bot":break}', 'typeof"Grok Bot"']) {
+    const { source: out } = patchOriginalBrandText(source);
+    parses(out);
+    assert.ok(!/[\p{ID_Continue}$]__sandBrandText\(/u.test(out), `glued in: ${out.slice(-60)}`);
+  }
+});
+
+test("property keys in every position, and module specifiers, are left alone", () => {
+  const keys = ['const o={get "Grok Bot"(){return 1}};', 'const o={set "Grok Bot"(v){}};', 'class C{"Grok Bot"(){}}', 'class C{static "Grok Bot"(){}}', 'const o={a(){}, "Grok Bot"(){}};'];
+  for (const source of keys) {
+    const result = patchOriginalBrandText(source);
+    parses(result.source);
+    assert.equal(result.wrapped, 0, source);
+    assert.equal(result.skippedKeys, 1, source);
+  }
+  for (const source of ['import x from "./Grok Bot.js";', 'export {a} from "./Grok Bot.js";', 'import("./Grok Bot.js");']) {
+    const result = patchOriginalBrandText(source);
+    parses(result.source);
+    assert.equal(result.wrapped, 0, `a module specifier is a path, not copy: ${source}`);
+    assert.ok(result.source.includes('"./Grok Bot.js"'), source);
+  }
+});
+
+test("a tagged template is still recognised when its interpolations contain braces", () => {
+  for (const source of ["css`x ${()=>{return 1}} Grok Bot`;", "css`x ${{k:1}} Grok Bot`;"]) {
+    const result = patchOriginalBrandText(source);
+    parses(result.source);
+    assert.equal(result.skippedTagged, 1, `tag missed: ${source}`);
+    assert.equal(result.templates, 0, source);
+  }
+  const nested = patchOriginalBrandText("const s=`a ${`b Grok Bot ${c}`} d`;");
+  parses(nested.source);
+  assert.equal(nested.templates, 1, "a nested plain template is still branded");
+});

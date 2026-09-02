@@ -19,7 +19,10 @@ export function trustSystemCertificateAuthorities(env: NodeJS.ProcessEnv = proce
   const t = tls as unknown as { getCACertificates?: (type: string) => string[]; setDefaultCACertificates?: (certs: string[]) => void };
   if (typeof t.getCACertificates !== "function" || typeof t.setDefaultCACertificates !== "function") return null;
   try {
-    const bundled = t.getCACertificates("bundled");
+    // "default", not "bundled": the default list is the bundled roots PLUS anything the
+    // person put in NODE_EXTRA_CA_CERTS (a corporate proxy root, say). Starting from "bundled"
+    // would silently drop those and break the very connection this helper exists to fix.
+    const bundled = t.getCACertificates("default");
     const system = t.getCACertificates("system");
     if (system.length === 0) { applied = { bundled: bundled.length, system: 0 }; return applied; }
     t.setDefaultCACertificates([...bundled, ...system]);
