@@ -87,6 +87,6 @@ function preprocessLenientArray(value: unknown, options: { readonly field: strin
   return repair.ok ? repair.value : value;
 }
 
-export function lenientArray<T extends z.ZodTypeAny>(schema: T, options: { readonly field: string; readonly primitiveItems?: boolean }): z.ZodEffects<T, z.output<T>, unknown> {
+export function lenientArray<T extends z.ZodTypeAny>(schema: T, options: { readonly field: string; readonly primitiveItems?: boolean }) {
   return z.preprocess(value => preprocessLenientArray(value, options), schema);
 }

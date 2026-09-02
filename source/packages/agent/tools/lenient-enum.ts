@@ -6,6 +6,6 @@ export function preprocessLenientEnumValue<T extends string>(value: unknown, opt
   const matches = options.filter((option) => option.toLowerCase() === lower);
   return matches.length === 1 ? matches[0] : value;
 }
-export function lenientEnum<T extends [string, ...string[]]>(schema: z.ZodEnum<T>) {
+export function lenientEnum<T extends Readonly<Record<string, string>>>(schema: z.ZodEnum<T>) {
   return z.preprocess((value) => preprocessLenientEnumValue(value, schema.options), schema);
 }

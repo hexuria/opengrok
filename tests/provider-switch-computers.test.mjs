@@ -34,6 +34,9 @@ async function loadModule(entry, outfileName) {
     format: "esm",
     platform: "node",
     target: "node22",
+    // The AI SDK reaches a CommonJS dependency, and esbuild leaves that dependency's require() calls to a
+    // shim that only resolves when a real require is in scope, which an ESM bundle has to supply itself.
+    banner: { js: 'import { createRequire as __nodeCreateRequire } from "node:module";\nconst require = __nodeCreateRequire(import.meta.url);' },
   });
   const module = await import(`${pathToFileURL(output).href}?${Date.now()}`);
   return { module, dispose: () => rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };

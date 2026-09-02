@@ -3,7 +3,7 @@ import { z } from "zod";
 const notebookCellOutputSchema = z.object({
   output_type: z.string().optional(),
   text: z.union([z.string(), z.array(z.string())]).optional(),
-  data: z.record(z.unknown()).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
   ename: z.string().optional(),
   evalue: z.string().optional(),
   traceback: z.array(z.string()).optional(),
@@ -11,7 +11,7 @@ const notebookCellOutputSchema = z.object({
 
 const notebookCellSchema = z.object({
   cell_type: z.enum(["code", "markdown", "raw"]),
-  metadata: z.record(z.unknown()).optional().default({}),
+  metadata: z.record(z.string(), z.unknown()).optional().default({}),
   source: z.union([z.string(), z.array(z.string())]),
   execution_count: z.union([z.number(), z.null()]).optional(),
   outputs: z.array(notebookCellOutputSchema).optional(),
@@ -20,7 +20,7 @@ const notebookCellSchema = z.object({
 
 const notebookSchema = z.object({
   cells: z.array(notebookCellSchema),
-  metadata: z.record(z.unknown()).optional().default({}),
+  metadata: z.record(z.string(), z.unknown()).optional().default({}),
   nbformat: z.number().optional(),
   nbformat_minor: z.number().optional(),
 });
