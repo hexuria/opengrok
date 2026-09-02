@@ -51,8 +51,8 @@ test("every entry row is selectable on every route: the id comes from the row's 
   const el = (attrs, row = true) => ({ getAttribute: (k) => attrs[k] ?? null, classList: { contains: (c) => row && c === "sand-transcript-row" } });
   assert.deepEqual(api.idsOf(el({ "aria-labelledby": labelled("e_01a0-6162"), "data-row-key": "nonce:509379ce" })), ["e_01a0-6162"], "the person's own message, keyed by nonce");
   assert.deepEqual(api.idsOf(el({ "aria-labelledby": labelled("e_9"), "data-row-key": "e_9" })), ["e_9"]);
-  assert.deepEqual(api.idsOf(el({ "data-row-key": "t12u" })), ["t12u"], "a local-route id without a label");
-  assert.deepEqual(api.idsOf(el({ "data-row-key": "e_7" })), ["e_7"], "a server id without a label");
+  assert.deepEqual(api.idsOf(el({ "data-row-key": "t12u" })), [], "a row with no entry label is not a bubble");
+  assert.deepEqual(api.idsOf(el({ "data-row-key": "e_7", "data-entry-id": "e_7" })), [], "a borrowed data-entry-id (separators, cards) is not a bubble either");
   assert.deepEqual(api.idsOf(el({ "data-row-key": "e_7" , "data-entry-ids": "e_7 e_8" })), ["e_7", "e_8"], "an attachment group");
   assert.deepEqual(api.idsOf(el({ "data-row-key": "e_7" }, false)), [], "a date separator borrows the next entry's key and is not a row");
 });
@@ -158,9 +158,9 @@ test("Escape inside the collection-name field, or with a menu open, is not the e
   assert.equal(page.api.active(), false);
 });
 
-test("a suffixed row key is not an entry id", () => {
+test("a hyphenated server id round-trips through the label; a bare key never counts", () => {
   const { api } = fakePage({ rows: [] });
   const el = (attrs) => ({ getAttribute: (k) => attrs[k] ?? null, classList: { contains: (c) => c === "sand-transcript-row" } });
   assert.deepEqual(api.idsOf(el({ "data-row-key": "e_01a0:attachment-group" })), []);
-  assert.deepEqual(api.idsOf(el({ "data-row-key": "e_01a06178-67db-7711-9936-8be4a4324a60" })), ["e_01a06178-67db-7711-9936-8be4a4324a60"]);
+  assert.deepEqual(api.idsOf(el({ "aria-labelledby": labelled("e_01a06178-67db-7711-9936-8be4a4324a60"), "data-row-key": "nonce:1" })), ["e_01a06178-67db-7711-9936-8be4a4324a60"]);
 });

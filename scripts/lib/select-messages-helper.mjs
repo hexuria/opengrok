@@ -30,10 +30,12 @@ const TOMBSTONES =
 
 const CSS =
   '".sand-sel-layer{position:fixed;inset:0;pointer-events:none;z-index:9998}"'
-  + '+".sand-sel-box{position:absolute;width:16px;height:16px;border-radius:4px;border:2px solid rgba(127,127,127,.7);background:rgba(255,255,255,.92);box-sizing:border-box}"'
-  + '+".sand-sel-box.on{background:#1d9bf0;border-color:#1d9bf0}"'
-  + '+".sand-sel-box.on::after{content:\\"\\";position:absolute;left:3px;top:0;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}"'
-  + '+".sand-sel-tint{position:absolute;background:rgba(29,155,240,.10);border-radius:10px}"'
+  // The app's own greys: an outlined box, filled with the text colour when checked, the mark in
+  // the background colour. No accent, no tint on the row.
+  + '+".sand-sel-box{position:absolute;width:18px;height:18px;border-radius:4px;border:1.5px solid rgba(127,127,127,.75);background:transparent;box-sizing:border-box}"'
+  + '+".sand-sel-box.on{background:#e8e8ec;border-color:#e8e8ec}"'
+  + '+".sand-sel-box.on::after{content:\\"\\";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #1b1b1f;border-width:0 2px 2px 0;transform:rotate(45deg)}"'
+  + '+"html[data-theme*=light] .sand-sel-box.on{background:#1b1b1f;border-color:#1b1b1f}html[data-theme*=light] .sand-sel-box.on::after{border-color:#fff}"'
   + '+".sand-sel-bar{position:fixed;z-index:10001;display:flex;align-items:center;gap:6px;padding:6px 12px;box-sizing:border-box;font:500 13px system-ui;background:#f4f4f5;color:#222;border-bottom:1px solid rgba(0,0,0,.12)}"'
   + '+"html[data-theme*=dark] .sand-sel-bar{background:#1b1b1f;color:#eee;border-color:rgba(255,255,255,.12)}"'
   + '+"@media (prefers-color-scheme:dark){html:not([data-theme*=light]) .sand-sel-bar{background:#1b1b1f;color:#eee;border-color:rgba(255,255,255,.12)}}"'
@@ -47,11 +49,11 @@ const CSS =
   + '+".sand-sel-bar button.sand-sel-danger{color:#e5484d}"'
   + '+".sand-sel-bar button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}"'
   + '+".sand-sel-bar button.sand-sel-text{border:1px solid rgba(127,127,127,.4)}"'
-  + '+".sand-sel-master{width:18px;height:18px;border-radius:4px;border:2px solid currentColor;box-sizing:border-box;position:relative;opacity:.85;display:block}"'
-  + '+".sand-sel-master[data-state=all]{background:#1d9bf0;border-color:#1d9bf0;opacity:1}"'
-  + '+".sand-sel-master[data-state=all]::after{content:\\"\\";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}"'
-  + '+".sand-sel-master[data-state=some]{background:#1d9bf0;border-color:#1d9bf0;opacity:1}"'
-  + '+".sand-sel-master[data-state=some]::after{content:\\"\\";position:absolute;left:3px;top:6px;width:8px;height:2px;background:#fff}"'
+  + '+".sand-sel-master{width:18px;height:18px;border-radius:4px;border:1.5px solid rgba(127,127,127,.75);box-sizing:border-box;position:relative;display:block}"'
+  + '+".sand-sel-master[data-state=all],.sand-sel-master[data-state=some]{background:#e8e8ec;border-color:#e8e8ec}"'
+  + '+".sand-sel-master[data-state=all]::after{content:\\"\\";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #1b1b1f;border-width:0 2px 2px 0;transform:rotate(45deg)}"'
+  + '+".sand-sel-master[data-state=some]::after{content:\\"\\";position:absolute;left:4px;top:7px;width:8px;height:2px;background:#1b1b1f}"'
+  + '+"html[data-theme*=light] .sand-sel-master[data-state=all],html[data-theme*=light] .sand-sel-master[data-state=some]{background:#1b1b1f;border-color:#1b1b1f}html[data-theme*=light] .sand-sel-master[data-state=all]::after{border-color:#fff}html[data-theme*=light] .sand-sel-master[data-state=some]::after{background:#fff}"'
   + '+".sand-sel-bar input{font:500 13px system-ui;border:1px solid rgba(127,127,127,.4);border-radius:8px;padding:5px 9px;background:transparent;color:inherit;min-width:180px}"';
 
 // Static inline SVG (Lucide-style strokes); nothing from the page goes into innerHTML.
@@ -71,7 +73,10 @@ export const SELECT_MODE_HELPER =
   + ICONS
   + 'var layer=document.createElement("div");layer.className="sand-sel-layer";layer.hidden=true;document.body.appendChild(layer);'
   + 'var bar=document.createElement("div");bar.className="sand-sel-bar";bar.setAttribute("role","toolbar");bar.setAttribute("aria-label","Selected messages");bar.hidden=true;document.body.appendChild(bar);'
-  + 'var entryIdOf=function(row){if(!row||!row.getAttribute)return null;var lab=row.getAttribute("aria-labelledby")||"";var m=/sand-conversation-entry-(.+?)-(?:author|timestamp|body)(?:\\s|$)/.exec(lab);if(m)return m[1];var one=row.getAttribute("data-entry-id");if(one)return one;if(!(row.classList&&row.classList.contains("sand-transcript-row")))return null;var key=row.getAttribute("data-row-key")||"";return ADDR.test(key)||/^e_[0-9a-f-]+$/.test(key)?key:null};'
+  // Only a message bubble is selectable: a row whose label names a conversation entry (the
+  // person's, another member's, or the bot's), or an attachment group. Date separators and
+  // cards carry a borrowed entry id and no such label; they get nothing.
+  + 'var entryIdOf=function(row){if(!row||!row.getAttribute)return null;var lab=row.getAttribute("aria-labelledby")||"";var m=/sand-conversation-entry-(.+?)-(?:author|timestamp|body)(?:\\s|$)/.exec(lab);return m?m[1]:null};'
   + 'var idsOf=function(row){if(!row)return[];var multi=row.getAttribute("data-entry-ids");if(multi)return multi.split(" ").filter(Boolean);var id=entryIdOf(row);return id?[id]:[]};'
   + 'var scroller=function(){return document.querySelector(".sand-virtual-transcript")};'
   + 'var rows=function(){var sc=scroller();return sc?Array.prototype.slice.call(sc.querySelectorAll("[data-row-key]")).filter(function(r){return idsOf(r).length>0}):[]};'
@@ -79,9 +84,16 @@ export const SELECT_MODE_HELPER =
   + 'var agentIdNow=function(){try{var a=self.__sandCurrentAgent&&self.__sandCurrentAgent();if(a)return a}catch(_){}var el=document.querySelector(".sand-agent-item[aria-current=page]")||document.querySelector(".sand-agent-item[aria-pressed=true]");return el?el.getAttribute("data-agent-id")||"":""};'
   // The bar takes the chat header's place while selecting (as an edit mode does), so no
   // transcript row is ever hidden behind it.
-  + 'var placeBar=function(){var sc=scroller();if(!sc)return;var col=document.querySelector("main.sand-chat")||(sc.closest&&sc.closest(".ui-scroll-area"))||sc;var cr=col.getBoundingClientRect();var hd=document.querySelector("header.sand-toolbar");var hr=hd?hd.getBoundingClientRect():null;bar.style.top=(hr?hr.top:0)+"px";bar.style.height=(hr&&hr.height>=36?hr.height:44)+"px";bar.style.left=cr.left+"px";bar.style.width=cr.width+"px"};'
+  + 'var column=function(){var sc=scroller();return document.querySelector("main.sand-chat")||(sc&&sc.closest&&sc.closest(".ui-scroll-area"))||sc};'
+  + 'var colLeft=function(){var col=column();return col?col.getBoundingClientRect().left:0};'
+  // While selecting, the transcript gets a gutter as wide as the checkbox plus the bubbles'
+  // usual edge gap, so the distance from checkbox to bubble is the distance the bubble had
+  // from the edge. A margin on the scroller, so rows React positions inside it (absolutely, by
+// transform) move with it.
+  + 'var GUTTER=42;var gutter=function(on){var sc=scroller();if(!sc)return;if(on){if(sc.__sandPad==null)sc.__sandPad=sc.style.marginLeft||"";sc.style.marginLeft=GUTTER+"px"}else if(sc.__sandPad!=null){sc.style.marginLeft=sc.__sandPad;sc.__sandPad=null}};'
+  + 'var placeBar=function(){var sc=scroller();if(!sc)return;var col=column();var cr=col.getBoundingClientRect();var hd=document.querySelector("header.sand-toolbar");var hr=hd?hd.getBoundingClientRect():null;bar.style.top=(hr?hr.top:0)+"px";bar.style.height=(hr&&hr.height>=36?hr.height:44)+"px";bar.style.left=cr.left+"px";bar.style.width=cr.width+"px"};'
   + 'var lastSig="";var sig=function(){var l=loadedIds();var n=0;l.forEach(function(i){if(st.ids.has(i))n++});return l.length+":"+n+":"+st.ids.size};'
-  + 'var raf=0;var paint=function(){raf=0;if(!st.on){layer.hidden=true;return}if(st.agent&&agentIdNow()&&agentIdNow()!==st.agent){api.exit();return}var s=sig();if(s!==lastSig){lastSig=s;renderBar()}layer.hidden=false;layer.textContent="";placeBar();var sc=scroller();if(!sc)return;var vr=sc.getBoundingClientRect();var barBottom=bar.getBoundingClientRect().bottom;rows().forEach(function(row){var ids=idsOf(row);var r=row.getBoundingClientRect();if(r.bottom<Math.max(vr.top,barBottom)||r.top>vr.bottom||r.height<8)return;var on=ids.every(function(i){return st.ids.has(i)});if(on){var t=document.createElement("div");t.className="sand-sel-tint";t.style.left=(vr.left+4)+"px";t.style.top=r.top+"px";t.style.width=(vr.width-8)+"px";t.style.height=r.height+"px";layer.appendChild(t)}var c=document.createElement("div");c.className="sand-sel-box"+(on?" on":"");var bt=r.top+(r.height<=64?Math.max(4,r.height/2-9):14);if(bt<barBottom+4)bt=barBottom+4;if(bt>r.bottom-18)return;c.style.left=(vr.left+3)+"px";c.style.top=bt+"px";layer.appendChild(c)})};'
+  + 'var raf=0;var paint=function(){raf=0;if(!st.on){layer.hidden=true;return}if(st.agent&&agentIdNow()&&agentIdNow()!==st.agent){api.exit();return}var s=sig();if(s!==lastSig){lastSig=s;renderBar()}layer.hidden=false;layer.textContent="";placeBar();gutter(true);var sc=scroller();if(!sc)return;var vr=sc.getBoundingClientRect();var barBottom=bar.getBoundingClientRect().bottom;rows().forEach(function(row){var ids=idsOf(row);var r=row.getBoundingClientRect();if(r.bottom<Math.max(vr.top,barBottom)||r.top>vr.bottom||r.height<8)return;var on=ids.every(function(i){return st.ids.has(i)});var c=document.createElement("div");c.className="sand-sel-box"+(on?" on":"");var bt=r.top+(r.height<=64?Math.max(4,r.height/2-9):14);if(bt<barBottom+4)bt=barBottom+4;if(bt>r.bottom-18)return;c.style.left=(colLeft()+12)+"px";c.style.top=bt+"px";layer.appendChild(c)})};'
   + 'var queue=function(){raf||(raf=requestAnimationFrame(paint))};'
   + 'var iconButton=function(name,label,fn,cls){var b=document.createElement("button");b.type="button";b.innerHTML=ICON[name];b.setAttribute("aria-label",label);b.title=label;cls&&b.classList.add(cls);b.addEventListener("click",function(ev){ev.stopPropagation();fn()});bar.appendChild(b);return b};'
   + 'var textButton=function(label,fn,cls){var b=document.createElement("button");b.type="button";b.className="sand-sel-text"+(cls?" "+cls:"");b.textContent=label;b.addEventListener("click",function(ev){ev.stopPropagation();fn()});bar.appendChild(b);return b};'
@@ -116,7 +128,7 @@ export const SELECT_MODE_HELPER =
   + 'var iv=0;var mo=new MutationObserver(queue);'
   + 'var api={active:function(){return st.on},count:function(){return st.ids.size},ids:function(){return Array.from(st.ids)},idsOf:idsOf,entryIdOf:entryIdOf,'
   + 'enter:function(seed){if(st.on)return;st.on=true;st.ids=new Set();st.anchor=null;st.agent=agentIdNow()||null;if(seed!=null&&String(seed).length>0)st.ids.add(String(seed));var sc=scroller();sc&&mo.observe(sc,{childList:true,subtree:true,attributes:true,attributeFilter:["style"]});iv=setInterval(queue,300);document.addEventListener("click",onClick,true);document.addEventListener("keydown",onKey,true);document.addEventListener("scroll",queue,true);window.addEventListener("resize",queue);renderBar();queue()},'
-  + 'exit:function(){if(!st.on)return;st.on=false;st.ids.clear();st.agent=null;lastSig="";mo.disconnect();clearInterval(iv);document.removeEventListener("click",onClick,true);document.removeEventListener("keydown",onKey,true);document.removeEventListener("scroll",queue,true);window.removeEventListener("resize",queue);bar.hidden=true;layer.hidden=true;layer.textContent=""},'
+  + 'exit:function(){if(!st.on)return;st.on=false;st.ids.clear();st.agent=null;lastSig="";gutter(false);mo.disconnect();clearInterval(iv);document.removeEventListener("click",onClick,true);document.removeEventListener("keydown",onKey,true);document.removeEventListener("scroll",queue,true);window.removeEventListener("resize",queue);bar.hidden=true;layer.hidden=true;layer.textContent=""},'
   + 'toggle:function(id){st.ids.has(id)?st.ids.delete(id):st.ids.add(id);renderBar();queue()},'
   + 'paint:paint,'
   + 'selectAll:function(){loadedIds().forEach(function(i){st.ids.add(i)});renderBar();queue()},'
