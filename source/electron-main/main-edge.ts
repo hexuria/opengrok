@@ -778,6 +778,30 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : { id: agentId, model };
       return cloneableRecord({ ...row, pinned: true, ...(typeof probed.served === "string" ? { served: probed.served } : {}) });
     },
+    /**
+     * What a coworker has spent on its own gateway key, as the server meters it.
+     *
+     * The server's answer is passed through whole (`metered`, `note`, `keyPrefix`, `seat`,
+     * `limits`, `windows`); the pane words it. A route with no OpenGrok server has no meter and
+     * says so with `available: false`; a server that cannot be asked returns its sentence rather
+     * than a raw handler failure, as the Model block does.
+     */
+    getCoworkerSpend: async (raw) => {
+      const agentId = req(raw).agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "getCoworkerSpend needs an agent id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return cloneableRecord({ available: false });
+      try {
+        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const spend = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: `/coworkers/${encodeURIComponent(agentId)}/spend`,
+        });
+        return cloneableRecord({ available: true, spend: typeof spend === "object" && spend != null ? spend : {} });
+      } catch (error) {
+        return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
     getAgentAutoReview: async (raw) => {
       const agentId = req(raw).agentId;
       invariant(typeof agentId === "string" && agentId.length > 0, "getAgentAutoReview needs an agent id.");
