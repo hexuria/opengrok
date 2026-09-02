@@ -46,24 +46,27 @@ export const AGENT_MODEL_HELPER = ';(()=>{try{'
   + '    err.textContent="";'
   + '    current=typeof r.model==="string"&&r.model.length>0?r.model:"oag/auto";'
   + '    var models=Array.isArray(r.models)?r.models.slice():[];'
-  // Automatic is always offered, whatever the catalogue lists: it is the route a coworker runs
-  // on when nothing is pinned, and without it a pinned coworker could never be handed back.
-  + '    if(models.indexOf("oag/auto")===-1)models.unshift("oag/auto");'
+  // Only what the gateway advertises, plus whatever this coworker is on. There is no "no pin"
+  // to offer: a coworker always has a model, and `oag/auto` is an ordinary route id that is
+  // refused wherever no credential matches it — offering it as "automatic" would pin coworkers
+  // to a route that refuses every turn.
   + '    if(models.indexOf(current)===-1)models.unshift(current);'
   + '    if(models.length<=1&&r.note){'
   + '      typed.hidden=!1;pick.hidden=!0;typed.value=current;'
   + '      note.textContent=String(r.note);'
   + '    }else{'
   + '      typed.hidden=!0;pick.hidden=!1;pick.textContent="";'
-  + '      models.forEach(function(id){var o=document.createElement("option");o.value=id;o.textContent=id==="oag/auto"?"Automatic (oag/auto)":id;if(id===current)o.selected=!0;pick.appendChild(o)});'
-  + '      note.textContent=(current==="oag/auto"?"Choosing its own model.":"Pinned to "+current+".")+" "+(models.length-1)+" other"+(models.length===2?"":"s")+" available.";'
+  + '      models.forEach(function(id){var o=document.createElement("option");o.value=id;o.textContent=id;if(id===current)o.selected=!0;pick.appendChild(o)});'
+  + '      note.textContent="Running on "+current+". "+(models.length-1)+" other"+(models.length===2?"":"s")+" the gateway advertises.";'
   + '    }'
   + '    refreshSave();'
   + '  }).catch(function(e){err.textContent=String(e&&e.message||e)})};'
   + '  save.addEventListener("click",function(){'
   + '    var next=chosen();if(next.length===0||next===current)return;'
-  + '    err.textContent="";save.disabled=!0;note.textContent="Repinning\\u2026";'
-  + '    a.setAgentModel(agentId,next).then(function(){load()}).catch(function(e){err.textContent=String(e&&e.message||e);load()});'
+  + '    err.textContent="";save.disabled=!0;note.textContent="Checking that the gateway serves it\\u2026";'
+  // The server proves the pin with a real completion before saving it, so a refusal arrives
+  // here in the gateway's own words instead of as a coworker that answers nothing.
+  + '    a.setAgentModel(agentId,next).then(function(r){if(r&&r.pinned===!1){err.textContent="Not pinned: "+(r.detail||"the gateway would not serve it")}load()}).catch(function(e){err.textContent=String(e&&e.message||e);load()});'
   + '  });'
   + '  load();'
   + '};'

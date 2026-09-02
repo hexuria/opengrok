@@ -727,6 +727,15 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
       }
     },
+    /**
+     * Repins a coworker, but only to a model the gateway will actually serve.
+     *
+     * The catalogue is what the gateway ADVERTISES, which is not the same as what it can serve on
+     * this account's credentials — `oag/auto` is advertised everywhere and refused wherever no
+     * credential matches that route. A pin that refuses every turn looks exactly like a broken
+     * coworker, so the server's probe (a real, rate-limited completion) proves the pin first and
+     * the gateway's own words come back when it will not serve.
+     */
     setAgentModel: async (raw) => {
       const r = req(raw);
       const agentId = r.agentId;
@@ -735,13 +744,39 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       invariant(typeof model === "string" && model.length > 0, "setAgentModel needs a model.");
       const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
       invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "This route has no OpenGrok server.");
+      const secrets = openGrokAccountSecrets(deps, gatewayUrl);
       const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-      const answer = await callOpenGrokAccountApi(openGrokAccountSecrets(deps, gatewayUrl), OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+      // A probe is a real completion, so the server rate-limits it. That is a "try again", not
+      // a broken pin, and it must not reach the pane as a raw handler failure.
+      let probe: unknown;
+      try {
+        probe = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: "/models/probe",
+          method: "POST",
+          body: { model },
+        });
+      } catch (error) {
+        const message = String(error instanceof Error ? error.message : error);
+        return cloneableRecord({
+          pinned: false,
+          model,
+          detail: message.includes("429")
+            ? "the server is limiting model checks just now; try again in a moment"
+            : `the model could not be checked (${message})`,
+        });
+      }
+      const probed = typeof probe === "object" && probe != null ? probe as UnknownRecord : {};
+      if (probed.ok !== true) {
+        const detail = typeof probed.detail === "string" && probed.detail.length > 0 ? probed.detail : "the gateway would not serve it";
+        return cloneableRecord({ pinned: false, model, detail });
+      }
+      const answer = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
         path: `/coworkers/${encodeURIComponent(agentId)}`,
         method: "PATCH",
         body: { model },
       });
-      return cloneableRecord(typeof answer === "object" && answer != null ? answer as UnknownRecord : { id: agentId, model });
+      const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : { id: agentId, model };
+      return cloneableRecord({ ...row, pinned: true, ...(typeof probed.served === "string" ? { served: probed.served } : {}) });
     },
     getAgentAutoReview: async (raw) => {
       const agentId = req(raw).agentId;
