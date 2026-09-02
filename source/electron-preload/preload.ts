@@ -7,6 +7,10 @@ import {
 } from "./coordinator-port-bridge.js";
 import { MAIN_RPC_CONTRACT_NAME, MAIN_RPC_METHOD_TABLE } from "./main-rpc-runtime.js";
 import { bridgeRpcEdge } from "./rpc-edge-runtime.js";
+import { COORDINATOR_SERVER_READS_FAMILY } from "../shared/rpc/coordinator-port.js";
+
+/** The last "reads live or stale" state and who wants to hear the next one; shared by the bridge and the port listener. */
+const serverReads: { current: unknown; readonly listeners: Set<(payload: unknown) => void> } = { current: undefined, listeners: new Set() };
 
 export interface PreloadIpcRenderer {
   invoke(channel: string, payload?: unknown): Promise<any>;
@@ -319,6 +323,13 @@ export function createDesktopPreloadBridge(options: {
       addRemoteControlRule: (kind: string, pattern: string) => edge("addRemoteControlRule", { kind, pattern }),
       deleteRemoteControlRule: (kind: string, pattern: string) => edge("deleteRemoteControlRule", { kind, pattern }),
       getAgentAutoReview: (agentId: string) => edge("getAgentAutoReview", { agentId }),
+      // Whether the roster and transcripts being shown are live or the last good answers from
+      // before the server stopped answering. Replays the current state on subscribe.
+      onServerReads: (listener: (payload: unknown) => void) => {
+        serverReads.listeners.add(listener);
+        if (serverReads.current !== undefined) { try { listener(serverReads.current); } catch { /* the page's problem */ } }
+        return () => { serverReads.listeners.delete(listener); };
+      },
       setAgentAutoReview: (agentId: string, policy: { enabled: boolean | null; allowInstructions: string[] | null; blockInstructions: string[] | null }) => edge("setAgentAutoReview", { agentId, ...policy }),
       deleteAgentAutoReview: (agentId: string) => edge("deleteAgentAutoReview", { agentId }),
       getLocalComputer: () => edge("getLocalComputer"),
@@ -380,7 +391,23 @@ export function installPrimaryPreload(options: {
   options.contextBridge.exposeInMainWorld("coordinatorPort", broker.bridge);
   options.ipc.on("sand:coordinator-port", (event: { readonly ports: readonly any[] }) => {
     const port = event.ports[0];
-    if (port != null) broker.deliver(wrapTransferredCoordinatorPort(port));
+    if (port == null) return;
+    const wrapped = wrapTransferredCoordinatorPort(port);
+    // A new port is a new coordinator, whose reads state is unknown until it says: a "stale"
+    // from the one before must not be replayed to the next subscriber.
+    serverReads.current = undefined;
+    // The page cannot wrap the port itself (the bridge object is frozen), and the pinned renderer
+    // has no handler for this family. A second listener on the same port costs the page nothing
+    // and lets the preload hand the state to whoever asks through desktop.agent.onServerReads.
+    wrapped.addEventListener("message", (message) => {
+      const frame = (message as { readonly data?: unknown }).data;
+      if (typeof frame !== "object" || frame == null) return;
+      const { kind, family, payload } = frame as { kind?: unknown; family?: unknown; payload?: unknown };
+      if (kind !== "event" || family !== COORDINATOR_SERVER_READS_FAMILY) return;
+      serverReads.current = payload;
+      for (const listener of serverReads.listeners) { try { listener(payload); } catch { /* the page's problem */ } }
+    });
+    broker.deliver(wrapped);
   });
   return { desktop, coordinatorPort: broker.bridge };
 }

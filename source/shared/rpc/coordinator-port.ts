@@ -107,6 +107,8 @@ export function parseCoordinatorBootstrap(value: unknown): CoordinatorBootstrapP
 }
 
 export const COORDINATOR_TRANSPORT_STATE_FAMILY = "coordinator-transport-state";
+/** "Are reads live or stale": the coordinator's read cache speaks on it. Never the transport state, which gates sends. */
+export const COORDINATOR_SERVER_READS_FAMILY = "coordinator-server-reads";
 export const COORDINATOR_CONTROL_CHANNEL = "coordinator-control";
 export const COORDINATOR_MAIN_DATA_CHANNEL = "coordinator-main-data";
 

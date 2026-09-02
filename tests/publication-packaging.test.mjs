@@ -217,6 +217,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   // The login wall may only be bypassed when there is no backend to sign in to.
   // An OpenGrok server is one, so every gate must consult the same rule.
   assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
+  // The banner for a server that cannot be read rides with the main chrome, from its own module.
+  assert.match(rendererPatch, /\$\{MAIN_CHROME_SOURCE\}\\n\$\{SERVER_READS_BANNER_HELPER\}/);
   // The login page's provider chooser replaces the old skip button.
   assert.match(rendererPatch, /const LOGIN_PROVIDER_HELPER =/);
   assert.match(rendererPatch, /sand-lp-back/);
