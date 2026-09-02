@@ -73,3 +73,22 @@ jobs:
 
       - name: Typecheck frontend and source, run the test suite
         run: npm run check
+      # `npm ci` above already refuses a lockfile that has drifted, but only for what the lock
+      # DOES carry: a manifest change that adds a dependency is caught, a lock regenerated
+      # against a partial tree that quietly drops a transitive entry is not, until the next
+      # clean install. Ask npm to reconcile the two directly (2 Sep 2026: @floating-ui/dom and
+      # eight siblings went missing that way, and a CI outage hid it for hours).
+      - name: The lockfile agrees with the manifest
+        run: npm ls --all --package-lock-only >/dev/null
+      # Checks and tests never package, so a dependency that breaks the build passes here and
+      # fails on whoever packages next (2 Sep 2026: undici 8 against the pinned runtime version
+      # the Electron main bundle keeps external). Package on macOS, where the runtime is
+      # recoverable; the bootstrap step above is best-effort, so skip when it did not land.
+      - name: Package the app
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d ".cache/runtime/Grok Bot.app" ] && [ -d "src/app/dist" ]; then
+            npm run package
+          else
+            echo "no pinned runtime or upstream app on this runner; packaging skipped"
+          fi
