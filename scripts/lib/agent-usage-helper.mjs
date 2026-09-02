@@ -35,11 +35,11 @@ export const AGENT_USAGE_HELPER = ';(()=>{try{'
   + 'var labelOf={"5h":"Last 5 hours","7d":"Last 7 days","month":"This month"};'
   // One window as words. Subscription: requests and the counterfactual; API: money against the
   // limit; either way an empty window says so instead of showing zeros.
-  + 'var figure=function(w,seat){var used=num(w.usedUsd),limit=num(w.limitUsd),cf=num(w.counterfactualUsd);var reqs=typeof w.requests==="number"?w.requests:null;'
+  + 'var figure=function(w,seat,spent){var used=num(w.usedUsd),limit=num(w.limitUsd),cf=num(w.counterfactualUsd);var reqs=typeof w.requests==="number"?w.requests:null;'
   + '  var sub=seat==="subscription"||(seat!=="api"&&(used===null||used===0)&&cf!==null&&cf>0);'
   // A window that will "free" something has spend in it, whatever the figures say: an older
   // server sends neither count nor counterfactual, and then the honest line is the zero itself.
-  + '  var empty=w.freesAt&&w.window!=="month"&&reqs===null?"$0.00 spent":"nothing yet";'
+  + '  var empty=(w.freesAt&&w.window!=="month"||spent)&&reqs===null?"$0.00 spent":"nothing yet";'
   + '  if(sub){if(reqs===0||(reqs===null&&!(cf>0)))return empty;var s=reqs===null?"":plural(reqs,"request");if(cf!==null&&cf>0)s+=(s?" \\u00b7 ":"")+usd(cf)+" on API";return s||empty}'
   + '  if((used===null||used===0)&&(reqs===null||reqs===0))return limit!==null?empty+" \\u00b7 limit "+usd(limit):empty;'
   + '  var t=usd(used||0)+(limit!==null?" of "+usd(limit):" \\u00b7 no limit");if(reqs!==null)t+=" \\u00b7 "+plural(reqs,"request");return t};'
@@ -48,7 +48,10 @@ export const AGENT_USAGE_HELPER = ';(()=>{try{'
   + '  var s=r.spend||{};var seat=s.seat==="subscription"||s.seat==="api"?s.seat:null;'
   + '  if(s.metered===false){out.note="Not metered"+(s.note?": "+String(s.note):".")}'
   + '  else{out.note=(seat==="subscription"?"Subscription seat":seat==="api"?"API key":"Metered")+(s.keyPrefix?" \\u00b7 key "+String(s.keyPrefix)+"\\u2026":"")}'
-  + '  var ws=Array.isArray(s.windows)?s.windows:[];for(var i=0;i<ws.length;i++){var w=ws[i]||{};out.rows.push({label:labelOf[w.window]||String(w.window||""),figure:figure(w,seat),when:when(w,now)})}'
+  // The month always has a reset date, so it cannot tell on its own; spend in a shorter window
+  // is spend in the month.
+  + '  var ws=Array.isArray(s.windows)?s.windows:[];var spent=false;for(var i=0;i<ws.length;i++){var v=ws[i]||{};if(v.window!=="month"&&v.freesAt)spent=true}'
+  + '  for(var i=0;i<ws.length;i++){var w=ws[i]||{};out.rows.push({label:labelOf[w.window]||String(w.window||""),figure:figure(w,seat,w.window==="month"&&spent),when:when(w,now)})}'
   + '  return out};'
   + 'var mount=function(pane){'
   + '  var agentId=currentAgent();if(!agentId)return;'

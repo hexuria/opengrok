@@ -71,6 +71,14 @@ test("without the server's seat hint, zero cost beside a real counterfactual rea
   assert.equal(api.figure(win("5h", { freesAt: "2026-09-03T03:29:11Z", requests: 0 }), null), "nothing yet", "a count of zero is the server's word over the clock");
 });
 
+test("on an older server the month cannot tell on its own: spend in a shorter window is spend in the month", () => {
+  const { api } = fakePage();
+  const d = api.describe({ available: true, spend: { metered: true, windows: [win("5h", { freesAt: "2026-09-03T03:29:11Z" }), win("month", { freesAt: "2026-10-01T00:00:00Z" })] } }, NOW);
+  assert.deepEqual(d.rows.map((r) => r.figure), ["$0.00 spent", "$0.00 spent"]);
+  const e = api.describe({ available: true, spend: { metered: true, windows: [win("5h"), win("month", { freesAt: "2026-10-01T00:00:00Z" })] } }, NOW);
+  assert.deepEqual(e.rows.map((r) => r.figure), ["nothing yet", "nothing yet"]);
+});
+
 test("a coworker that is not metered says why, in the server's words", () => {
   const { api } = fakePage();
   const d = api.describe({ available: true, spend: { metered: false, note: "the deployment's key carried this turn", windows: [] } });
