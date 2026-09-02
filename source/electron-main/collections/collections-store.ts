@@ -78,6 +78,39 @@ export interface CollectionSummary {
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
   readonly count: number;
+  /** One bucket, the sidebar's section heading; absent means ungrouped. */
+  readonly group?: string;
+  /** Any number of labels, matched by the filter; absent means none. */
+  readonly tags?: readonly string[];
+}
+
+/** A group is one word or phrase, a tag likewise; both are trimmed, collapsed and capped. */
+export const COLLECTION_LABEL_MAX_CHARS = 40;
+export const COLLECTION_TAGS_MAX = 20;
+
+export function normalizeCollectionLabel(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, COLLECTION_LABEL_MAX_CHARS) : "";
+}
+
+export function normalizeCollectionTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    const tag = normalizeCollectionLabel(raw);
+    if (tag.length === 0) continue;
+    const key = tag.toLocaleLowerCase();
+    if (!seen.has(key)) seen.add(key);
+    if (seen.size >= COLLECTION_TAGS_MAX) break;
+  }
+  // The first spelling of a tag wins, so "Math" and "math" are one label, shown as first typed.
+  const spellings = new Map<string, string>();
+  for (const raw of value) {
+    const tag = normalizeCollectionLabel(raw);
+    if (tag.length === 0) continue;
+    const key = tag.toLocaleLowerCase();
+    if (seen.has(key) && !spellings.has(key)) spellings.set(key, tag);
+  }
+  return [...seen].map((key) => spellings.get(key) ?? key);
 }
 
 export interface CollectionsIndex {
@@ -107,6 +140,8 @@ export interface CollectionDocument {
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
   readonly messages: readonly CollectionMessage[];
+  readonly group?: string;
+  readonly tags?: readonly string[];
 }
 
 export interface CollectionMessageInput {
@@ -229,12 +264,28 @@ function parseDocument(value: unknown, fallbackId: string): CollectionDocument |
     createdAtMs: finiteNumber(value.createdAtMs, 0),
     updatedAtMs: finiteNumber(value.updatedAtMs, 0),
     messages,
+    ...metaOf(value),
   };
+}
+
+/** Group and tags, read from anything: a collection saved before them simply has neither. */
+function metaOf(value: Record<string, unknown>): { group?: string; tags?: readonly string[] } {
+  const group = normalizeCollectionLabel(value.group);
+  const tags = normalizeCollectionTags(value.tags);
+  return { ...(group.length > 0 ? { group } : {}), ...(tags.length > 0 ? { tags } : {}) };
 }
 
 
 function summaryOf(document: CollectionDocument): CollectionSummary {
-  return { id: document.id, name: document.name, createdAtMs: document.createdAtMs, updatedAtMs: document.updatedAtMs, count: document.messages.length };
+  return {
+    id: document.id,
+    name: document.name,
+    createdAtMs: document.createdAtMs,
+    updatedAtMs: document.updatedAtMs,
+    count: document.messages.length,
+    ...(document.group == null ? {} : { group: document.group }),
+    ...(document.tags == null ? {} : { tags: document.tags }),
+  };
 }
 
 /** Most-recently-touched first; no collection outranks another. */
@@ -283,6 +334,7 @@ export class SandCollectionsStore {
         createdAtMs: finiteNumber(entry.createdAtMs, 0),
         updatedAtMs: finiteNumber(entry.updatedAtMs, 0),
         count: Math.max(0, Math.trunc(finiteNumber(entry.count, 0))),
+        ...metaOf(entry),
       });
     }
     return collections;
@@ -369,6 +421,28 @@ export class SandCollectionsStore {
       const next: CollectionDocument = { ...document, updatedAtMs: added > 0 ? nowMs : document.updatedAtMs, messages };
       await this.#persist(next);
       return { collectionId: next.id, name: next.name, added, duplicates, dropped };
+    });
+  }
+
+  /** Sets a collection's group and tags; either omitted is left as it was, either empty clears it. */
+  setCollectionMeta(collectionId: string, meta: { readonly group?: string | null; readonly tags?: readonly string[] | null }): Promise<CollectionSummary> {
+    return this.#run(async () => {
+      if (!isCollectionId(collectionId)) throw new CollectionsError("Unknown collection.");
+      const document = await this.#readDocument(collectionId);
+      if (document == null) throw new CollectionsError("Unknown collection.");
+      const group = meta.group === undefined ? document.group ?? "" : normalizeCollectionLabel(meta.group ?? "");
+      const tags = meta.tags === undefined ? document.tags ?? [] : normalizeCollectionTags(meta.tags ?? []);
+      // Cleared means absent, not present-and-empty: the document should read as it did before
+      // anyone gave it a group, so a rebuilt index cannot tell the difference.
+      const { group: _oldGroup, tags: _oldTags, ...rest } = document;
+      const next: CollectionDocument = {
+        ...rest,
+        updatedAtMs: this.#now(),
+        ...(group.length > 0 ? { group } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
+      };
+      await this.#persist(next);
+      return summaryOf(next);
     });
   }
 

@@ -211,3 +211,69 @@ body {
   padding: 5px 9px;
 }
 .sand-col-title-field[hidden] { display: none; }
+
+/* One field that turns what you type into chips, above the thread. */
+.sand-col-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--sand-col-border);
+}
+.sand-col-chips { display: contents; }
+.sand-col-chip-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--sand-col-border);
+  background: var(--sand-col-hover);
+  font: 500 12px system-ui, -apple-system, sans-serif;
+}
+.sand-col-chip-token button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  font: 500 13px system-ui, sans-serif;
+  opacity: .7;
+}
+.sand-col-chip-token button:hover { opacity: 1; }
+.sand-col-filter-input {
+  flex: 1;
+  min-width: 160px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 400 13px system-ui, -apple-system, sans-serif;
+  padding: 4px 2px;
+  outline: none;
+}
+.sand-col-filter-count { font: 500 12px system-ui, sans-serif; opacity: .55; }
+/* A collection's own group and tags, editable in place. */
+.sand-col-meta { display: flex; gap: 8px; padding: 6px 16px 10px; border-bottom: 1px solid var(--sand-col-border); }
+.sand-col-meta[hidden] { display: none; }
+.sand-col-meta-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: 400 12.5px system-ui, -apple-system, sans-serif;
+  padding: 4px 8px;
+}
+.sand-col-meta-input:hover { border-color: var(--sand-col-border); }
+.sand-col-meta-input:focus { border-color: var(--sand-col-border); background: var(--sand-col-hover); outline: none; }
+/* Sidebar sections, one per group. */
+.sand-col-section-head {
+  padding: 12px 10px 4px;
+  font: 600 10.5px system-ui, -apple-system, sans-serif;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .5;
+}
+.sand-col-empty-list { padding: 14px 12px; font-size: 12.5px; opacity: .55; }

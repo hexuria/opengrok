@@ -19,6 +19,12 @@
   var titleEl = document.getElementById("sand-col-title");
   var statusEl = document.getElementById("sand-col-status");
   var titleField = document.getElementById("sand-col-title-field");
+  var chipsEl = document.getElementById("sand-col-chips");
+  var filterInput = document.getElementById("sand-col-filter-input");
+  var filterCountEl = document.getElementById("sand-col-filter-count");
+  var metaEl = document.getElementById("sand-col-meta");
+  var groupInput = document.getElementById("sand-col-group");
+  var tagsInput = document.getElementById("sand-col-tags");
   var copyButton = document.getElementById("sand-col-copy");
   var exportButton = document.getElementById("sand-col-export");
   var exportMenu = document.getElementById("sand-col-export-menu");
@@ -38,7 +44,7 @@
   importButton.innerHTML = ICON.importIn;
   deleteButton.innerHTML = ICON.trash;
 
-  var state = { collections: [], selectedId: null, document: null };
+  var state = { collections: [], selectedId: null, document: null, filter: [] };
   var statusTimer = 0;
 
   var style = document.createElement("style");
@@ -71,24 +77,72 @@
     return error && error.message ? String(error.message).replace(/^Error invoking remote method '[^']*':\s*/, "") : String(error);
   }
 
+  function visibleCollections() {
+    var live = state.filter.concat(render.parseCollectionFilter(filterInput.value || ""));
+    return render.filterCollections(state.collections, live);
+  }
+
+  function renderChips() {
+    chipsEl.textContent = "";
+    state.filter.forEach(function (token, index) {
+      var chip = document.createElement("span");
+      chip.className = "sand-col-chip-token";
+      var label = document.createElement("span");
+      label.textContent = (token.kind === "tag" ? "#" : token.kind === "group" ? "@" : "") + token.value;
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "\u00d7";
+      remove.setAttribute("aria-label", "Remove filter " + label.textContent);
+      remove.addEventListener("click", function () {
+        state.filter = state.filter.filter(function (_item, at) { return at !== index; });
+        paint();
+        filterInput.focus();
+      });
+      chip.appendChild(label);
+      chip.appendChild(remove);
+      chipsEl.appendChild(chip);
+    });
+  }
+
   function renderSidebar() {
     listEl.textContent = "";
-    state.collections.forEach(function (collection) {
-      var row = document.createElement("button");
-      row.type = "button";
-      row.className = "sand-col-row";
-      row.setAttribute("data-collection-id", collection.id);
-      if (collection.id === state.selectedId) row.setAttribute("aria-current", "true");
-      var name = document.createElement("span");
-      name.className = "sand-col-row-name";
-      name.textContent = collection.name;
-      var count = document.createElement("span");
-      count.className = "sand-col-row-count";
-      count.textContent = String(collection.count || 0);
-      row.appendChild(name);
-      row.appendChild(count);
-      row.addEventListener("click", function () { void select(collection.id); });
-      listEl.appendChild(row);
+    var shown = visibleCollections();
+    filterCountEl.textContent = state.filter.length === 0
+      ? ""
+      : shown.length + " of " + state.collections.length + " shown";
+    if (shown.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "sand-col-empty-list";
+      empty.textContent = state.collections.length === 0 ? "No collections yet." : "Nothing matches this filter.";
+      listEl.appendChild(empty);
+      return;
+    }
+    // One section per group, named groups first, then whatever has none.
+    render.groupCollections(shown).forEach(function (section) {
+      var multiple = render.groupCollections(shown).length > 1;
+      if (multiple) {
+        var head = document.createElement("div");
+        head.className = "sand-col-section-head";
+        head.textContent = section.heading;
+        listEl.appendChild(head);
+      }
+      section.collections.forEach(function (collection) {
+        var row = document.createElement("button");
+        row.type = "button";
+        row.className = "sand-col-row";
+        row.setAttribute("data-collection-id", collection.id);
+        if (collection.id === state.selectedId) row.setAttribute("aria-current", "true");
+        var name = document.createElement("span");
+        name.className = "sand-col-row-name";
+        name.textContent = collection.name;
+        var count = document.createElement("span");
+        count.className = "sand-col-row-count";
+        count.textContent = String(collection.count || 0);
+        row.appendChild(name);
+        row.appendChild(count);
+        row.addEventListener("click", function () { void select(collection.id); });
+        listEl.appendChild(row);
+      });
     });
   }
 
@@ -96,7 +150,7 @@
     var doc = state.document;
     if (!doc) { threadEl.textContent = ""; return; }
     if (!doc.messages.length) {
-      threadEl.innerHTML = "<p class=\"sand-col-empty\">Nothing here yet. Select messages in a chat and choose Share to Collection or Bookmark.</p>";
+      threadEl.innerHTML = "<p class=\"sand-col-empty\">Nothing here yet. Select messages in a chat and save them to a collection.</p>";
       return;
     }
     threadEl.innerHTML = render.renderCollectionMessages(doc.messages, {
@@ -116,9 +170,15 @@
     copyButton.disabled = !hasSelection;
     exportButton.disabled = !hasSelection;
     deleteButton.disabled = !hasSelection;
+    metaEl.hidden = !hasSelection;
+    if (hasSelection && document.activeElement !== groupInput && document.activeElement !== tagsInput) {
+      groupInput.value = doc.group || "";
+      tagsInput.value = (doc.tags || []).join(" ");
+    }
   }
 
   function paint() {
+    renderChips();
     renderSidebar();
     renderHeader();
     renderThread();
@@ -176,6 +236,60 @@
       bridge.openOriginal(message.agentId, message.entryId).catch(function (error) { setStatus(failureText(error)); });
       return;
     }
+  });
+
+  // The filter field: Enter commits what is typed as chips, Backspace on an empty field takes
+  // the last one back, Escape clears everything. Typing filters as you go without committing,
+  // so the list narrows while you look.
+  filterInput.addEventListener("input", function () { paint(); });
+  filterInput.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      var tokens = render.parseCollectionFilter(filterInput.value);
+      if (tokens.length === 0) return;
+      state.filter = state.filter.concat(tokens);
+      filterInput.value = "";
+      paint();
+      return;
+    }
+    if (event.key === "Backspace" && filterInput.value.length === 0 && state.filter.length > 0) {
+      event.preventDefault();
+      state.filter = state.filter.slice(0, -1);
+      paint();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      filterInput.value = "";
+      state.filter = [];
+      paint();
+    }
+  });
+
+  // A collection's own group and tags, saved when the field is left or Enter is pressed.
+  function saveMeta() {
+    if (!state.selectedId || !state.document) return;
+    var group = groupInput.value.trim();
+    var tags = tagsInput.value.split(/[\s,]+/).map(function (tag) { return tag.replace(/^#/, "").trim(); }).filter(Boolean);
+    var sameTags = (state.document.tags || []).join(" ") === tags.join(" ");
+    if (group === (state.document.group || "") && sameTags) return;
+    bridge.setMeta(state.selectedId, { group: group, tags: tags }).then(function (result) {
+      if (result && result.collections) state.collections = result.collections;
+      return reloadSelected();
+    }).catch(function (error) { setStatus(failureText(error)); });
+  }
+
+  [groupInput, tagsInput].forEach(function (field) {
+    field.addEventListener("blur", saveMeta);
+    field.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") { event.preventDefault(); field.blur(); }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        groupInput.value = (state.document && state.document.group) || "";
+        tagsInput.value = ((state.document && state.document.tags) || []).join(" ");
+        field.blur();
+      }
+    });
   });
 
   // The name is a heading; a double-click turns it into a field. Enter renames, Escape puts

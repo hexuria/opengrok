@@ -1,6 +1,10 @@
 import katex from "katex";
 import MarkdownIt from "markdown-it";
 
+// The window's filter bar and its sidebar sections come from here too, so one bundle and one
+// set of tests cover everything the page needs.
+export * from "./collection-filter.js";
+
 /**
  * Pure HTML rendering for saved collection messages.
  *

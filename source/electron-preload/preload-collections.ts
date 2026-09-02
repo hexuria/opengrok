@@ -11,6 +11,7 @@ export const COLLECTIONS_PRELOAD_CHANNELS = {
   list: "sand:collections-list",
   get: "sand:collections-get",
   rename: "sand:collections-rename",
+  setMeta: "sand:collections-set-meta",
   delete: "sand:collections-delete",
   removeMessages: "sand:collections-remove-messages",
   addMessages: "sand:collections-add-messages",
@@ -33,6 +34,7 @@ export interface CollectionsPreloadBridge {
   list(): Promise<unknown>;
   get(collectionId: string): Promise<unknown>;
   rename(collectionId: string, name: string): Promise<unknown>;
+  setMeta(collectionId: string, meta: { readonly group?: string | null; readonly tags?: readonly string[] | null }): Promise<unknown>;
   deleteCollection(collectionId: string): Promise<unknown>;
   removeMessages(collectionId: string, keys: readonly string[]): Promise<unknown>;
   addMessages(request: unknown): Promise<unknown>;
@@ -49,6 +51,7 @@ export function createCollectionsPreloadBridge(ipc: CollectionsPreloadIpc): Coll
     list: () => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.list, {}),
     get: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.get, { collectionId }),
     rename: (collectionId, name) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.rename, { collectionId, name }),
+    setMeta: (collectionId, meta) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.setMeta, { collectionId, ...meta }),
     deleteCollection: (collectionId) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.delete, { collectionId }),
     removeMessages: (collectionId, keys) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.removeMessages, { collectionId, keys: [...keys] }),
     addMessages: (request) => ipc.invoke(COLLECTIONS_PRELOAD_CHANNELS.addMessages, request),

@@ -39,6 +39,15 @@
         <button type="button" id="sand-col-delete" class="sand-col-icon sand-col-danger" aria-label="Delete collection" title="Delete collection"></button>
       </div>
     </header>
+    <div class="sand-col-filter" role="search">
+      <div id="sand-col-chips" class="sand-col-chips"></div>
+      <input id="sand-col-filter-input" class="sand-col-filter-input" type="text" placeholder="Filter: #tag, @group, or a name" aria-label="Filter collections by tag, group or name" autocomplete="off">
+      <span id="sand-col-filter-count" class="sand-col-filter-count"></span>
+    </div>
+    <div id="sand-col-meta" class="sand-col-meta" hidden>
+      <input id="sand-col-group" class="sand-col-meta-input" type="text" placeholder="No group" aria-label="Group" autocomplete="off">
+      <input id="sand-col-tags" class="sand-col-meta-input" type="text" placeholder="No tags" aria-label="Tags, separated by spaces" autocomplete="off">
+    </div>
     <div id="sand-col-status" class="sand-col-status" role="status" hidden></div>
     <section id="sand-col-thread" class="sand-col-thread"></section>
   </main>

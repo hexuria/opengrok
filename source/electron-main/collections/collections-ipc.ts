@@ -47,6 +47,7 @@ export const COLLECTIONS_CHANNELS = {
   list: "sand:collections-list",
   get: "sand:collections-get",
   rename: "sand:collections-rename",
+  setMeta: "sand:collections-set-meta",
   delete: "sand:collections-delete",
   removeMessages: "sand:collections-remove-messages",
   addMessages: "sand:collections-add-messages",
@@ -271,6 +272,15 @@ export function registerCollectionsIpc(deps: CollectionsIpcDeps): { dispose(): v
   deps.ipcMain.handle(COLLECTIONS_CHANNELS.rename, async (event, request) => {
     guard(event);
     return deps.store.renameCollection(stringField(request, "collectionId"), stringField(request, "name"));
+  });
+  deps.ipcMain.handle(COLLECTIONS_CHANNELS.setMeta, async (event, request) => {
+    guard(event);
+    const record = isRecord(request) ? request : {};
+    const summary = await deps.store.setCollectionMeta(stringField(request, "collectionId"), {
+      ...("group" in record ? { group: typeof record.group === "string" ? record.group : null } : {}),
+      ...("tags" in record ? { tags: Array.isArray(record.tags) ? stringList(record.tags) : null } : {}),
+    });
+    return { collection: summary, collections: await deps.store.listCollections() };
   });
   deps.ipcMain.handle(COLLECTIONS_CHANNELS.delete, async (event, request) => {
     guard(event);
