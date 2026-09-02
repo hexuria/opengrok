@@ -37,8 +37,11 @@ export const AGENT_USAGE_HELPER = ';(()=>{try{'
   // limit; either way an empty window says so instead of showing zeros.
   + 'var figure=function(w,seat){var used=num(w.usedUsd),limit=num(w.limitUsd),cf=num(w.counterfactualUsd);var reqs=typeof w.requests==="number"?w.requests:null;'
   + '  var sub=seat==="subscription"||(seat!=="api"&&(used===null||used===0)&&cf!==null&&cf>0);'
-  + '  if(sub){if(reqs===0||(reqs===null&&!(cf>0)))return "nothing yet";var s=reqs===null?"":plural(reqs,"request");if(cf!==null&&cf>0)s+=(s?" \\u00b7 ":"")+usd(cf)+" on API";return s||"nothing yet"}'
-  + '  if((used===null||used===0)&&(reqs===null||reqs===0))return limit!==null?"nothing yet \\u00b7 limit "+usd(limit):"nothing yet";'
+  // A window that will "free" something has spend in it, whatever the figures say: an older
+  // server sends neither count nor counterfactual, and then the honest line is the zero itself.
+  + '  var empty=w.freesAt&&w.window!=="month"&&reqs===null?"$0.00 spent":"nothing yet";'
+  + '  if(sub){if(reqs===0||(reqs===null&&!(cf>0)))return empty;var s=reqs===null?"":plural(reqs,"request");if(cf!==null&&cf>0)s+=(s?" \\u00b7 ":"")+usd(cf)+" on API";return s||empty}'
+  + '  if((used===null||used===0)&&(reqs===null||reqs===0))return limit!==null?empty+" \\u00b7 limit "+usd(limit):empty;'
   + '  var t=usd(used||0)+(limit!==null?" of "+usd(limit):" \\u00b7 no limit");if(reqs!==null)t+=" \\u00b7 "+plural(reqs,"request");return t};'
   + 'var describe=function(r,now){now=now||Date.now();var out={rows:[],note:"",hidden:false};if(!r||r.available===false){out.hidden=true;return out}'
   + '  if(r.error){out.error="The server could not be asked. "+String(r.error);return out}'

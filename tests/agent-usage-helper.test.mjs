@@ -66,6 +66,9 @@ test("without the server's seat hint, zero cost beside a real counterfactual rea
   assert.equal(api.figure(win("5h", { counterfactualUsd: "0.30", requests: 4 }), null), "4 requests · $0.30 on API");
   assert.equal(api.figure(win("5h", { usedUsd: "0.25", requests: 4 }), null), "$0.25 · no limit · 4 requests");
   assert.equal(api.figure(win("5h"), null), "nothing yet", "an older server sends neither field");
+  assert.equal(api.figure(win("5h", { freesAt: "2026-09-03T03:29:11Z" }), null), "$0.00 spent", "but a window that frees something has spend in it, priced at zero");
+  assert.equal(api.figure(win("month", { freesAt: "2026-10-01T00:00:00Z", limitUsd: "5" }), "api"), "nothing yet · limit $5.00", "the month always has a reset date; that is not spend");
+  assert.equal(api.figure(win("5h", { freesAt: "2026-09-03T03:29:11Z", requests: 0 }), null), "nothing yet", "a count of zero is the server's word over the clock");
 });
 
 test("a coworker that is not metered says why, in the server's words", () => {
