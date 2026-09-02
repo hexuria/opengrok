@@ -116,7 +116,7 @@
     "minimatch": "10.2.6",
     "pdfjs-dist": "6.3.289",
     "piscina": "4.9.0",
-    "re2js": "1.2.2",
+    "re2js": "2.8.6",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "rxjs": "8.0.0-alpha.14",
