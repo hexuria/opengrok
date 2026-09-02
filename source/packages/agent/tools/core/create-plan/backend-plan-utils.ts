@@ -38,7 +38,8 @@ export const planFrontmatterSchema = z.object({
   phases: z.array(z.unknown()).optional(),
 }).passthrough();
 
-const planFrontmatterStringifyOptions: Parameters<typeof yaml.safeDump>[1] = {
+// js-yaml 4 renamed safeDump to dump: the unsafe dump is gone, and what is left is the safe one.
+const planFrontmatterStringifyOptions: Parameters<typeof yaml.dump>[1] = {
   indent: 2,
   lineWidth: -1,
 };
@@ -47,7 +48,7 @@ export function stringifyPlanFrontmatter(
   content: string,
   data: Record<string, unknown>,
 ): string {
-  const frontmatter = yaml.safeDump(data, planFrontmatterStringifyOptions).trim();
+  const frontmatter = yaml.dump(data, planFrontmatterStringifyOptions).trim();
   const normalizedContent = content.endsWith("\n") ? content : `${content}\n`;
   if (frontmatter === "{}") return normalizedContent;
   return `---\n${frontmatter}\n---\n${normalizedContent}`;
