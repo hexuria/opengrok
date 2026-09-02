@@ -179,17 +179,23 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
     if (event.channel === "agents" && readCache != null && readCache.cachedRosterCount() > 0 && rosterFrameClaimsEmpty(event.payload)) {
       // The stream opens with a "complete roster" the server did not check; with its database
       // down that is an empty one, and the page would install it over the roster it shows. Let
-      // it through only once a live read agrees the roster really is empty.
+      // it through only once a live read agrees the roster really is empty, and only if no
+      // roster frame overtook it meanwhile: the page's replica is ordered, an old frame after a
+      // newer one would erase the newer.
+      const heldBehind = rosterFramesRelayed;
       void readCache.revalidateRoster().then((rows) => {
-        if (rows != null && rows.length === 0) { relayGatewayEvent(event); return; }
-        process.stderr.write(`node-agent-coordinator: dropped an empty roster from the stream: ${rows == null ? "the server could not read its roster" : `a live read holds ${rows.length}`}\n`);
-      });
+        const why = rows == null ? "the server could not read its roster" : rows.length > 0 ? `a live read holds ${rows.length}` : rosterFramesRelayed !== heldBehind ? "a newer roster frame overtook it" : null;
+        if (why == null) { relayGatewayEvent(event); return; }
+        process.stderr.write(`node-agent-coordinator: dropped an empty roster from the stream: ${why}\n`);
+      }).catch((error) => { process.stderr.write(`node-agent-coordinator: empty roster check failed: ${String(error)}\n`); });
       return;
     }
     relayGatewayEvent(event);
   }
 
+  let rosterFramesRelayed = 0;
   function relayGatewayEvent(event: { channel: string; payload: unknown }): void {
+    if (event.channel === "agents" || event.channel === "agent-upserted") rosterFramesRelayed += 1;
     if (event.channel === "agents") controlClient.postEvent("agents-event", { kind: "agents", event: event.payload });
     if (event.channel === "agent-upserted") controlClient.postEvent("agents-event", { kind: "agent-upserted", event: event.payload });
     const family = coordinatorEventFamilyForSseChannel(event.channel);
@@ -390,6 +396,7 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
   function settleProcess(exitCode: number): void {
     if (exitSettled) return;
     exitSettled = true;
+    readCache?.flush();
     recorder.dispose();
     gatewayClient.close();
     toolRelay.clear();

@@ -79,3 +79,20 @@ test("without the bridge method the helper does nothing and throws nothing", () 
   assert.doesNotThrow(() => new Function("document", "window", "location", SERVER_READS_BANNER_HELPER)(document, { desktop: { agent: {} } }, {}));
   assert.doesNotThrow(() => new Function("document", "window", "location", SERVER_READS_BANNER_HELPER)(document, {}, {}));
 });
+
+test("the refresh after an outage is skipped for an account with nothing cached, and over a draft", () => {
+  for (const [name, cached, draftText] of [["nothing was cached", false, ""], ["a draft is being typed", true, "half a message"]]) {
+    const { document, body } = fakeDocument();
+    document.querySelector = (sel) => (sel === ".ProseMirror" ? { textContent: draftText } : null);
+    let subscriber = null;
+    const window = { desktop: { agent: { onServerReads: (fn) => { subscriber = fn; return () => {}; } } } };
+    const location = { reloaded: false, reload() { this.reloaded = true; } };
+    const timers = [];
+    new Function("document", "window", "location", "setTimeout", SERVER_READS_BANNER_HELPER)(document, window, location, (fn) => { timers.push(fn); });
+    subscriber({ state: "stale", since: 1, cached, message: "x" });
+    subscriber({ state: "live", since: null, cached: false, message: null });
+    for (const fn of timers) fn();
+    assert.equal(location.reloaded, false, `no refresh when ${name}`);
+    assert.equal(body.children.some((c) => c.className === "sand-server-reads"), false, "and the banner is gone");
+  }
+});

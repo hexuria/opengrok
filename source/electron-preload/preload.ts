@@ -393,6 +393,9 @@ export function installPrimaryPreload(options: {
     const port = event.ports[0];
     if (port == null) return;
     const wrapped = wrapTransferredCoordinatorPort(port);
+    // A new port is a new coordinator, whose reads state is unknown until it says: a "stale"
+    // from the one before must not be replayed to the next subscriber.
+    serverReads.current = undefined;
     // The page cannot wrap the port itself (the bridge object is frozen), and the pinned renderer
     // has no handler for this family. A second listener on the same port costs the page nothing
     // and lets the preload hand the state to whoever asks through desktop.agent.onServerReads.

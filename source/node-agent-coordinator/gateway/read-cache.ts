@@ -38,8 +38,10 @@ export const MAX_ENTRY_BYTES = 2_000_000;
 const SAVE_DEBOUNCE_MS = 500;
 /** A single failed read is not an outage: reads race the transport at boot and a restart drops one. The page is told only when failures persist this long. */
 export const STALE_GRACE_MS = 5_000;
-/** How long a live read may take before the last good answer is served in its place. The page gives up on a read well before the gateway's own timeout, so waiting for that timeout is the same as answering nothing. */
+/** How long a live read may take before the last good answer is served in its place, once a failure has been seen. The page gives up on a read well before the gateway's own timeout, so waiting for that timeout is the same as answering nothing. */
 export const SERVE_CACHED_AFTER_MS = 2_000;
+/** The same, while the server is believed healthy: long enough that a slow-but-working server is not shown one read behind, short of the gateway's 10 s pool timeout. */
+export const SERVE_CACHED_WHEN_HEALTHY_MS = 8_000;
 /** While reads are stale the roster is re-read this often, so the page hears "live" again without having asked for anything. */
 export const REVALIDATE_WHILE_STALE_MS = 5_000;
 
@@ -54,10 +56,23 @@ function keyFor(method: string, args: unknown): string | null {
   return null;
 }
 
-/** A failure that says the server did not answer, as opposed to a request that was wrong. */
+/** The code the gateway client gives a read the server did not answer: connection refused, timed out, or a 5xx such as its database pool timing out. */
+export const SERVER_DID_NOT_ANSWER = "gateway-unreachable";
+
+/**
+ * A failure that says the server did not answer, as opposed to a request that was wrong. A 4xx
+ * for one coworker (deleted, not shared with this key) or a malformed reply is that request's
+ * own problem: it goes back to the page as the failure it is and counts for nothing here.
+ */
 function serverCouldNotAnswer(outcome: CoordinatorReplyOutcome): outcome is { status: "failed"; failure: { code: string; message: string } } {
   if (outcome.status !== "failed") return false;
-  return outcome.failure.code !== COORDINATOR_UNKNOWN_METHOD && outcome.failure.code !== COORDINATOR_CANCELLED;
+  const code = outcome.failure.code;
+  if (code === COORDINATOR_UNKNOWN_METHOD || code === COORDINATOR_CANCELLED) return false;
+  return code === SERVER_DID_NOT_ANSWER;
+}
+
+function isEntry(value: unknown): value is Entry {
+  return typeof value === "object" && value != null && "value" in value && typeof (value as { at?: unknown }).at === "number";
 }
 
 /**
@@ -79,7 +94,8 @@ export function loadCacheFile(path: string): CacheFile {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<CacheFile>;
     if (parsed?.schemaVersion !== 1 || typeof parsed.tails !== "object" || parsed.tails == null) return { schemaVersion: 1, tails: {} };
-    return { schemaVersion: 1, ...(parsed.roster == null ? {} : { roster: parsed.roster }), tails: parsed.tails };
+    const tails = Object.fromEntries(Object.entries(parsed.tails).filter(([, entry]) => isEntry(entry)));
+    return { schemaVersion: 1, ...(isEntry(parsed.roster) ? { roster: parsed.roster } : {}), tails };
   } catch {
     return { schemaVersion: 1, tails: {} };
   }
@@ -88,7 +104,8 @@ export function loadCacheFile(path: string): CacheFile {
 function persist(path: string, file: CacheFile): void {
   mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
-  writeFileSync(temp, JSON.stringify(file));
+  // Transcripts are in here: owner-only, like the rest of the data dir should be.
+  writeFileSync(temp, JSON.stringify(file), { mode: 0o600 });
   renameSync(temp, path);
 }
 
@@ -107,8 +124,10 @@ export function createCachedReadDispatch(options: {
   readonly log?: (line: string) => void;
   /** Test seam: run the save now instead of after the debounce. */
   readonly saveImmediately?: boolean;
-  /** Test seam: how long a live read may take before the cache answers instead. */
+  /** Test seam: how long a live read may take before the cache answers instead, once a failure has been seen. */
   readonly serveCachedAfterMs?: number;
+  /** Test seam: the same while the server is believed healthy. */
+  readonly serveCachedWhenHealthyMs?: number;
   /** Test seam: how often the roster is re-read while stale. */
   readonly revalidateEveryMs?: number;
 }): ReadDispatch & {
@@ -121,8 +140,13 @@ export function createCachedReadDispatch(options: {
 } {
   const now = options.now ?? (() => Date.now());
   const log = options.log ?? (() => {});
-  let roster: Entry | undefined = loadCacheFile(options.cacheFile).roster;
-  const tails = new Map<string, Entry>(Object.entries(loadCacheFile(options.cacheFile).tails));
+  const loaded = loadCacheFile(options.cacheFile);
+  let roster: Entry | undefined = loaded.roster;
+  const tails = new Map<string, Entry>(Object.entries(loaded.tails));
+  // Reads are numbered as they start; an answer is remembered only if no later read of the same
+  // key has been remembered already, so two reads in flight cannot leave the older one on disk.
+  let readSeq = 0;
+  const rememberedSeq = new Map<string, number>();
   let status: ServerReadsPayload = { state: "live", since: null, cached: false, cachedAt: null, message: null };
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   // The first failure starts the clock; the page hears "stale" when a failure lands past the
@@ -148,7 +172,9 @@ export function createCachedReadDispatch(options: {
     saveTimer.unref?.();
   };
 
-  const remember = (key: string, value: unknown): void => {
+  const remember = (key: string, value: unknown, seq: number): void => {
+    if (seq < (rememberedSeq.get(key) ?? 0)) return;
+    rememberedSeq.set(key, seq);
     let bytes = 0;
     try { bytes = Buffer.byteLength(JSON.stringify(value)); } catch { return; }
     if (bytes > MAX_ENTRY_BYTES) return;
@@ -180,7 +206,7 @@ export function createCachedReadDispatch(options: {
     if (revalidateTimer != null) return;
     revalidateTimer = setTimeout(() => {
       revalidateTimer = null;
-      void revalidateRoster().then((rows) => { if (rows == null && status.state === "stale") revalidateLater(); });
+      void revalidateRoster().then((rows) => { if (rows == null && status.state === "stale") revalidateLater(); }).catch((error) => { log(`roster revalidation failed: ${String(error)}`); if (status.state === "stale") revalidateLater(); });
     }, revalidateEveryMs);
     revalidateTimer.unref?.();
   };
@@ -195,9 +221,9 @@ export function createCachedReadDispatch(options: {
 
   // The bookkeeping every live answer gets, whether the caller waited for it or was already
   // given the cache: remember it, and move the reads state.
-  const settle = (key: string, outcome: CoordinatorReplyOutcome): CoordinatorReplyOutcome => {
+  const settle = (key: string, seq: number, outcome: CoordinatorReplyOutcome): CoordinatorReplyOutcome => {
     if (outcome.status === "ok") {
-      remember(key, outcome.value);
+      remember(key, outcome.value, seq);
       clearGrace();
       const wasFailing = firstFailureAt != null;
       firstFailureAt = null;
@@ -226,24 +252,27 @@ export function createCachedReadDispatch(options: {
   };
 
   const revalidateRoster = async (): Promise<unknown[] | null> => {
+    const seq = ++readSeq;
     let outcome: CoordinatorReplyOutcome;
     try {
       outcome = await options.dispatch("listAgents", {});
     } catch (error) {
-      outcome = { status: "failed", failure: { code: "gateway-unreachable", message: String(error) } };
+      outcome = { status: "failed", failure: { code: SERVER_DID_NOT_ANSWER, message: String(error) } };
     }
-    settle("roster", outcome);
+    settle("roster", seq, outcome);
     return outcome.status === "ok" && Array.isArray(outcome.value) ? outcome.value : null;
   };
 
   const serveCachedAfterMs = options.serveCachedAfterMs ?? SERVE_CACHED_AFTER_MS;
+  const serveCachedWhenHealthyMs = options.serveCachedWhenHealthyMs ?? SERVE_CACHED_WHEN_HEALTHY_MS;
   const dispatch: ReadDispatch = async (method, args, signal) => {
     const key = keyFor(method, args);
     if (key == null) return options.dispatch(method, args, signal);
     const entry = recall(key);
+    const seq = ++readSeq;
     // The live read always runs and always settles, so the cache stays fresh and the state stays
     // true; what changes is whether the caller waits for it.
-    const live = options.dispatch(method, args, signal).then((outcome) => settle(key, outcome));
+    const live = options.dispatch(method, args, signal).then((outcome) => settle(key, seq, outcome));
     if (entry == null) return live;
     if (status.state === "stale") {
       // Reads are known to be failing: answer from the cache at once and revalidate behind it.
@@ -252,10 +281,12 @@ export function createCachedReadDispatch(options: {
     }
     // Reads are believed live: give the server a moment, then answer from the cache rather than
     // let the page time out. The live read carries on and, if it succeeds, refreshes the cache
-    // for the page's next read.
+    // for the page's next read. The moment is short once a failure has been seen and long while
+    // the server looks healthy, so a merely slow server is not shown one read behind.
+    const waitMs = firstFailureAt != null ? serveCachedAfterMs : serveCachedWhenHealthyMs;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const cachedSoon = new Promise<CoordinatorReplyOutcome>((resolve) => {
-      timer = setTimeout(() => resolve({ status: "ok", value: entry.value }), serveCachedAfterMs);
+      timer = setTimeout(() => resolve({ status: "ok", value: entry.value }), waitMs);
       timer.unref?.();
     });
     try {

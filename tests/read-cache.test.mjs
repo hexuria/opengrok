@@ -34,6 +34,7 @@ function harness(mod, dir, answers, clock = { t: 1_000 }, extra = {}) {
     now: () => clock.t,
     saveImmediately: true,
     serveCachedAfterMs: 15,
+    serveCachedWhenHealthyMs: 15,
     ...extra,
   });
   return { dispatch, posted, calls, transport };
@@ -281,6 +282,84 @@ test("a live roster check returns the rows, or null when the server could not an
     assert.deepEqual(await h.dispatch.revalidateRoster(), [], "an empty live roster is the truth: returned, and the reads are live");
     assert.equal(h.dispatch.current().state, "live");
     assert.equal(h.dispatch.cachedRosterCount(), 0, "and the cache now holds the empty roster");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A 4xx for one coworker, or a malformed reply, is that request's own problem: it goes back
+// as the failure it is, counts for nothing, and never puts the page into its offline mode.
+test("a request's own failure is passed through and does not count as an outage", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "read-cache-"));
+  try {
+    const mod = await loadModule(dir);
+    const clock = { t: 1_000 };
+    const gone = { status: "failed", failure: { code: "gateway-command-failed", message: "no such coworker" } };
+    const h = harness(mod, dir, [{ status: "ok", value: tail }, gone, gone], clock);
+    await h.dispatch("getAgentTranscriptTail", { id: "cw_1" });
+    clock.t = 5_000 + mod.STALE_GRACE_MS;
+    assert.deepEqual(await h.dispatch("getAgentTranscriptTail", { id: "cw_1" }), gone, "not the cache: the page hears the real error");
+    h.dispatch.graceElapsed();
+    assert.equal(h.dispatch.current().state, "live");
+    assert.deepEqual(h.transport, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Two reads of the same key in flight, the older one answering last, must not leave the older
+// answer in the cache.
+test("an older read that answers last does not overwrite a newer answer", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "read-cache-"));
+  try {
+    const mod = await loadModule(dir);
+    let releaseOld;
+    const old = new Promise((resolve) => { releaseOld = resolve; });
+    const h = harness(mod, dir, [() => old, { status: "ok", value: [{ id: "cw_9", name: "New" }] }], { t: 1_000 }, { serveCachedWhenHealthyMs: 10_000 });
+    const first = h.dispatch("listAgents", undefined);
+    await h.dispatch("listAgents", undefined);
+    assert.equal(h.dispatch.cachedRosterCount(), 1);
+    releaseOld({ status: "ok", value: roster });
+    assert.deepEqual(await first, { status: "ok", value: roster }, "the caller of the older read still gets its answer");
+    const file = JSON.parse(await readFile(path.join(dir, "read-cache.json"), "utf8"));
+    assert.deepEqual(file.roster.value, [{ id: "cw_9", name: "New" }], "but the cache keeps the newer one");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// While the server looks healthy a slow read is waited for, so a slow-but-working server is not
+// shown one read behind; once a failure has been seen the cache answers quickly.
+test("the cache answers quickly only once a failure has been seen", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "read-cache-"));
+  try {
+    const mod = await loadModule(dir);
+    const slow = (value, ms) => () => new Promise((resolve) => setTimeout(() => resolve(value), ms));
+    const h = harness(mod, dir, [{ status: "ok", value: roster }, slow({ status: "ok", value: [] }, 40), unreachable, slow({ status: "ok", value: [] }, 200)], { t: 1_000 }, { serveCachedAfterMs: 15, serveCachedWhenHealthyMs: 100 });
+    await h.dispatch("listAgents", undefined);
+    assert.deepEqual(await h.dispatch("listAgents", undefined), { status: "ok", value: [] }, "healthy: the slow live answer is waited for");
+    await h.dispatch("listAgents", undefined);
+    const started = Date.now();
+    assert.deepEqual(await h.dispatch("listAgents", undefined), { status: "ok", value: [] }, "failing: the cache (now the empty roster) answers");
+    assert.ok(Date.now() - started < 150, "well before the live read would have");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a damaged cache entry on disk is ignored, and the file is owner-only", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "read-cache-"));
+  try {
+    const mod = await loadModule(dir);
+    const { writeFile, stat } = await import("node:fs/promises");
+    await writeFile(path.join(dir, "read-cache.json"), JSON.stringify({ schemaVersion: 1, roster: { value: roster, at: 5 }, tails: { "tail:x": 5, "tail:y": { value: tail, at: 6 }, "tail:z": { at: 7 } } }));
+    const loaded = mod.loadCacheFile(path.join(dir, "read-cache.json"));
+    assert.deepEqual(Object.keys(loaded.tails), ["tail:y"]);
+    assert.equal(loaded.roster.at, 5);
+    const h = harness(mod, dir, [unreachable, { status: "ok", value: tail }], { t: 1_000 });
+    assert.deepEqual(await h.dispatch("getAgentTranscriptTail", { id: "x" }), unreachable, "nothing usable cached for x: the failure itself");
+    await h.dispatch("getAgentTranscriptTail", { id: "x" });
+    if (process.platform !== "win32") assert.equal((await stat(path.join(dir, "read-cache.json"))).mode & 0o777, 0o600, "rewritten owner-only");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
