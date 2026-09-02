@@ -30,13 +30,16 @@ function fakePage({ rows, collections = true, deleteResult } = {}) {
     addEventListener: (k, fn) => { docListeners[k] = fn; }, removeEventListener() {} };
   const calls = { add: [], del: [] };
   const desktop = { collections: collections ? { addMessages: (a) => { calls.add.push(a); return Promise.resolve({}); }, list: () => Promise.resolve({ collections: [{ id: "bookmarks", name: "Bookmarks", count: 2 }] }) } : undefined,
-    agent: { deleteTranscriptEntries: (a) => { calls.del.push(a); return Promise.resolve(deleteResult ?? { deleted: a.entryIds.length }); } } };
+    agent: { deleteTranscriptEntries: (a) => { calls.del.push(a); return deleteResult instanceof Error ? Promise.reject(deleteResult) : Promise.resolve(deleteResult ?? { deleted: a.entryIds.length }); } } };
   const window = { desktop, addEventListener() {}, removeEventListener() {} };
   const self = { __sandCurrentAgent: () => "cw_1", __sandDeleteAvailable: true };
-  const globals = { document, window, self, localStorage: { getItem: () => null, setItem() {} }, MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: () => 1, setInterval: () => 1, clearInterval() {}, setTimeout: (fn) => { fn(); return 1; } };
+  const stored = {};
+  // Deferred, as in the DOM: a result message must be readable before the bar restores itself.
+  const timers = [];
+  const globals = { document, window, self, localStorage: { getItem: (k) => stored[k] ?? null, setItem(k, v) { stored[k] = v; } }, MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: () => 1, setInterval: () => 1, clearInterval() {}, setTimeout: (fn) => { timers.push(fn); return timers.length; } };
   new Function(...Object.keys(globals), SELECT_MODE_HELPER)(...Object.values(globals));
   const bar = body.children.find((c) => c.className === "sand-sel-bar");
-  return { api: window.__sandSelect, bar, rowEls, calls, docListeners, self };
+  return { api: window.__sandSelect, bar, rowEls, calls, docListeners, self, stored, document, ask: desktop, timers };
 }
 const labelled = (id) => `sand-conversation-entry-${id}-author sand-conversation-entry-${id}-timestamp`;
 const buttons = (bar) => bar.children.filter((c) => c.tag === "button");
@@ -94,4 +97,70 @@ test("delete asks first, names the server when it will really delete, and sends 
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(calls.del, [{ agentId: "cw_1", entryIds: ["e_2"] }]);
   assert.equal(api.active(), false, "done: selection mode ends");
+});
+
+const clickDelete = (bar) => { buttons(bar).find((b) => label(b) === "Delete" || label(b) === "Hide on this device").listeners.click({ stopPropagation() {} }); buttons(bar).find((b) => b.textContent === "Delete" || b.textContent === "Hide").listeners.click({ stopPropagation() {} }); };
+const settle = () => new Promise((r) => setImmediate(r));
+
+test("a server count short of the selection is reported, not passed off as done; the rest stay selected", async () => {
+  const page = fakePage({ rows: [{ key: "e_1", label: labelled("e_1") }, { key: "e_2", label: labelled("e_2") }], deleteResult: { deleted: 1 } });
+  page.api.enter(); page.api.selectAll();
+  clickDelete(page.bar);
+  await settle();
+  assert.equal(count(page.bar), "Deleted 1 of 2; the rest are still selected.");
+  assert.equal(page.api.active(), true);
+});
+
+test("the local router's list is honoured; blocked ids are named and stay selected", async () => {
+  const page = fakePage({ rows: [{ key: "t1u", label: labelled("t1u") }, { key: "t2u", label: labelled("t2u") }], deleteResult: { deleted: ["t1u"], blocked: [{ id: "t2u", reason: "pending" }] } });
+  page.api.enter(); page.api.selectAll();
+  clickDelete(page.bar);
+  await settle();
+  assert.equal(count(page.bar), "1 deleted · 1 blocked (pending)");
+  assert.deepEqual(page.api.ids(), ["t2u"]);
+});
+
+test("a failure where the server can delete is a failure, not a device hide; only Cursor hides", async () => {
+  const server = fakePage({ rows: [{ key: "e_1", label: labelled("e_1") }], deleteResult: new Error("transcript unavailable") });
+  server.api.enter("e_1");
+  clickDelete(server.bar);
+  await settle();
+  assert.equal(count(server.bar), "Couldn’t delete: transcript unavailable.");
+  assert.equal(server.stored["sandTombstones.v1"], undefined, "nothing hidden on this device");
+  const cursor = fakePage({ rows: [{ key: "t1u", label: labelled("t1u") }], deleteResult: new Error("no such method") });
+  cursor.self.__sandDeleteAvailable = false;
+  cursor.api.enter("t1u");
+  assert.equal(label(buttons(cursor.bar)[3]), "Hide on this device");
+  clickDelete(cursor.bar);
+  await settle();
+  assert.match(JSON.parse(cursor.stored["sandTombstones.v1"]).cw_1.join(","), /t1u/, "hidden on this device, as the button said");
+});
+
+test("switching chats ends the selection instead of sending one chat's ids with another's agent", () => {
+  const page = fakePage({ rows: [{ key: "e_1", label: labelled("e_1") }] });
+  page.api.enter("e_1");
+  page.self.__sandCurrentAgent = () => "cw_2";
+  page.api.paint();
+  assert.equal(page.api.active(), false);
+});
+
+test("Escape inside the collection-name field, or with a menu open, is not the end of the selection", () => {
+  const page = fakePage({ rows: [{ key: "e_1", label: labelled("e_1") }] });
+  page.api.enter("e_1");
+  page.docListeners.keydown({ key: "Escape", target: { tagName: "INPUT" }, preventDefault() {}, stopPropagation() {} });
+  assert.equal(page.api.active(), true, "the field's own Escape handles it");
+  const plain = page.document.querySelector;
+  page.document.querySelector = (sel) => (sel.includes("[role=menu]") ? {} : plain(sel));
+  page.docListeners.keydown({ key: "Escape", target: { tagName: "DIV" }, preventDefault() {}, stopPropagation() {} });
+  assert.equal(page.api.active(), true, "a menu is open; Escape is its");
+  page.document.querySelector = plain;
+  page.docListeners.keydown({ key: "Escape", target: { tagName: "DIV" }, preventDefault() {}, stopPropagation() {} });
+  assert.equal(page.api.active(), false);
+});
+
+test("a suffixed row key is not an entry id", () => {
+  const { api } = fakePage({ rows: [] });
+  const el = (attrs) => ({ getAttribute: (k) => attrs[k] ?? null, classList: { contains: (c) => c === "sand-transcript-row" } });
+  assert.deepEqual(api.idsOf(el({ "data-row-key": "e_01a0:attachment-group" })), []);
+  assert.deepEqual(api.idsOf(el({ "data-row-key": "e_01a06178-67db-7711-9936-8be4a4324a60" })), ["e_01a06178-67db-7711-9936-8be4a4324a60"]);
 });
