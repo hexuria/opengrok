@@ -254,7 +254,11 @@ export function startElectronMain(deps: ElectronMainDependencies): ElectronMainR
   // storedPreference ?? platform default, like official 0.29. Must resolve
   // before app ready — Chromium's GPU decision is fixed at startup.
   let storedHardwareAcceleration: boolean | undefined;
-  try { storedHardwareAcceleration = new SandSettingsStore(join(getSandRootDir(), "settings.json")).getHardwareAccelerationEnabled(); } catch { /* first launch */ }
+  try {
+    const earlySettings = new SandSettingsStore(join(getSandRootDir(), "settings.json"));
+    storedHardwareAcceleration = earlySettings.getHardwareAccelerationEnabled();
+    earlySettings.getBoxRuntime(); // sets the product brand (Grok Bot / Open Grok) for every dialog that follows
+  } catch { /* first launch */ }
   const hardwareAccelerationEnabled = process.env.SAND_DISABLE_GPU !== "1" && (storedHardwareAcceleration ?? process.platform === "darwin");
   if (!hardwareAccelerationEnabled) {
     deps.app.disableHardwareAcceleration();

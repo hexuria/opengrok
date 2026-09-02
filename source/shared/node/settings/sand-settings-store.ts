@@ -12,6 +12,7 @@ import { coerceToEnabledTrack, isSandUpdateTrack, type SandUpdateTrack } from ".
 import { isSandAgentModelSelection, type SandAgentModelSelection } from "../../agents/sand-agent-model.js";
 import { emptySandInferenceRouterUsage, isSandInferenceProvider, parseOpenRouterModelId, type SandInferenceProvider, type SandInferenceRouterUsage } from "../../inference-router.js";
 import { DEFAULT_SAND_BOX_RUNTIME, isSandBoxRuntime, type SandBoxRuntime } from "../../box-runtime.js";
+import { setProductBrandForBoxRuntime } from "../../product-name.js";
 import {
   emptyProviderComputerMap,
   migrateBoxRuntimeIntoProviderComputers,
@@ -147,6 +148,12 @@ function parseSettings(value: unknown): SandStoredSettings | null {
 export class SandSettingsStore {
   constructor(readonly settingsPath: string) {}
   load(): SandStoredSettings {
+    const settings = this.loadStored();
+    // Every process reads its settings through here, so the product brand follows the sign-in for free.
+    setProductBrandForBoxRuntime(settings.boxRuntime ?? DEFAULT_SAND_BOX_RUNTIME);
+    return settings;
+  }
+  private loadStored(): SandStoredSettings {
     if (!existsSync(this.settingsPath)) return emptySettings();
     try { const parsed = parseSettings(JSON.parse(readFileSync(this.settingsPath, "utf8")) as unknown); return parsed == null ? emptySettings() : this.applyPendingMigrations(parsed); }
     catch { return emptySettings(); }
@@ -169,7 +176,7 @@ export class SandSettingsStore {
   getDesktopNotificationPreferences(): SandNotificationPreferences { return this.load().desktopNotificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES; }
   setDesktopNotificationPreferences(value: SandNotificationPreferences): void { this.update((s) => ({ ...s, desktopNotificationPreferences: normalizeNotificationPreferences(value) })); }
   getBoxRuntime(): SandBoxRuntime { return this.load().boxRuntime ?? DEFAULT_SAND_BOX_RUNTIME; }
-  setBoxRuntime(value: SandBoxRuntime): void { this.update((s) => ({ ...s, boxRuntime: value })); }
+  setBoxRuntime(value: SandBoxRuntime): void { this.update((s) => ({ ...s, boxRuntime: value })); setProductBrandForBoxRuntime(value); }
   getOpenGrokGatewayUrl(): string | undefined {
     const raw = this.load().openGrokGatewayUrl;
     const trimmed = typeof raw === "string" ? raw.trim() : "";

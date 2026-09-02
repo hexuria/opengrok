@@ -1,4 +1,5 @@
 import { isEffectivePluginInstalled } from "../../mcp.js";
+import { productDisplayName } from "../../product-name.js";
 import { mergeUnresolvedAccountServers } from "./account-display-cache.js";
 import { BUILTIN_MCP_SERVER_NAMES } from "./builtin-mcp.js";
 import { SandMcpAccountSlotLifecycle } from "./mcp-account-slot-lifecycle.js";
@@ -315,7 +316,7 @@ export class SandMcpManager {
     const validated = validateServerName(name);
     if (BUILTIN_MCP_SERVER_NAMES.has(validated))
       throw new SandMcpConfigError(
-        `MCP server name "${validated}" is reserved for a built-in Grok Bot server.`,
+        `MCP server name "${validated}" is reserved for a built-in ${productDisplayName()} server.`,
       );
     return validated;
   }

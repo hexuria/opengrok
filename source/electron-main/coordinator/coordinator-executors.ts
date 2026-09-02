@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { productDisplayName } from "../../shared/product-name.js";
 import { getLocalTelemetryLog } from "../telemetry/local-telemetry-log.js";
 import { withOpenGrokDaemonToken, type OpenGrokDaemonIdentity } from "../box/opengrok-daemon-descriptor.js";
 import { askpassDaemonEnvironment } from "../askpass/askpass-runtime.js";
@@ -264,7 +265,7 @@ function renderPrompt(origin: string, rpId: string): string {
 		document.getElementById(id).textContent = origin;
 	}
 	document.getElementById("detail").textContent =
-		"A browser in your Grok Bot box is asking to sign in to " + rpId +
+		"A browser in your ${productDisplayName()} box is asking to sign in to " + rpId +
 		" with the security key plugged into this computer. Approve only if you started this.";
 
 	const panels = ["prompt", "working", "pin-prompt"];

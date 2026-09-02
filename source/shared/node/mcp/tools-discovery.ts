@@ -1,4 +1,5 @@
 import type { JsonValue } from "@bufbuild/protobuf";
+import { productDisplayName } from "../../product-name.js";
 import { errorMessage } from "../../errors.js";
 import {
   formatMcpCustomInstructionToolNote,
@@ -418,7 +419,7 @@ export function createMcpToolsDiscovery(
         await ensureBoxServersPushed();
       } catch (error) {
         return resultFactory.error(
-          `Could not load MCP servers onto Grok Bot's computer: ${errorMessage(error)}`,
+          `Could not load MCP servers onto ${productDisplayName()}'s computer: ${errorMessage(error)}`,
         );
       }
       return boxMcpExec.executeTool(args);
