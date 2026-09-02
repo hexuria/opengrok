@@ -37,6 +37,14 @@ updates:
     ignore:
       - dependency-name: electron
         update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      # undici and ws are kept EXACTLY at the versions the recovered 0.18 runtime bundles:
+      # scripts/electron-main-production-activation.mjs refuses to build otherwise, because the
+      # Electron main bundle keeps them external and copies those exact packages. `npm run check`
+      # does not package, so a bump here passes CI and breaks the build (undici 8 did, 2 Sep 2026).
+      - dependency-name: undici
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: ws
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: "@bufbuild/protobuf"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@connectrpc/*"
