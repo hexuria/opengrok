@@ -266,25 +266,29 @@ The server emits a transcript entry when `user_machine_shell` suspends on Ask:
 
 ### Still open
 
-- "Always allow this command" — **not unconfirmed: unbuilt on the client.**
-  Checked 2 Sep 2026 by reading, not guessing. The server mints the rule
-  (`gateway/cards.rs:167 proposed_rule(tool, arguments)`) and puts it on the
-  card as `proposedRule`. Nothing consumes it: the shipped 0.30 renderer has
-  **zero** occurrences of the string in either patched chunk, so it is never
-  shown and never sent back; `resolveAutoReviewApproval` carries only
-  approved/declined; the coordinator's resolutions are
-  `allow-once|allow-session|deny|always|never`
-  (`routed-messages-tools.ts:187`), where "always" sets the machine's local
-  Execution permission rather than a per-command rule; and on the server
-  nothing writes `allow_instructions` on approval — that column is only ever
-  written by the client's whole-row `PUT /auto-review/policy`
-  (`main-edge.ts putAutoReviewPolicyRow`).
-  So the path exists at both ends and is joined by nothing. Building it is a
-  renderer patch (a new affordance in the pinned bundle, which is exact-string
-  patch work), a client-side append to the allow list, and the existing policy
-  PUT — plus a decision about scope: the rule the server proposes is
-  per-coworker, and the allow list has a global tier too. **Ask the operator
-  before starting; it is a feature, not a fix.**
+- "Always allow this command" — **built, and it works globally.** The gap is
+  the destination, not the wiring. Corrected 2 Sep 2026 after an earlier note
+  here got it wrong; the earlier note grepped only the two chunks the build
+  patches and concluded the feature did not exist.
+  The card is not in either patched chunk. It has its own lazily imported one,
+  `src/app/dist/renderer/assets/view-QqBtBG74.js` (5.8 KB), which the registry
+  chunk dynamic-imports by the `auto-review-approval/view.tsx` key. That chunk
+  holds the only occurrence of `proposedRule` in the whole renderer, and it
+  consumes it: one helper trims and redacts the rule, the "Always allow" button
+  appends it to the allow list, and the settled note reads "A rule always
+  allowing this was added to your Auto-review settings".
+  It reaches the judge. The append goes through `setAutoReviewInstructions`,
+  which persists locally, syncs to the box, and mirrors to the server with
+  `PUT /auto-review/policy` at **`scopeKind: "global"`**
+  (`main-edge.ts putOpenGrokAutoReviewPolicy(deps, "global", "", ...)`).
+  So the rule is real, it is stored, and the server honours it — for every
+  coworker, not just the one whose card it was. The allow list is capped at 20
+  rules of 1000 characters.
+  **What is actually left** is routing that append to the coworker instead: the
+  card already has the agent id in scope, and `setAgentAutoReview` already does
+  a whole-row coworker PUT. Doing it means patching a third chunk, which the
+  patch pipeline and the package verification both currently forbid — they
+  accept exactly the roles "registry" and "panel" and at most two chunks.
 - Passkey ceremony test (RP `opengrok.app`) — needs the user's go.
 - Per-bot desktops (one box, several displays — verdict in
   docs/per-bot-desktops-plan.md), parked next in line.
