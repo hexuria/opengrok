@@ -5,28 +5,45 @@ executable stays `Grok Bot` (Electron helper-name constraint) and the
 user-data dir is `~/Library/Application Support/OpenGrok` (migrated
 automatically from the pre-rebrand `Grok-0.27` / `OpenGrok-0.27` on first launch).
 
-## The repository is private, and why
+## The repository is public, and what that cost
 
-`hexuria/opengrok` is **private** (made so 30 Aug 2026). It carries material
-recovered from a shipped binary — most of all
-`source/packages/proto/generated/` (161 files), which are Anysphere's own
-protobuf message definitions, plus `frontend/` (the reconstruction),
-`manifests/`, `patches/`, `research-archives/` and the 0.27/0.29/0.30 disparity
-and gap docs. Publishing those is the rights risk; see `NOTICE.md` and
-`PROVENANCE.md`.
+`hexuria/opengrok` is **public** (made so 2 Sep 2026, after eight days private).
+Before it was flipped, its whole history was rewritten to remove the material
+recovered from a shipped binary: 576 files, most of all
+`source/packages/proto/generated/` (161 files of Anysphere's own protobuf
+message definitions) and `frontend/` (the reconstruction), plus `manifests/`,
+`patches/`, `research-archives/`, `PROVENANCE.md` and the 0.27/0.29/0.30
+disparity and gap docs. A fresh clone of the remote reports zero files ever at
+every one of those paths, and no secret anywhere in the history. `NOTICE.md`
+stays here; `PROVENANCE.md` lives in the archive now, not in this repository.
 
-**Do not flip this repository public**, and do not push any of the above to a
-public remote, without a rights review. A public-but-proto-free variant is not
-a shortcut: 361 source files import `proto/generated`, so a clone without it
-cannot typecheck, test or package. If a public face is ever wanted, the honest
-routes are a purpose-built showcase repo, or recovering the protos at setup
-time the way `npm run bootstrap` already recovers the pinned renderer.
+**None of that material is tracked here, and none of it may be committed back.**
+`.gitignore` excludes every one of those paths. What sits in your working tree
+is restored, not tracked, which is why a build works locally and a bare clone
+cannot typecheck, test or package: 369 source files import the generated trees
+(counted 2 Sep 2026).
 
-A second copy of the private material lives in the `.stow` archive, pushed to
-the private `hexuria/grok-bot-release-archive`. It is a backup, not the source
-of truth — this repository still tracks those files normally. Manage it with
-the `stow` CLI (`stow add`, `stow status`, `stow push`); `.stow/` is gitignored
-here.
+**Restoring it into a fresh checkout:**
+
+```sh
+git clone git@github.com:hexuria/opengrok-stow.git /tmp/stow   # private archive
+scripts/ci-restore-recovered.sh /tmp/stow
+```
+
+CI does exactly this, with a read-only deploy key in `STOW_DEPLOY_KEY` — which
+must exist in **both** the Actions and the Dependabot secret stores, because
+GitHub withholds Actions secrets from Dependabot-triggered runs and every
+Dependabot pull request otherwise fails at that step.
+
+A second copy lives in the `.stow` archive, pushed to the private
+`hexuria/grok-bot-release-archive`, managed with the `stow` CLI (`stow add`,
+`stow status`, `stow push`); `.stow/` is gitignored here. `opengrok-stow` is
+what the build pulls from; `grok-bot-release-archive` is the backup behind it.
+
+**The reconstruction itself is public now** — the renderer patch scripts, the
+ported code under `source/packages`, and the documentation describing how the
+app was rebuilt. The vendor bytes are gone; the technique is not. Weigh that
+before adding a document that walks through recovering someone else's binary.
 
 ## Driving and verifying the app: use CDP, not computer-use or browser-use
 
@@ -114,6 +131,15 @@ are exact-string patches in `scripts/lib/router-renderer-patch.mjs` applied to
 the pinned minified bundle at package time; pre-flight every new anchor string
 against `src/app/dist/renderer/assets/index-UbX-y3il.js` (must match exactly
 once).
+
+`src/app/` is the recovered 0.18 upstream app and is **read-only material**.
+The build stages a copy and patches the copy; nothing may write back into it.
+Never symlink it into another working tree either — on 2 Sep 2026 a package run
+in a worktree wrote its seams through such a symlink into the shared original,
+and since git does not track those files, nothing could restore them from
+history. They came back only because the checksum-verified asar was still in
+`.cache/runtime/`. If you package from a worktree, copy `src/app` and
+`.cache/runtime` into it, or package from the main checkout.
 
 ## Locked UI rules
 
