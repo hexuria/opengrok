@@ -13,6 +13,7 @@ import { noteOpenGrokServerStatus } from "./opengrok-server-status.js";
 import type { SandRemoteHostConnector } from "./box-host-connector.js";
 import { formatAccountComputerError, noteAccountComputerStatus } from "./account-computer-status.js";
 import { DOCKER_CLI_NOT_FOUND, DOCKER_DESKTOP_APP, classifyDockerUnavailable, dockerCliCandidates, dockerSearchPath } from "./docker-cli.js";
+import { brandText } from "../../shared/product-name.js";
 import type { GatewayConnection } from "./gateway-descriptor-cache.js";
 import { chooseLocalHostTarget } from "./local-host-target.js";
 import { dispatchComputerReset } from "./computer-reset-route.js";
@@ -105,7 +106,8 @@ async function startDockerDesktopOnce(): Promise<void> {
 /** Shapes a failed `docker info` into an actionable message, and starts the engine when it is merely down. */
 async function describeDockerUnavailable(output: string): Promise<string> {
   const hasDesktopApp = await isDirectory(DOCKER_DESKTOP_APP);
-  const { kind, message } = classifyDockerUnavailable(output, hasDesktopApp);
+  const { kind, message: officialMessage } = classifyDockerUnavailable(output, hasDesktopApp);
+  const message = brandText(officialMessage);
   if (kind === "engine-down") void startDockerDesktopOnce();
   return message;
 }

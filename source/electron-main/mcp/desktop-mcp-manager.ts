@@ -1,6 +1,7 @@
 import { DashboardService } from "../../packages/proto/generated/aiserver/v1/dashboard_connect.js";
 import { McpError, McpResult } from "../../packages/proto/generated/agent/v1/mcp_exec_pb.js";
 import { reportDesktopEdgeFailure } from "../desktop-edge-failures.js";
+import { productDisplayName } from "../../shared/product-name.js";
 import { createSandCursorBackendClient, getSandInferenceBackendUrl } from "../../shared/node/cursor-backend/cursor-inference.js";
 import {
   createAccountMcpWriter,
@@ -106,7 +107,7 @@ export async function createSandDesktopMcpManager(options: DesktopMcpManagerOpti
       executeTool: async (args: { readonly name: string }) => new McpResult({
         result: {
           case: "error",
-          value: new McpError({ error: `MCP tools run on Grok Bot's computer, not the desktop app (tool "${args.name}").` }),
+          value: new McpError({ error: `MCP tools run on ${productDisplayName()}'s computer, not the desktop app (tool "${args.name}").` }),
         },
       }),
     },
