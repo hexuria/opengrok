@@ -32,9 +32,12 @@ test("the OS trust store's roots are added to Node's defaults, once", async () =
     assert.equal(first.bundled, tls.getCACertificates("bundled").length);
     // Node de-duplicates roots the OS store shares with the bundle (most of them on Linux and
     // Windows), so the count is not a sum: assert containment instead.
-    const after = new Set(tls.getCACertificates("default"));
-    for (const pem of tls.getCACertificates("bundled")) assert.ok(after.has(pem), "every bundled root stays");
-    for (const pem of tls.getCACertificates("system")) assert.ok(after.has(pem), "every system root is trusted");
+    // Node de-duplicates roots the OS store shares with the bundle (most of them on Linux and
+    // Windows) and re-wraps the PEM text it hands back, so compare normalized bodies, not counts.
+    const body = (pem) => pem.replace(/\s+/g, "");
+    const after = new Set(tls.getCACertificates("default").map(body));
+    for (const pem of tls.getCACertificates("bundled")) assert.ok(after.has(body(pem)), "every bundled root stays");
+    for (const pem of tls.getCACertificates("system")) assert.ok(after.has(body(pem)), "every system root is trusted");
     if (first.system === 0) assert.equal(after.size, before, "no system roots: defaults untouched");
     // Idempotent: a second call reports the same and changes nothing.
     assert.deepEqual(loaded.trustSystemCertificateAuthorities({}), first);
