@@ -64,16 +64,40 @@ var CSS=".sand-lp-usage{margin:14px 0 0;padding:10px 14px;border:1px solid rgba(
 +"@media (max-width:767px){.sand-us-row{flex-direction:column;align-items:stretch}.sand-us-seg{display:flex}.sand-us-seg button{flex:1;padding:8px 6px}.sand-us-pick{margin-left:0;flex-direction:column;align-items:stretch;gap:4px}.sand-us-sheet select{width:100%;min-width:0}.sand-us-tools select{width:auto}}"
 +"@media (max-width:639px){.sand-us-scrim{padding:0}.sand-us-sheet{width:100%;height:100%;max-height:none;border-radius:0;border:0}.sand-us-top{padding:12px 16px 6px}.sand-us-body{padding:0 16px 24px}.sand-us-x{min-width:44px;min-height:44px}.sand-us-seg button{min-height:40px}.sand-us-table{display:none}.sand-us-cards{display:block}.sand-us-frame{height:calc(var(--rows,5) * 74px);max-height:50vh}.sand-us-frame.all{max-height:50vh}.sand-us-lim .f{flex-direction:column;align-items:stretch;gap:4px}.sand-us-lim .f label{width:auto}.sand-us-lim input{width:100%;box-sizing:border-box;min-height:40px}.sand-us-lim button{width:100%;min-height:40px}.sand-us-lim .eq{min-width:0}}";
 var styled=false;var style=function(){if(styled)return;styled=true;var t=document.createElement("style");t.setAttribute("data-sand-usage","1");t.textContent=CSS;(document.head||document.documentElement).appendChild(t)};
-var el=function(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e};
+var el=function(tag,cls,text,title){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;if(title)e.title=title;return e};
 var currentItem=function(){return document.querySelector('.sand-agent-item[aria-current="page"]')};
 var currentAgent=function(){var it=currentItem();return it?it.getAttribute("data-agent-id"):null};
 var currentName=function(){var it=currentItem();var t=it?(it.getAttribute("aria-label")||it.textContent||""):"";return String(t).replace(/\s+/g," ").trim().slice(0,60)};
 var num=function(s){if(s==null||s==="")return null;var n=Number(s);return isNaN(n)?null:n};
-var usd=function(n){return "$"+(n>0&&n<0.01?n.toFixed(4):n.toFixed(2))};
+// Money keeps its cents until a bill is big enough that the cents no longer matter: under a cent
+// four places (a subscription's displaced pennies are the whole point), under ten thousand dollars
+// the ordinary two, above that the same short form as the counts.
+var group=function(t){var i=t.split(".");i[0]=i[0].replace(/\B(?=(\d{3})+(?!\d))/g,",");return i.join(".")};
+var usd=function(n){n=Number(n)||0;var a=Math.abs(n);if(a>0&&a<0.01)return "$"+n.toFixed(4);
+  if(a<10000)return "$"+group(n.toFixed(2));
+  return "$"+short(n)};
+// The tooltip's figure is the server's own: six places while the cents still carry meaning.
+var usdExact=function(n){n=Number(n)||0;return "$"+group(n.toFixed(Math.abs(n)<10000?6:2))};
 var money=function(s){var n=num(s);return n===null?"—":usd(n)};
 var int=function(n){n=Math.round(Number(n)||0);return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,",")};
-var pts=function(n){return n==null?"—":int(n)};
-var plural=function(n,w){return int(n)+" "+w+(n===1?"":"s")};
+// A column is a few characters wide and a month of turns can run to billions of points, so a
+// figure of a thousand or more is written short: three significant digits, the largest unit that
+// leaves a whole part, trailing zeros dropped. 1,200 → 1.2k · 10,000 → 10k · 41,310 → 41.3k ·
+// 999,999 → 1m (the carry moves the unit) · 12,345,678 → 12.3m · 1,200,000,000 → 1.2b. The exact
+// figure is never lost: every short number carries it as the cell's title, and the phone's cards
+// print it in full because a finger cannot hover.
+var UNITS=[[1e12,"t"],[1e9,"b"],[1e6,"m"],[1e3,"k"]];
+var short=function(n){n=Number(n)||0;var sign=n<0?"-":"";n=Math.abs(n);
+  if(n<1000)return sign+int(n);
+  for(var i=0;i<UNITS.length;i++){var u=UNITS[i][0];if(n>=u){
+    var v=n/u;var d=v<10?2:v<100?1:0;var r=Number(v.toFixed(d));
+    // 999,999 rounds to 1000k: carry into the next unit rather than print four digits.
+    if(r>=1000&&i>0){u=UNITS[i-1][0];v=n/u;d=2;r=Number(v.toFixed(d));return sign+String(r)+UNITS[i-1][1]}
+    return sign+String(r)+UNITS[i][1]}}
+  return sign+int(n)};
+var pts=function(n){return n==null?"—":short(n)};
+var plural=function(n,w){return short(n)+" "+w+(n===1?"":"s")};
+var exact=function(n,w){return int(n)+(w?" "+w+(Math.round(Number(n)||0)===1?"":"s"):"")};
 var usdOfPoints=function(p,R){var r=num(R);if(p==null||r===null||r<=0)return "";return "≈ "+usd(p*r/1e6)};
 var spanOf=function(ms){var m=Math.round(ms/60000);if(m<1)return "under a minute";var h=Math.floor(m/60),d=Math.floor(h/24);if(d>=1)return d+"d "+(h%24)+"h";if(h>=1)return h+"h "+(m%60)+"m";return m+"m"};
 var resetDay=function(iso){var t=Date.parse(iso);return isNaN(t)?"":new Date(t).toLocaleDateString(undefined,{day:"numeric",month:"short"})};
@@ -105,7 +129,7 @@ var writeRows=function(v){try{localStorage.setItem(ROWS_KEY,v)}catch(_){}};
 var phone=function(){try{return !!(window.matchMedia&&window.matchMedia("(max-width:639px)").matches)}catch(_){return false}};
 // The pool sentence and the "nothing is set" line for the limits section.
 var limitsText=function(l,R){var out={pool:"",none:""};if(!l)return out;var pool=l.pool||{};
-  if(pool.max!=null){var eq=usdOfPoints(pool.max,R);var used=pool.used==null?"usage unknown until your admin sets a reference price":int(pool.used)+" of "+int(pool.max)+" used";out.pool="Your pool: "+(pool.used==null?int(pool.max)+" points, ":"")+used+(eq?" ("+eq+")":"")+(pool.setBy?", set by your "+String(pool.setBy):"")+(pool.resetsAt?", resets "+resetDay(pool.resetsAt):"")+"."}
+  if(pool.max!=null){var eq=usdOfPoints(pool.max,R);var used=pool.used==null?"usage unknown until your admin sets a reference price":short(pool.used)+" of "+short(pool.max)+" used";out.pool="Your pool: "+(pool.used==null?short(pool.max)+" points, ":"")+used+(eq?" ("+eq+")":"")+(pool.setBy?", set by your "+String(pool.setBy):"")+(pool.resetsAt?", resets "+resetDay(pool.resetsAt):"")+"."}
   else out.pool="No pool. Your admin has not set one.";
   if(l.cap==null&&l.dayCap==null&&pool.max==null)out.none="No limits. This coworker draws on nothing but the gateway's own budgets.";
   else if(l.cap==null&&l.dayCap==null)out.none="No cap on this coworker; it draws on your pool.";
@@ -113,7 +137,9 @@ var limitsText=function(l,R){var out={pool:"",none:""};if(!l)return out;var pool
 // effectiveCap is a ceiling on usedPoints, like cap: min(cap, pool.max − what the owner's other
 // coworkers used). The room this coworker still has is effectiveCap − usedPoints.
 var roomOf=function(l){var e=num(l&&l.effectiveCap),u=num(l&&l.usedPoints);return e===null||u===null?null:Math.max(0,e-u)};
-var capText=function(l,R){var room=roomOf(l);var left=room===null?"":" · "+int(room)+" left";if(l.cap==null)return "none = your pool"+left;var c=Number(l.cap);if(c===0)return "0 = nothing may run";var eq=usdOfPoints(c,R);var eff=l.effectiveCap!=null&&Number(l.effectiveCap)<c?" · effective "+int(l.effectiveCap):"";return (eq||int(c)+" points")+eff+left};
+var capText=function(l,R){var room=roomOf(l);var left=room===null?"":" · "+short(room)+" left";if(l.cap==null)return "none = your pool"+left;var c=Number(l.cap);if(c===0)return "0 = nothing may run";var eq=usdOfPoints(c,R);var eff=l.effectiveCap!=null&&Number(l.effectiveCap)<c?" · effective "+short(l.effectiveCap):"";return (eq||short(c)+" points")+eff+left};
+// What the short cap line says in full, for its tooltip.
+var capExact=function(l){var bits=[];if(l&&l.cap!=null)bits.push("cap "+exact(l.cap,"point"));if(l&&l.effectiveCap!=null&&(l.cap==null||Number(l.effectiveCap)<Number(l.cap)))bits.push("effective ceiling "+int(l.effectiveCap));if(l&&l.usedPoints!=null)bits.push(int(l.usedPoints)+" used");var room=roomOf(l);if(room!==null)bits.push(int(room)+" left");return bits.join(" · ")};
 var notServed=function(e){return /404|not found|no such route|unknown route|failed \(404\)/i.test(String(e||""))};
 var modal=null;var onKey=null;
 var close=function(){if(!modal)return;try{modal.el.remove()}catch(_){}if(onKey){document.removeEventListener("keydown",onKey);onKey=null}modal=null};
@@ -135,7 +161,7 @@ var open=function(agentId){agentId=agentId||currentAgent();var a=window.desktop&
   var cards=el("div","sand-us-cards");P.cards=cards;frame.append(tbl,cards);
   var note=el("p","sand-us-note","");P.note=note;var err=el("p","sand-us-err","");P.err=err;
   var lim=el("div","sand-us-lim");lim.appendChild(el("h5",null,"Limits"));
-  var mk=function(label,key){var f=el("div","f");var l=el("label",null,label);var i=el("input");i.type="text";i.inputMode="numeric";i.setAttribute("aria-label",label+" in points");i.placeholder="none";var eq=el("span","eq","");i.addEventListener("input",function(){var v=parse(i.value);eq.textContent=v===0?"0 = nothing may run":usdOfPoints(v,m.R)||(i.value.trim()?"":key==="cap"?"none = your pool":"none = off");refreshSave()});f.append(l,i,eq);lim.appendChild(f);P[key]=i;P[key+"Eq"]=eq};
+  var mk=function(label,key){var f=el("div","f");var l=el("label",null,label);var i=el("input");i.type="text";i.inputMode="numeric";i.setAttribute("aria-label",label+" in points");i.placeholder="none";var eq=el("span","eq","");i.addEventListener("input",function(){var v=parse(i.value);eq.textContent=v===0?"0 = nothing may run":usdOfPoints(v,m.R)||(i.value.trim()?"":key==="cap"?"none = your pool":"none = off");eq.title=v===v&&v!=null?exact(v,"point"):"";refreshSave()});f.append(l,i,eq);lim.appendChild(f);P[key]=i;P[key+"Eq"]=eq};
   mk("Monthly cap","cap");mk("Daily brake","dayCap");
   var foot=el("div","f");var save=el("button",null,"Save");save.type="button";save.disabled=true;var st=el("span","eq","");foot.append(save,st);lim.appendChild(foot);P.save=save;P.saveNote=st;
   var pool=el("p","sand-us-note","");P.pool=pool;lim.appendChild(pool);var limNote=el("p","sand-us-note","");P.limNote=limNote;lim.appendChild(limNote);P.lim=lim;
@@ -143,12 +169,16 @@ var open=function(agentId){agentId=agentId||currentAgent();var a=window.desktop&
   var refreshSave=function(){var c=parse(P.cap.value),d=parse(P.dayCap.value);var bad=(c!==c)||(d!==d);var same=m.limit&&(c===(m.limit.cap==null?null:Number(m.limit.cap)))&&(d===(m.limit.dayCap==null?null:Number(m.limit.dayCap)));save.disabled=bad||!!same||!m.limit;if(bad)st.textContent="whole points only";else if(st.textContent==="whole points only")st.textContent=""};
   save.addEventListener("click",function(){var c=parse(P.cap.value),d=parse(P.dayCap.value);if(c!==c||d!==d)return;save.disabled=true;st.textContent="Saving…";a.setCoworkerLimit(agentId,c,d).then(function(r){if(r&&r.saved===false){st.textContent="Not saved: "+String(r.error||"the server refused")}else{st.textContent="Saved"}loadLimit()}).catch(function(e){st.textContent="Not saved: "+String(e&&e.message||e)})});
   var paint=function(){tbody.textContent="";tfoot.textContent="";cards.textContent="";var u=m.usage;if(!u)return;var tt=table(u,m.filter);var t=tt.totals;
-    var tokens=function(a,b){return a==null&&b==null?"—":int(a||0)+" / "+int(b||0)};var shownOf=function(id){return window.__sandModels&&m.cat?window.__sandModels.shown(m.cat,id):""};
+    var tokens=function(a,b){return a==null&&b==null?"—":short(a||0)+" / "+short(b||0)};
+    var tokensExact=function(a,b){return a==null&&b==null?"":exact(a||0)+" in · "+exact(b||0)+" out"};
+    var tokensFull=function(a,b){return a==null&&b==null?"—":int(a||0)+" / "+int(b||0)};
+    var shownOf=function(id){return window.__sandModels&&m.cat?window.__sandModels.shown(m.cat,id):""};
     var label=m.filter==="all"?LABEL[m.window]:LABEL[m.window]+" · "+m.filter;
-    tt.rows.forEach(function(r){var tr=el("tr");tr.append(el("td",null,r.model+shownOf(r.model)),el("td","n",int(r.requests)),el("td","n",tokens(r.tokIn,r.tokOut)),el("td","n",r.list==null?"—":usd(r.list)),el("td","n",r.actual==null?"—":usd(r.actual)),el("td","n",pts(r.points)));tbody.appendChild(tr);
-      var c=el("div","sand-us-card");c.append(el("div","m",r.model+shownOf(r.model)),el("div","d",plural(r.requests,"request")+" · "+tokens(r.tokIn,r.tokOut)+" tokens"),el("div","d",(r.list==null?"—":usd(r.list))+" list · "+(r.actual==null?"—":usd(r.actual))+" actual · "+pts(r.points)+" points"));cards.appendChild(c)});
-    var tr=el("tr","t");tr.append(el("td",null,label),el("td","n",int(t.requests)),el("td","n",t.tokensKnown?tokens(t.tokIn,t.tokOut):"—"),el("td","n",usd(t.list)),el("td","n",usd(t.actual)),el("td","n",t.pointsKnown?pts(t.points):"—"));tfoot.appendChild(tr);
-    var tc=el("div","sand-us-card t");tc.append(el("div","m",label),el("div","d",plural(t.requests,"request")+" · "+(t.tokensKnown?tokens(t.tokIn,t.tokOut):"—")+" tokens"),el("div","d",usd(t.list)+" list · "+usd(t.actual)+" actual · "+(t.pointsKnown?pts(t.points):"—")+" points"));cards.appendChild(tc);
+    tt.rows.forEach(function(r){var tr=el("tr");tr.append(el("td",null,r.model+shownOf(r.model)),el("td","n",short(r.requests),exact(r.requests,"request")),el("td","n",tokens(r.tokIn,r.tokOut),tokensExact(r.tokIn,r.tokOut)),el("td","n",r.list==null?"—":usd(r.list),r.list==null?"":usdExact(r.list)+" at list price"),el("td","n",r.actual==null?"—":usd(r.actual),r.actual==null?"":usdExact(r.actual)+" actually spent"),el("td","n",pts(r.points),r.points==null?"":exact(r.points,"point")));tbody.appendChild(tr);
+      // A finger cannot hover, so the cards print every figure in full.
+      var c=el("div","sand-us-card");c.append(el("div","m",r.model+shownOf(r.model)),el("div","d",exact(r.requests,"request")+" · "+tokensFull(r.tokIn,r.tokOut)+" tokens"),el("div","d",(r.list==null?"—":usdExact(r.list))+" list · "+(r.actual==null?"—":usdExact(r.actual))+" actual · "+(r.points==null?"—":int(r.points))+" points"));cards.appendChild(c)});
+    var tr=el("tr","t");tr.append(el("td",null,label),el("td","n",short(t.requests),exact(t.requests,"request")),el("td","n",t.tokensKnown?tokens(t.tokIn,t.tokOut):"—",t.tokensKnown?tokensExact(t.tokIn,t.tokOut):""),el("td","n",usd(t.list),usdExact(t.list)+" at list price"),el("td","n",usd(t.actual),usdExact(t.actual)+" actually spent"),el("td","n",t.pointsKnown?pts(t.points):"—",t.pointsKnown?exact(t.points,"point"):""));tfoot.appendChild(tr);
+    var tc=el("div","sand-us-card t");tc.append(el("div","m",label),el("div","d",exact(t.requests,"request")+" · "+(t.tokensKnown?tokensFull(t.tokIn,t.tokOut):"—")+" tokens"),el("div","d",usdExact(t.list)+" list · "+usdExact(t.actual)+" actual · "+(t.pointsKnown?int(t.points):"—")+" points"));cards.appendChild(tc);
     // The server's own note survives an empty filter; "nothing" is said only while the frame is empty.
     note.textContent=tt.rows.length===0?"Nothing in this window.":(m.serverNote||"")};
   var fillFilter=function(ids){var keep=m.filter;sel.textContent="";var all=el("option",null,"All models");all.value="all";sel.appendChild(all);ids.forEach(function(id){var o=el("option",null,id+(window.__sandModels&&m.cat?window.__sandModels.shown(m.cat,id):""));o.value=id;if(window.__sandModels&&m.cat){var hv=window.__sandModels.hover(m.cat,id);if(hv)o.title=hv}sel.appendChild(o)});sel.value=ids.indexOf(keep)>=0?keep:"all";m.filter=sel.value};
@@ -167,8 +197,8 @@ var open=function(agentId){agentId=agentId||currentAgent();var a=window.desktop&
       if(r.error){m.limit=null;P.cap.disabled=true;P.dayCap.disabled=true;save.disabled=true;limNote.textContent=notServed(r.error)?"Limits are not served by this server yet.":"The server could not be asked. "+String(r.error);return}
       var l=r.limit||{};m.limit=l;m.R=l.reference&&l.reference.usdPerMtok;P.cap.disabled=false;P.dayCap.disabled=false;
       P.cap.value=l.cap==null?"":int(l.cap);P.capEq.textContent=capText(l,m.R);
-      P.dayCap.value=l.dayCap==null?"":int(l.dayCap);P.dayCapEq.textContent=l.dayCap==null?"none = off":usdOfPoints(Number(l.dayCap),m.R)+(l.usedToday!=null?" · "+int(l.usedToday)+" used today":"");
-      var lt=limitsText(l,m.R);pool.textContent=lt.pool;limNote.textContent=l.metered===false&&l.note?"Not metered: "+String(l.note)+(lt.none?" "+lt.none:""):lt.none;refreshSave()}).catch(function(e){limNote.textContent="The server could not be asked. "+String(e&&e.message||e)})};
+      P.dayCap.value=l.dayCap==null?"":int(l.dayCap);P.dayCapEq.textContent=l.dayCap==null?"none = off":usdOfPoints(Number(l.dayCap),m.R)+(l.usedToday!=null?" · "+short(l.usedToday)+" used today":"");P.dayCapEq.title=l.dayCap==null?"":exact(l.dayCap,"point")+(l.usedToday==null?"":" · "+int(l.usedToday)+" used today");
+      var lt=limitsText(l,m.R);pool.textContent=lt.pool;pool.title=l.pool&&l.pool.max!=null?int(l.pool.max)+" points"+(l.pool.used==null?"":", "+int(l.pool.used)+" used"):"";P.capEq.title=capExact(l);limNote.textContent=l.metered===false&&l.note?"Not metered: "+String(l.note)+(lt.none?" "+lt.none:""):lt.none;refreshSave()}).catch(function(e){limNote.textContent="The server could not be asked. "+String(e&&e.message||e)})};
   body.append(sub,row,tools,frame,note,err,lim);sheet.append(top,body);scrim.appendChild(sheet);document.body.appendChild(scrim);
   // Escape closes; Tab stays inside the sheet.
   onKey=function(e){if(e.key==="Escape"){e.preventDefault();close();return}if(e.key!=="Tab")return;var f=[];try{f=Array.prototype.filter.call(sheet.querySelectorAll("button,select,input,[tabindex]"),function(n){return !n.disabled&&!n.hidden})}catch(_){}if(f.length===0)return;var first=f[0],last=f[f.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}};document.addEventListener("keydown",onKey);
@@ -186,10 +216,10 @@ var mount=function(pane){var agentId=currentAgent();if(!agentId)return;var model
   var box=el("div","sand-lp-usage");box.setAttribute("data-lp-usage",agentId);var h=el("h4",null,"Usage");var sum=el("p","lp-usage-sum","Reading…");var btn=el("button",null,"Open");btn.type="button";btn.setAttribute("aria-label","Open usage");btn.addEventListener("click",function(){open(agentId)});box.append(h,sum,btn);box.parts={sum:sum,open:btn};
   if(model)model.insertAdjacentElement("afterend",box);else pane.appendChild(box);
   var load=function(){if(!box.isConnected)return;a.getCoworkerUsage(agentId,"month").then(function(r){if(!r||r.available===false){box.style.display="none";return}box.style.display="";
-      if(r.usage){sum.textContent=summary(r,null);sum.title=keyNote(r.usage);return}
+      if(r.usage){sum.textContent=summary(r,null);var tt=table(r.usage,"all").totals;sum.title=[exact(tt.requests,"request")+" this month",tt.pointsKnown?exact(tt.points,"point"):"",usdExact(tt.list)+" at list price",keyNote(r.usage)].filter(Boolean).join(" · ");return}
       return (a.getCoworkerSpend?a.getCoworkerSpend(agentId):Promise.resolve(null)).then(function(s){var t=summary(null,s);sum.textContent=t||(notServed(r.error)?"not served by this server yet":"the server could not be asked");sum.title=keyNote(s&&s.spend)})}).catch(function(e){sum.textContent="the server could not be asked"})};
   var tick=setInterval(function(){if(!box.isConnected){clearInterval(tick);return}load()},30000);box.__sandUsageLoad=load;load()};
 var scan=function(){var ps=document.querySelectorAll(".sand-agent-settings");for(var i=0;i<ps.length;i++)mount(ps[i])};
-window.__sandUsage={open:open,close:close,current:function(){return modal},table:table,summary:summary,figure:figure,limitsText:limitsText,money:money,pts:pts,usdOfPoints:usdOfPoints,seatLine:seatLine,keyNote:keyNote,sortRows:sortRows,capText:capText,refresh:function(){var b=document.querySelector(".sand-lp-usage");if(b&&b.__sandUsageLoad)b.__sandUsageLoad();if(modal)modal.refresh()}};
+window.__sandUsage={open:open,close:close,current:function(){return modal},table:table,summary:summary,figure:figure,limitsText:limitsText,money:money,pts:pts,usdOfPoints:usdOfPoints,seatLine:seatLine,keyNote:keyNote,sortRows:sortRows,capText:capText,capExact:capExact,short:short,usd:usd,usdExact:usdExact,exact:exact,refresh:function(){var b=document.querySelector(".sand-lp-usage");if(b&&b.__sandUsageLoad)b.__sandUsageLoad();if(modal)modal.refresh()}};
 scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0});
 }catch(_){}})();`;
