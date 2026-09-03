@@ -281,6 +281,10 @@ test("provider change is persisted and a subsequent turn uses the new provider",
     assert.equal(dispatched.handled, true);
     assert.equal(dispatched.value.provider, "claude-code");
     assert.equal(remoteCalls.includes("sendPrompt"), false);
+    // sendPrompt returns before the background persist finishes; wait so
+    // Windows is not asked to replace a file that is still open, and so
+    // cleanup does not delete the directory under that write.
+    await router.flush();
   } finally {
     await switchLoaded.dispose();
     await routerLoaded.dispose();

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { reanchorSandPath } from "../host/host-paths.js";
 import { runRoutedProviderText } from "../host/extensions/inference/provider-session.js";
@@ -12,6 +12,7 @@ import {
   persistableUserAttachmentEntry,
   USER_ATTACHMENT_KIND,
 } from "../shared/media/user-attachment-comment.js";
+import { writeFileAtomic } from "../shared/node/atomic-write.js";
 import { SandSettingsStore } from "../shared/node/settings/sand-settings-store.js";
 import { createSubscriptionCliAuthPort, isSubscriptionInferenceProvider, type SubscriptionCliAuthPort } from "../shared/node/subscription-cli-auth.js";
 import { createRoutedAutomations, LOCAL_AUTOMATION_METHODS } from "./routed-automations.js";
@@ -389,20 +390,14 @@ export function createCoordinatorInferenceRouter(options: {
     catch { return EMPTY_STORE; }
   };
   const persist = async (store: Store): Promise<void> => {
-    await mkdir(dirname(storePath), { recursive: true });
-    const temporary = `${storePath}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, storePath);
+    await writeFileAtomic(storePath, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
   };
   const loadRoster = async (): Promise<RosterStore> => {
     try { return parseInferenceRouterRoster(JSON.parse(await readFile(rosterPath, "utf8"))); }
     catch { return EMPTY_ROSTER; }
   };
   const persistRoster = async (store: RosterStore): Promise<RosterStore> => {
-    await mkdir(dirname(rosterPath), { recursive: true });
-    const temporary = `${rosterPath}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, rosterPath);
+    await writeFileAtomic(rosterPath, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
     return store;
   };
   const publishRoster = async (activeAgentId: string | null, runningId?: string) => {
@@ -787,6 +782,7 @@ export function createCoordinatorInferenceRouter(options: {
 
   return {
     provider(): SandInferenceProvider { return settings.getInferenceProvider(); },
+    async flush(): Promise<void> { await Promise.all([...queues.values()]); },
     async dispatch(method: string, args: unknown): Promise<{ handled: boolean; value?: unknown }> {
       const provider = settings.getInferenceProvider();
       if (method === "reactToMessage") {

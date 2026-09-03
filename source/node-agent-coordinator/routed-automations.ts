@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   AUTOMATION_MAX_PER_AGENT,
@@ -11,6 +11,7 @@ import {
   type AutomationRun,
 } from "../host/automations/automation.js";
 import { parseStoredTrigger } from "../host/automations/automation-trigger.js";
+import { writeFileAtomic } from "../shared/node/atomic-write.js";
 import { computeNextRunAt, describeTrigger, normalizeSchedule } from "../shared/automation-schedule.js";
 import { cronTrigger, triggerSchedule, type AutomationTrigger } from "../shared/automations.js";
 
@@ -167,10 +168,7 @@ export function createRoutedAutomations(options: {
   };
 
   const persist = async (store: Store): Promise<void> => {
-    await mkdir(dirname(storePath), { recursive: true });
-    const temporary = `${storePath}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, storePath);
+    await writeFileAtomic(storePath, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
   };
 
   const projected = (agentId: string, rows: readonly StoredAutomation[]): AutomationRecord[] =>
