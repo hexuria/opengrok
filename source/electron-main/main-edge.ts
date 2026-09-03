@@ -732,7 +732,10 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
             : [];
         const row = rows.find((entry) => entry != null && entry.id === agentId) ?? null;
         const model = row != null && typeof row.model === "string" ? row.model : null;
-        return cloneableRecord({ available: true, models, points, model, ...(note == null ? {} : { note }) });
+        // `role` arrives on the roster row once the server serves it; `undefined` means this
+        // server has no such field yet, which the pane words differently from an empty role.
+        const role = row != null && typeof row.role === "string" ? row.role : row != null && row.role === null ? null : undefined;
+        return cloneableRecord({ available: true, models, points, model, ...(role === undefined ? {} : { role }), ...(note == null ? {} : { note }) });
       } catch (error) {
         return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
       }
@@ -765,6 +768,35 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         return cloneableRecord({ ...row, saved: true });
       } catch (error) {
         return cloneableRecord({ saved: false, model, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    /**
+     * What a coworker is for, in its own words.
+     *
+     * The server composes it with the title into the standing message every run carries, so this
+     * is the one field in the pane that changes how the coworker behaves rather than how it reads.
+     * `null` clears it. A server that does not serve the field answers 404 and the pane says so.
+     */
+    setCoworkerRole: async (raw) => {
+      const r = req(raw);
+      const agentId = r.agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "setCoworkerRole needs an agent id.");
+      const role = r.role == null ? null : String(r.role);
+      invariant(role == null || role.length <= 1000, "A role is at most 1000 characters.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "This route has no OpenGrok server.");
+      const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      try {
+        const answer = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: `/coworkers/${encodeURIComponent(agentId)}`,
+          method: "PATCH",
+          body: { role },
+        });
+        const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : {};
+        return cloneableRecord({ saved: true, role, ...row });
+      } catch (error) {
+        return cloneableRecord({ saved: false, error: String(error instanceof Error ? error.message : error) });
       }
     },
     /**
