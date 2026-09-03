@@ -155,8 +155,8 @@ test("rows sort by points, then list cost; the Rows selector sizes the frame and
   assert.deepEqual(sorted.map((r) => r.model), ["c", "a", "b"], "points first, an unknown points row last");
   const m = api.open("cw_1");
   await settle();
-  assert.equal(m.parts.rows.value, "10", "ten rows by default");
-  assert.equal(m.parts.frame.style["--rows"], "10");
+  assert.equal(m.parts.rows.value, "5", "five rows by default; 10, 25 and All a click away");
+  assert.equal(m.parts.frame.style["--rows"], "5");
   assert.equal(m.parts.frame.className, "sand-us-frame");
   m.parts.rows.value = "all"; m.parts.rows.listeners.change();
   assert.equal(m.parts.frame.className, "sand-us-frame all");
