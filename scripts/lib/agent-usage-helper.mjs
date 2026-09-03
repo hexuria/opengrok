@@ -110,6 +110,10 @@ var limitsText=function(l,R){var out={pool:"",none:""};if(!l)return out;var pool
   if(l.cap==null&&l.dayCap==null&&pool.max==null)out.none="No limits. This coworker draws on nothing but the gateway's own budgets.";
   else if(l.cap==null&&l.dayCap==null)out.none="No cap on this coworker; it draws on your pool.";
   return out};
+// effectiveCap is a ceiling on usedPoints, like cap: min(cap, pool.max − what the owner's other
+// coworkers used). The room this coworker still has is effectiveCap − usedPoints.
+var roomOf=function(l){var e=num(l&&l.effectiveCap),u=num(l&&l.usedPoints);return e===null||u===null?null:Math.max(0,e-u)};
+var capText=function(l,R){var room=roomOf(l);var left=room===null?"":" · "+int(room)+" left";if(l.cap==null)return "none = your pool"+left;var c=Number(l.cap);if(c===0)return "0 = nothing may run";var eq=usdOfPoints(c,R);var eff=l.effectiveCap!=null&&Number(l.effectiveCap)<c?" · effective "+int(l.effectiveCap):"";return (eq||int(c)+" points")+eff+left};
 var notServed=function(e){return /404|not found|no such route|unknown route|failed \(404\)/i.test(String(e||""))};
 var modal=null;var onKey=null;
 var close=function(){if(!modal)return;try{modal.el.remove()}catch(_){}if(onKey){document.removeEventListener("keydown",onKey);onKey=null}modal=null};
@@ -162,7 +166,7 @@ var open=function(agentId){agentId=agentId||currentAgent();var a=window.desktop&
       if(!r||r.available===false){lim.hidden=true;return}
       if(r.error){m.limit=null;P.cap.disabled=true;P.dayCap.disabled=true;save.disabled=true;limNote.textContent=notServed(r.error)?"Limits are not served by this server yet.":"The server could not be asked. "+String(r.error);return}
       var l=r.limit||{};m.limit=l;m.R=l.reference&&l.reference.usdPerMtok;P.cap.disabled=false;P.dayCap.disabled=false;
-      P.cap.value=l.cap==null?"":int(l.cap);P.capEq.textContent=l.cap==null?"none = your pool":Number(l.cap)===0?"0 = nothing may run":usdOfPoints(Number(l.cap),m.R)+(l.effectiveCap!=null&&Number(l.effectiveCap)!==Number(l.cap)?" · effective "+int(l.effectiveCap):"");
+      P.cap.value=l.cap==null?"":int(l.cap);P.capEq.textContent=capText(l,m.R);
       P.dayCap.value=l.dayCap==null?"":int(l.dayCap);P.dayCapEq.textContent=l.dayCap==null?"none = off":usdOfPoints(Number(l.dayCap),m.R)+(l.usedToday!=null?" · "+int(l.usedToday)+" used today":"");
       var lt=limitsText(l,m.R);pool.textContent=lt.pool;limNote.textContent=l.metered===false&&l.note?"Not metered: "+String(l.note)+(lt.none?" "+lt.none:""):lt.none;refreshSave()}).catch(function(e){limNote.textContent="The server could not be asked. "+String(e&&e.message||e)})};
   body.append(sub,row,tools,frame,note,err,lim);sheet.append(top,body);scrim.appendChild(sheet);document.body.appendChild(scrim);
@@ -186,6 +190,6 @@ var mount=function(pane){var agentId=currentAgent();if(!agentId)return;var model
       return (a.getCoworkerSpend?a.getCoworkerSpend(agentId):Promise.resolve(null)).then(function(s){var t=summary(null,s);sum.textContent=t||(notServed(r.error)?"not served by this server yet":"the server could not be asked");sum.title=keyNote(s&&s.spend)})}).catch(function(e){sum.textContent="the server could not be asked"})};
   var tick=setInterval(function(){if(!box.isConnected){clearInterval(tick);return}load()},30000);box.__sandUsageLoad=load;load()};
 var scan=function(){var ps=document.querySelectorAll(".sand-agent-settings");for(var i=0;i<ps.length;i++)mount(ps[i])};
-window.__sandUsage={open:open,close:close,current:function(){return modal},table:table,summary:summary,figure:figure,limitsText:limitsText,money:money,pts:pts,usdOfPoints:usdOfPoints,seatLine:seatLine,keyNote:keyNote,sortRows:sortRows,refresh:function(){var b=document.querySelector(".sand-lp-usage");if(b&&b.__sandUsageLoad)b.__sandUsageLoad();if(modal)modal.refresh()}};
+window.__sandUsage={open:open,close:close,current:function(){return modal},table:table,summary:summary,figure:figure,limitsText:limitsText,money:money,pts:pts,usdOfPoints:usdOfPoints,seatLine:seatLine,keyNote:keyNote,sortRows:sortRows,capText:capText,refresh:function(){var b=document.querySelector(".sand-lp-usage");if(b&&b.__sandUsageLoad)b.__sandUsageLoad();if(modal)modal.refresh()}};
 scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0});
 }catch(_){}})();`;

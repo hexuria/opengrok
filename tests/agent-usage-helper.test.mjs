@@ -207,13 +207,24 @@ test("the modal: per-model rows with ×N, totals, the period switch re-reads, th
   assert.equal(api.current(), null);
 });
 
+test("effectiveCap is a ceiling like cap; the room left is what the wording carries", () => {
+  const { api } = fakePage();
+  // The server session's example: pool 12,000,000, no cap, this coworker alone used 10,000,000.
+  assert.equal(api.capText({ cap: null, effectiveCap: 12000000, usedPoints: 10000000 }, "0.200000"), "none = your pool · 2,000,000 left");
+  // A cap of 5,000,000 under a pool where the other coworkers left only 3,000,000.
+  assert.equal(api.capText({ cap: 5000000, effectiveCap: 3000000, usedPoints: 1000000 }, "0.200000"), "≈ $1.00 · effective 3,000,000 · 2,000,000 left");
+  assert.equal(api.capText({ cap: 5000000, effectiveCap: 5000000, usedPoints: 6000000 }, "0.200000"), "≈ $1.00 · 0 left", "over the ceiling reads as nothing left, never negative");
+  assert.equal(api.capText({ cap: null, effectiveCap: null, usedPoints: null }, null), "none = your pool", "no pool, no reference: nothing to count");
+  assert.equal(api.capText({ cap: 0 }, "0.2"), "0 = nothing may run");
+});
+
 test("an unmetered coworker's limits say so in the server's words", async () => {
   const { settle, api } = fakePage({ usage: USAGE, catalogue: CAT, limit: { available: true, limit: { metered: false, note: "no gateway key of its own yet", cap: 500, effectiveCap: 500, usedPoints: null, dayCap: null, usedToday: null, dayFreesAt: null, pool: { max: null, used: null, resetsAt: "2026-10-01T00:00:00Z", setBy: null }, reference: null } } });
   const m = api.open("cw_1");
   await settle();
   assert.equal(m.parts.limNote.textContent, "Not metered: no gateway key of its own yet");
   assert.equal(m.parts.cap.value, "500");
-  assert.equal(m.parts.capEq.textContent, "", "no reference price, no dollar");
+  assert.equal(m.parts.capEq.textContent, "500 points", "no reference price, no dollar: the points stand alone");
   assert.equal(m.parts.pool.textContent, "No pool. Your admin has not set one.");
 });
 
@@ -222,7 +233,7 @@ test("the limits section: fields carry their dollar equivalents, Save sends whol
   const m = api.open("cw_1");
   await settle();
   assert.equal(m.parts.cap.value, "100,000");
-  assert.equal(m.parts.capEq.textContent, "≈ $0.02");
+  assert.equal(m.parts.capEq.textContent, "≈ $0.02 · 58,500 left", "the room is effectiveCap minus what this coworker used");
   assert.equal(m.parts.dayCap.value, "");
   assert.match(m.parts.dayCapEq.textContent, /^none = off/);
   assert.match(m.parts.pool.textContent, /^Your pool: 41,620 of 1,000,000 used/);
