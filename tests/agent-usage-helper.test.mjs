@@ -123,7 +123,7 @@ test("on an older server the line falls back to the meter, and the modal says wh
   const m = api.open("cw_1");
   await settle();
   assert.equal(body.children[0].attrs.role, "dialog");
-  assert.equal(m.parts.sub.textContent, "Subscription seat · key oag_live_c27dbfc…");
+  assert.equal(m.parts.sub.textContent, "Subscription seat", "the key id is not shown in the header");
   assert.match(m.parts.note.textContent, /^Per-model usage is not served by this server yet; this is the meter's total for the window\./);
   const rows = m.parts.tbody.children;
   assert.equal(rows[0].children[0].textContent, "All models");
@@ -133,6 +133,38 @@ test("on an older server the line falls back to the meter, and the modal says wh
   assert.equal(rows[0].children[5].textContent, "—", "no points from a meter");
   assert.equal(m.parts.limNote.textContent, "Limits are not served by this server yet.");
   assert.equal(m.parts.cap.disabled, true);
+  // The server's note survives an empty filter and comes back when rows do.
+  m.parts.filter.value = "openai/gpt-5.5"; m.parts.filter.listeners.change();
+  assert.equal(m.parts.note.textContent, "Nothing in this window.");
+  m.parts.filter.value = "all"; m.parts.filter.listeners.change();
+  assert.match(m.parts.note.textContent, /^Per-model usage is not served/);
+});
+
+test("the pane line keeps the key as a tooltip, nowhere else", async () => {
+  const { pane, settle, api } = fakePage({ usage: USAGE });
+  await settle();
+  const box = pane.querySelector(".sand-lp-usage");
+  assert.equal(box.parts.sum.title, "Metered on the gateway key oag_live_c27dbfc…");
+  assert.equal(api.seatLine({ metered: true, seat: "api", keyPrefix: "oag_live_x" }), "API key");
+  assert.equal(api.seatLine({ metered: false, note: "no key yet" }), "Not metered: no key yet");
+});
+
+test("rows sort by points, then list cost; the Rows selector sizes the frame and is remembered", async () => {
+  const { settle, api } = fakePage({ usage: USAGE, limit: LIMIT, catalogue: CAT });
+  const sorted = api.sortRows([{ model: "a", points: 5, list: 1 }, { model: "b", points: null, list: 9 }, { model: "c", points: 50, list: 0 }]);
+  assert.deepEqual(sorted.map((r) => r.model), ["c", "a", "b"], "points first, an unknown points row last");
+  const m = api.open("cw_1");
+  await settle();
+  assert.equal(m.parts.rows.value, "5", "five rows by default; 10, 25 and All a click away");
+  assert.equal(m.parts.frame.style["--rows"], "5");
+  assert.equal(m.parts.frame.className, "sand-us-frame");
+  m.parts.rows.value = "all"; m.parts.rows.listeners.change();
+  assert.equal(m.parts.frame.className, "sand-us-frame all");
+  m.parts.rows.value = "5"; m.parts.rows.listeners.change();
+  assert.equal(m.parts.frame.style["--rows"], "5");
+  assert.equal(m.parts.pick.children[0].tag, "label", "the label is the select's sibling, not its parent");
+  assert.equal(m.parts.pick.children[1].tag, "select");
+  assert.equal(m.parts.pick.children[0].htmlFor, m.parts.pick.children[1].id);
 });
 
 test("the modal: per-model rows with ×N, totals, the period switch re-reads, the filter narrows, Escape closes", async () => {
@@ -142,14 +174,22 @@ test("the modal: per-model rows with ×N, totals, the period switch re-reads, th
   const scrim = body.children[0];
   assert.equal(scrim.className, "sand-us-scrim");
   assert.equal(scrim.attrs["aria-modal"], "true");
-  assert.equal(m.parts.sub.textContent, "Subscription seat · key oag_live_c27dbfc…");
+  assert.equal(m.parts.sub.textContent, "Subscription seat");
   let rows = m.parts.tbody.children;
-  assert.equal(rows.length, 3, "two models and a totals row");
-  assert.equal(rows[0].children[0].textContent, "xai/grok-4.6 ×10");
-  assert.equal(rows[0].children[2].textContent, "6,204 / 12");
-  assert.equal(rows[0].children[5].textContent, "41,500");
-  assert.equal(rows[2].children[0].textContent, "This month");
-  assert.equal(rows[2].children[5].textContent, "691,500");
+  assert.equal(rows.length, 2, "two models; the totals row lives in the sticky footer");
+  assert.equal(rows[0].children[0].textContent, "openai/gpt-5.5 ×25", "the costliest model first");
+  assert.equal(rows[1].children[0].textContent, "xai/grok-4.6 ×10");
+  assert.equal(rows[1].children[2].textContent, "6,204 / 12");
+  assert.equal(rows[1].children[5].textContent, "41,500");
+  const foot = m.parts.tfoot.children[0];
+  assert.equal(foot.children[0].textContent, "This month");
+  assert.equal(foot.children[5].textContent, "691,500");
+  const cards = m.parts.cards.children;
+  assert.equal(cards.length, 3, "one card per model and a totals card, for the phone layout");
+  assert.equal(cards[0].children[0].textContent, "openai/gpt-5.5 ×25");
+  assert.equal(cards[0].children[1].textContent, "1 request · 20,000 / 1,000 tokens");
+  assert.equal(cards[0].children[2].textContent, "$0.13 list · $0.13 actual · 650,000 points");
+  assert.equal(cards[2].children[0].textContent, "This month");
   const options = m.parts.filter.children.map((o) => o.textContent);
   assert.deepEqual(options, ["All models", "xai/grok-4.6 ×10", "openai/gpt-5.5 ×25", "openai/gpt-5-mini"], "the picker's list, plus every model used");
   m.parts.periods[1].listeners.click();
@@ -159,9 +199,9 @@ test("the modal: per-model rows with ×N, totals, the period switch re-reads, th
   assert.equal(m.parts.periods[3].attrs["aria-pressed"], "false");
   m.parts.filter.value = "openai/gpt-5.5"; m.parts.filter.listeners.change();
   rows = m.parts.tbody.children;
-  assert.equal(rows.length, 2);
-  assert.equal(rows[1].children[0].textContent, "Last 24 hours · openai/gpt-5.5");
-  assert.equal(rows[1].children[5].textContent, "650,000");
+  assert.equal(rows.length, 1);
+  assert.equal(m.parts.tfoot.children[0].children[0].textContent, "Last 24 hours · openai/gpt-5.5");
+  assert.equal(m.parts.tfoot.children[0].children[5].textContent, "650,000");
   docListeners.keydown({ key: "Escape", preventDefault() {} });
   assert.equal(body.children.length, 0, "closed");
   assert.equal(api.current(), null);
