@@ -67,6 +67,7 @@ test("the table sums what it shows, and a filter narrows both rows and totals", 
   assert.equal(one.totals.points, 650000);
   const older = api.table({ models: [{ modelId: "All models", requests: 4, listUsd: "0.0083", costUsd: "0", points: null }] }, "all");
   assert.equal(older.totals.pointsKnown, false, "an older server sends no points; the total says so instead of 0");
+  assert.equal(older.totals.tokensKnown, false, "nor tokens");
 });
 
 test("figures: points with thousands, money to the cent or four places, the dollar behind a point figure", () => {
@@ -125,6 +126,7 @@ test("on an older server the line falls back to the meter, and the modal says wh
   const rows = m.parts.tbody.children;
   assert.equal(rows[0].children[0].textContent, "All models");
   assert.equal(rows[0].children[1].textContent, "4");
+  assert.equal(rows[0].children[2].textContent, "—", "a meter has no token counts");
   assert.equal(rows[0].children[3].textContent, "$0.0083", "list cost from the meter's counterfactual");
   assert.equal(rows[0].children[5].textContent, "—", "no points from a meter");
   assert.equal(m.parts.limNote.textContent, "Limits are not served by this server yet.");
