@@ -326,6 +326,9 @@ export function createDesktopPreloadBridge(options: {
       getAgentModel: (agentId: string) => edge("getAgentModel", { agentId }),
       setAgentModel: (agentId: string, model: string) => edge("setAgentModel", { agentId, model }),
       getCoworkerSpend: (agentId: string) => edge("getCoworkerSpend", { agentId }),
+      getCoworkerUsage: (agentId: string, window: string) => edge("getCoworkerUsage", { agentId, window }),
+      getCoworkerLimit: (agentId: string) => edge("getCoworkerLimit", { agentId }),
+      setCoworkerLimit: (agentId: string, cap: number | null, dayCap: number | null) => edge("setCoworkerLimit", { agentId, cap, dayCap }),
       // Whether the roster and transcripts being shown are live or the last good answers from
       // before the server stopped answering. Replays the current state on subscribe.
       onServerReads: (listener: (payload: unknown) => void) => {
