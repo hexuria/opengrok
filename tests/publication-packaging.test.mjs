@@ -361,6 +361,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   // snap loop yields to the engine's bottom-pin instead of racing it.
   assert.match(rendererPatch, /__sandMediaEstimate/);
   assert.match(rendererPatch, /patchOriginalRowEstimator/);
+  assert.match(rendererPatch, /patchOriginalAgentRoleLabel/);
+  assert.match(rendererPatch, /children:"Role"\}\),e\[12\]=x\):x=e\[12\];let N;e\[13\]!==t\.description/);
   // Gallery rows keep a content-independent height so the estimate can never
   // disagree with the render (measured: content-planned heights cost 144
   // scroll shoves per pass versus 4); blur is solved by letterboxing instead.

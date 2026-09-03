@@ -1908,8 +1908,21 @@ export function patchOriginalJumpLoad(source) {
   return replaceExactlyOnce(patched, CHASE_DEPTH_BEFORE, CHASE_DEPTH_AFTER, "reveal chase depth");
 }
 
+// Agent settings (right sidebar): the field is the coworker's role, not a
+// description. Unique in the 0.18 chunk because of the following description field.
+const AGENT_ROLE_LABEL_BEFORE = 'children:"Description"}),e[12]=x):x=e[12];let N;e[13]!==t.description';
+const AGENT_ROLE_LABEL_AFTER = 'children:"Role"}),e[12]=x):x=e[12];let N;e[13]!==t.description';
+const AGENT_ROLE_ARIA_BEFORE = 'ariaLabel:"Agent description"';
+const AGENT_ROLE_ARIA_AFTER = 'ariaLabel:"Agent role"';
+
+export function patchOriginalAgentRoleLabel(source) {
+  let patched = replaceExactlyOnce(source, AGENT_ROLE_LABEL_BEFORE, AGENT_ROLE_LABEL_AFTER, "agent settings role label");
+  return replaceExactlyOnce(patched, AGENT_ROLE_ARIA_BEFORE, AGENT_ROLE_ARIA_AFTER, "agent settings role aria");
+}
+
 export function patchOriginalMediaMeta(source) {
-  let patched = replaceExactlyOnce(source, DIMS_CHAIN_BEFORE, DIMS_CHAIN_AFTER, "media meta dims chain");
+  let patched = patchOriginalAgentRoleLabel(source);
+  patched = replaceExactlyOnce(patched, DIMS_CHAIN_BEFORE, DIMS_CHAIN_AFTER, "media meta dims chain");
   patched = replaceExactlyOnce(patched, FRAME_STYLE_MERGE_BEFORE, FRAME_STYLE_MERGE_AFTER, "frame blur thumb");
   patched = replaceExactlyOnce(patched, VIDEO_THUMB_BEFORE, VIDEO_THUMB_AFTER, "video thumb cors");
   patched = replaceExactlyOnce(patched, MENU_CLEAR_BEFORE, MENU_CLEAR_AFTER, "agent menu clear cache");
