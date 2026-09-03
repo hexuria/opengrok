@@ -70,9 +70,31 @@ test("the table sums what it shows, and a filter narrows both rows and totals", 
   assert.equal(older.totals.tokensKnown, false, "nor tokens");
 });
 
-test("figures: points with thousands, money to the cent or four places, the dollar behind a point figure", () => {
+test("a figure of a thousand or more is written short: three significant digits, largest unit", () => {
   const { api } = fakePage();
-  assert.equal(api.pts(41500), "41,500");
+  const cases = [[0, "0"], [4, "4"], [999, "999"], [1000, "1k"], [1200, "1.2k"], [3294, "3.29k"], [10000, "10k"],
+    [41310, "41.3k"], [54540, "54.5k"], [999000, "999k"], [999999, "1m"], [1100000, "1.1m"], [12345678, "12.3m"],
+    [900000000, "900m"], [1200000000, "1.2b"], [1500000000000, "1.5t"]];
+  for (const [n, want] of cases) assert.equal(api.short(n), want, `${n}`);
+  assert.equal(api.short(-41310), "-41.3k", "a negative keeps its sign");
+  assert.equal(api.exact(1234567, "point"), "1,234,567 points", "the exact form is what the tooltip carries");
+  assert.equal(api.exact(1, "request"), "1 request");
+});
+
+test("money keeps its cents until the bill is big, then goes short like the counts", () => {
+  const { api } = fakePage();
+  assert.equal(api.usd(0.0083), "$0.0083", "under a cent, four places");
+  assert.equal(api.usd(1.5), "$1.50");
+  assert.equal(api.usd(1234.56), "$1,234.56", "thousands separated, cents kept");
+  assert.equal(api.usd(12345), "$12.3k");
+  assert.equal(api.usd(2400000), "$2.4m");
+  assert.equal(api.usdExact(0.0083), "$0.008300", "the tooltip keeps the server's six places under a cent");
+  assert.equal(api.usdExact(12345), "$12,345.00");
+});
+
+test("figures: points short, money to the cent or four places, the dollar behind a point figure", () => {
+  const { api } = fakePage();
+  assert.equal(api.pts(41500), "41.5k");
   assert.equal(api.pts(null), "—");
   assert.equal(api.money("0.008300"), "$0.0083");
   assert.equal(api.money("1.5"), "$1.50");
@@ -83,7 +105,7 @@ test("figures: points with thousands, money to the cent or four places, the doll
 
 test("the pane line: from per-model usage when served, from the meter otherwise", () => {
   const { api } = fakePage();
-  assert.equal(api.summary(USAGE, null), "5 requests this month · 691,500 points");
+  assert.equal(api.summary(USAGE, null), "5 requests this month · 692k points");
   assert.equal(api.summary({ usage: { models: [] } }, null), "nothing this month");
   assert.equal(api.summary(null, spendOnly), "4 requests · $0.0083 on API this month");
   assert.equal(api.summary(null, { spend: { metered: false, note: "the deployment's key carried this turn", windows: [] } }), "not metered: the deployment's key carried this turn");
@@ -92,7 +114,7 @@ test("the pane line: from per-model usage when served, from the meter otherwise"
 test("limits text: the pool with its dollar equivalent and who set it; the no-cap line", () => {
   const { api } = fakePage();
   const t = api.limitsText(LIMIT.limit, "0.200000");
-  assert.match(t.pool, /^Your pool: 41,620 of 1,000,000 used \(≈ \$0\.20\), set by your admin, resets /);
+  assert.match(t.pool, /^Your pool: 41\.6k of 1m used \(≈ \$0\.20\), set by your admin, resets /);
   assert.equal(t.none, "", "a cap is set, nothing to add");
   const bare = api.limitsText({ cap: null, dayCap: null, pool: {} }, null);
   assert.equal(bare.pool, "No pool. Your admin has not set one.");
@@ -100,7 +122,7 @@ test("limits text: the pool with its dollar equivalent and who set it; the no-ca
   const pooled = api.limitsText({ cap: null, dayCap: null, pool: { max: 5 } }, null);
   assert.equal(pooled.none, "No cap on this coworker; it draws on your pool.");
   const unpriced = api.limitsText({ cap: null, dayCap: null, pool: { max: 1000000, used: null, setBy: "admin" } }, null);
-  assert.equal(unpriced.pool, "Your pool: 1,000,000 points, usage unknown until your admin sets a reference price, set by your admin.", "null usage is not zero usage");
+  assert.equal(unpriced.pool, "Your pool: 1m points, usage unknown until your admin sets a reference price, set by your admin.", "null usage is not zero usage");
 });
 
 test("the pane keeps one line under Model with an Open button; the line reads the month", async () => {
@@ -110,7 +132,8 @@ test("the pane keeps one line under Model with an Open button; the line reads th
   assert.ok(box, "mounted");
   assert.equal(box.previousElementSibling, model, "under Model");
   assert.deepEqual(calls.usage, [["cw_1", "month"]]);
-  assert.equal(box.parts.sum.textContent, "5 requests this month · 691,500 points");
+  assert.equal(box.parts.sum.textContent, "5 requests this month · 692k points");
+  assert.match(box.parts.sum.title, /^5 requests this month · 691,500 points · \$0\.138300 at list price/, "the pane line carries the exact figures");
   assert.equal(box.parts.open.textContent, "Open");
 });
 
@@ -144,7 +167,7 @@ test("the pane line keeps the key as a tooltip, nowhere else", async () => {
   const { pane, settle, api } = fakePage({ usage: USAGE });
   await settle();
   const box = pane.querySelector(".sand-lp-usage");
-  assert.equal(box.parts.sum.title, "Metered on the gateway key oag_live_c27dbfc…");
+  assert.match(box.parts.sum.title, /Metered on the gateway key oag_live_c27dbfc…$/, "the key note ends the tooltip, after the exact figures");
   assert.equal(api.seatLine({ metered: true, seat: "api", keyPrefix: "oag_live_x" }), "API key");
   assert.equal(api.seatLine({ metered: false, note: "no key yet" }), "Not metered: no key yet");
 });
@@ -179,16 +202,20 @@ test("the modal: per-model rows with ×N, totals, the period switch re-reads, th
   assert.equal(rows.length, 2, "two models; the totals row lives in the sticky footer");
   assert.equal(rows[0].children[0].textContent, "openai/gpt-5.5 ×25", "the costliest model first");
   assert.equal(rows[1].children[0].textContent, "xai/grok-4.6 ×10");
-  assert.equal(rows[1].children[2].textContent, "6,204 / 12");
-  assert.equal(rows[1].children[5].textContent, "41,500");
+  assert.equal(rows[1].children[2].textContent, "6.2k / 12");
+  assert.equal(rows[1].children[2].title, "6,204 in · 12 out");
+  assert.equal(rows[1].children[5].textContent, "41.5k");
+  assert.equal(rows[1].children[5].title, "41,500 points");
+  assert.equal(rows[0].children[3].title, "$0.130000 at list price");
   const foot = m.parts.tfoot.children[0];
   assert.equal(foot.children[0].textContent, "This month");
-  assert.equal(foot.children[5].textContent, "691,500");
+  assert.equal(foot.children[5].textContent, "692k");
+  assert.equal(foot.children[5].title, "691,500 points");
   const cards = m.parts.cards.children;
   assert.equal(cards.length, 3, "one card per model and a totals card, for the phone layout");
   assert.equal(cards[0].children[0].textContent, "openai/gpt-5.5 ×25");
-  assert.equal(cards[0].children[1].textContent, "1 request · 20,000 / 1,000 tokens");
-  assert.equal(cards[0].children[2].textContent, "$0.13 list · $0.13 actual · 650,000 points");
+  assert.equal(cards[0].children[1].textContent, "1 request · 20,000 / 1,000 tokens", "a finger cannot hover, so cards print in full");
+  assert.equal(cards[0].children[2].textContent, "$0.130000 list · $0.130000 actual · 650,000 points");
   assert.equal(cards[2].children[0].textContent, "This month");
   const options = m.parts.filter.children.map((o) => o.textContent);
   assert.deepEqual(options, ["All models", "xai/grok-4.6 ×10", "openai/gpt-5.5 ×25", "openai/gpt-5-mini"], "the picker's list, plus every model used");
@@ -201,7 +228,8 @@ test("the modal: per-model rows with ×N, totals, the period switch re-reads, th
   rows = m.parts.tbody.children;
   assert.equal(rows.length, 1);
   assert.equal(m.parts.tfoot.children[0].children[0].textContent, "Last 24 hours · openai/gpt-5.5");
-  assert.equal(m.parts.tfoot.children[0].children[5].textContent, "650,000");
+  assert.equal(m.parts.tfoot.children[0].children[5].textContent, "650k");
+  assert.equal(m.parts.tfoot.children[0].children[5].title, "650,000 points");
   docListeners.keydown({ key: "Escape", preventDefault() {} });
   assert.equal(body.children.length, 0, "closed");
   assert.equal(api.current(), null);
@@ -210,11 +238,13 @@ test("the modal: per-model rows with ×N, totals, the period switch re-reads, th
 test("effectiveCap is a ceiling like cap; the room left is what the wording carries", () => {
   const { api } = fakePage();
   // The server session's example: pool 12,000,000, no cap, this coworker alone used 10,000,000.
-  assert.equal(api.capText({ cap: null, effectiveCap: 12000000, usedPoints: 10000000 }, "0.200000"), "none = your pool · 2,000,000 left");
+  assert.equal(api.capText({ cap: null, effectiveCap: 12000000, usedPoints: 10000000 }, "0.200000"), "none = your pool · 2m left");
   // A cap of 5,000,000 under a pool where the other coworkers left only 3,000,000.
-  assert.equal(api.capText({ cap: 5000000, effectiveCap: 3000000, usedPoints: 1000000 }, "0.200000"), "≈ $1.00 · effective 3,000,000 · 2,000,000 left");
+  assert.equal(api.capText({ cap: 5000000, effectiveCap: 3000000, usedPoints: 1000000 }, "0.200000"), "≈ $1.00 · effective 3m · 2m left");
+  assert.equal(api.capExact({ cap: 5000000, effectiveCap: 3000000, usedPoints: 1000000 }), "cap 5,000,000 points · effective ceiling 3,000,000 · 1,000,000 used · 2,000,000 left");
   assert.equal(api.capText({ cap: 5000000, effectiveCap: 5000000, usedPoints: 6000000 }, "0.200000"), "≈ $1.00 · 0 left", "over the ceiling reads as nothing left, never negative");
   assert.equal(api.capText({ cap: null, effectiveCap: null, usedPoints: null }, null), "none = your pool", "no pool, no reference: nothing to count");
+  assert.equal(api.capText({ cap: 500, effectiveCap: 500, usedPoints: null }, null), "500 points", "no reference price: the points stand alone, unshortened under a thousand");
   assert.equal(api.capText({ cap: 0 }, "0.2"), "0 = nothing may run");
 });
 
@@ -233,10 +263,12 @@ test("the limits section: fields carry their dollar equivalents, Save sends whol
   const m = api.open("cw_1");
   await settle();
   assert.equal(m.parts.cap.value, "100,000");
-  assert.equal(m.parts.capEq.textContent, "≈ $0.02 · 58,500 left", "the room is effectiveCap minus what this coworker used");
+  assert.equal(m.parts.capEq.textContent, "≈ $0.02 · 58.5k left", "the room is effectiveCap minus what this coworker used");
+  assert.equal(m.parts.capEq.title, "cap 100,000 points · 41,500 used · 58,500 left", "the exact figures on hover");
   assert.equal(m.parts.dayCap.value, "");
   assert.match(m.parts.dayCapEq.textContent, /^none = off/);
-  assert.match(m.parts.pool.textContent, /^Your pool: 41,620 of 1,000,000 used/);
+  assert.match(m.parts.pool.textContent, /^Your pool: 41\.6k of 1m used/);
+  assert.equal(m.parts.pool.title, "1,000,000 points, 41,620 used");
   assert.equal(m.parts.save.disabled, true, "nothing changed yet");
   m.parts.dayCap.value = "20,000"; m.parts.dayCap.listeners.input();
   assert.equal(m.parts.dayCapEq.textContent, "≈ $0.0040");
