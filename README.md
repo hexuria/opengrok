@@ -4,7 +4,7 @@ A faster, more complete Grok Bot. Use it as a drop-in replacement for the offici
 
 ## Getting started
 
-macOS on Apple Silicon, Node.js 26.5.x. Sign in with a Cursor account, or with Codex / OpenRouter. Pointing the app at [opengrok-server](https://github.com/hexuria/opengrok-server) is optional; the client runs without it.
+macOS on Apple Silicon, Node.js 26.5.x. Bring your own Cursor, Codex, or Claude subscription, or an OpenRouter key. A self-hosted [opengrok-server](https://github.com/hexuria/opengrok-server) is optional and is how you reach other models.
 
 ## Install
 
@@ -21,20 +21,33 @@ ditto dist/Open\ Grok.app /Applications/Open\ Grok.app
 
 ## How to use
 
-Open **Open Grok**. **Settings → Router** picks the backend for new turns.
+Open **Open Grok**. **Settings → Router** picks who runs new turns.
 
-| Provider | Sign-in |
+### Bring your own subscription
+
+No server required. The app uses the account you already have.
+
+| Provider | How you sign in |
 |---|---|
-| Cursor | your existing Grok Bot/Cursor session (default) |
-| Codex | official `codex login` (ChatGPT) |
-| OpenRouter | API key, stored in the desktop secrets bridge |
-| Claude Code | official `claude /login` — **see below** |
+| **Cursor** (Grok Bot) | **Sign in with Cursor** — browser OAuth on cursor.com. The app registers `sand://` for the callback. This is the default. |
+| **Codex** | Official Codex CLI. Choose Codex in Router; if you are not signed in, the app starts `codex login` (ChatGPT in the browser) and waits until the CLI reports a session. |
+| **Claude** | Official Claude Code CLI. Install Claude Code, then `claude /login` (or choose Claude in Router — that opens Terminal for the same command). The app will not switch until `claude auth status` reports signed in. |
+| **OpenRouter** | API key, stored in the desktop secrets bridge. |
 
-Choosing Claude or Codex opens Terminal for the official CLI login when it is not already signed in, and refuses the switch until that CLI reports a session.
+Claude and Codex both refuse the switch until the official CLI says you are signed in. Codex login is background + browser; Claude login is an interactive TUI, so it needs a real Terminal window.
 
-> **Do not use the Claude Code route.** It works, but routing Claude through a third-party client this way is very likely against Anthropic's terms of service, and accounts have been suspended for less. We would not use it ourselves. Reach for Codex or OpenRouter.
+> **Claude Code.** The login command is correct, and the route works. Routing Claude through a third-party client is very likely against Anthropic's terms, and accounts have been suspended for less. We would not use it ourselves. Codex or OpenRouter are the safer BYOS routes.
 
-To run against your own backend, set the OpenGrok server URL in Router. That is [opengrok-server](https://github.com/hexuria/opengrok-server), a Cursor-compatible API so this client can run with no Cursor dependency. Nothing here requires it.
+### Other models: OpenGrok server + open-ai-gateway
+
+The four providers above are what this app can drive by itself. For anything else, run [opengrok-server](https://github.com/hexuria/opengrok-server) in front of [open-ai-gateway](https://github.com/hexuria/open-ai-gateway), then paste the server URL in **Settings → Router** (and pick **OpenGrok Server** under Computer). Sign-in then happens on *your* server, not Cursor.
+
+You can run that stack **locally** (Docker / `just dev` on this machine) or **remotely**.
+
+- **Local, just you:** a personal Codex or xAI Grok CLI seat on the gateway is still your own usage.
+- **Remote or more than one person:** do **not** put a personal Claude / Codex / Cursor / Grok subscription behind the gateway. Providers treat that as intermediating someone else's seat, and that is how accounts get banned. Use **API keys** (or a Team/Enterprise seat bound to one person). Anthropic does not allow Claude.ai / Claude Code credentials in a third-party gateway at all — an Anthropic API key is the only sanctioned Claude path there.
+
+Nothing in this client requires the server. BYOS on Router is enough to use the app.
 
 ## Benchmark
 
