@@ -66,20 +66,20 @@ test("the daemon on/off helper maps enrolled legacy values to on, never to off",
 });
 
 test("the per-agent auto-review widget is injected and is valid JS", async () => {
+  const { AGENT_AUTOREVIEW_HELPER } = await import("../scripts/lib/agent-autoreview-helper.mjs");
   const src = await readFile(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
-  const m = src.match(/const AGENT_AUTOREVIEW_HELPER = ([\s\S]*?);\n\nconst ACCOUNT_CARD_HELPER/);
-  assert.ok(m, "AGENT_AUTOREVIEW_HELPER must exist");
-  const js = (0, eval)(m[1]);
   const acorn = await import("acorn");
-  acorn.parse(js, { ecmaVersion: "latest" });
-  // It drives the real edges and scopes itself to the agent settings pane.
-  assert.match(js, /getAgentAutoReview/);
-  assert.match(js, /setAgentAutoReview/);
-  assert.match(js, /deleteAgentAutoReview/);
-  // The pane has no id of its own; the open agent comes from the selected item.
-  assert.match(js, /\.sand-agent-settings/);
-  assert.match(js, /aria-current/);
-  // And it is actually wired into the shipped prepend chain.
+  acorn.parse(AGENT_AUTOREVIEW_HELPER, { ecmaVersion: "latest" });
+  assert.match(AGENT_AUTOREVIEW_HELPER, /getAgentAutoReview/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /setAgentAutoReview/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /deleteAgentAutoReview/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /\.sand-agent-settings/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /aria-current/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /Manage…/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /Inherit from global/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /sand-ar-scrim/);
+  assert.doesNotMatch(AGENT_AUTOREVIEW_HELPER, /textarea/);
+  assert.match(src, /import \{ AGENT_AUTOREVIEW_HELPER \} from "\.\/agent-autoreview-helper\.mjs"/);
   assert.match(src, /\+ AGENT_AUTOREVIEW_HELPER \+ patched;/);
 });
 
