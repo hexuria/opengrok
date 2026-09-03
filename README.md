@@ -1,7 +1,5 @@
 # OpenGrok
 
-![OpenGrok settings showing the Router, Dictation and Usage tabs, with recorded activity for Cursor, Claude Code, Codex, and OpenRouter](docs/assets/router-settings.png)
-
 A faster, more complete Grok Bot. Use it as a drop-in replacement for the official app.
 
 ## Getting started

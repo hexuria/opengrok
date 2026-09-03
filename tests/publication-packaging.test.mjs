@@ -38,12 +38,13 @@ test("publication ignore rules keep the recovered material out of this repositor
     "PROVENANCE.md",
     "docs/research/versions/rpc-methods-0.30.txt",
     "docs/gap-analysis-0.30.md",
+    "docs/ARCHITECTURE.md",
   ]) {
     assert.equal(matcher.ignores(excluded), true, `${excluded} must stay out of this repository`);
   }
   assert.equal(matcher.ignores("recovered/generated-output.txt"), true, "root recovery output must remain ignored");
   // Our own work must stay committable.
-  for (const kept of ["scripts/lib/router-renderer-patch.mjs", "source/host/gateway-server.ts", "docs/ARCHITECTURE.md"]) {
+  for (const kept of ["scripts/lib/router-renderer-patch.mjs", "source/host/gateway-server.ts"]) {
     assert.equal(matcher.ignores(kept), false, `${kept} must remain addable`);
   }
 });
