@@ -28,6 +28,7 @@ test("publication ignore rules keep the recovered material out of this repositor
   assert.match(ignoreRules, /^\/recovered\/$/m);
   assert.doesNotMatch(ignoreRules, /^recovered\/$/m);
   assert.match(ignoreRules, /^docs\/$/m);
+  assert.match(ignoreRules, /^docq\/$/m);
   const matcher = createIgnore().add(ignoreRules);
   for (const excluded of [
     "frontend/src/recovered/ui/sand-form-primitives.css",
@@ -38,6 +39,7 @@ test("publication ignore rules keep the recovered material out of this repositor
     "research-archives/original/0.18.0/SHA256SUMS",
     "PROVENANCE.md",
     "docs/ARCHITECTURE.md",
+    "docq/README.md",
   ]) {
     assert.equal(matcher.ignores(excluded), true, `${excluded} must stay out of this repository`);
   }
