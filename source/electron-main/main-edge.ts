@@ -704,12 +704,22 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
           callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/models" }),
           callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, { path: "/coworkers" }),
         ]);
-        const models = typeof catalogue === "object" && catalogue != null && Array.isArray((catalogue as UnknownRecord).models)
-          ? ((catalogue as UnknownRecord).models as unknown[]).flatMap((entry) => {
-            const id = typeof entry === "object" && entry != null ? (entry as UnknownRecord).id : entry;
-            return typeof id === "string" && id.length > 0 ? [id] : [];
-          })
+        const entries = typeof catalogue === "object" && catalogue != null && Array.isArray((catalogue as UnknownRecord).models)
+          ? (catalogue as UnknownRecord).models as unknown[]
           : [];
+        const models = entries.flatMap((entry) => {
+          const id = typeof entry === "object" && entry != null ? (entry as UnknownRecord).id : entry;
+          return typeof id === "string" && id.length > 0 ? [id] : [];
+        });
+        // Points multipliers per model (input, output, cache read, cache write, and the one shown),
+        // strings like "10" or "2.5"; null on a server or gateway older than the points work.
+        const points: Record<string, unknown> = {};
+        for (const entry of entries) {
+          if (typeof entry !== "object" || entry == null) continue;
+          const id = (entry as UnknownRecord).id;
+          const p = (entry as UnknownRecord).points;
+          if (typeof id === "string" && id.length > 0) points[id] = typeof p === "object" && p != null ? p : null;
+        }
         const note = typeof catalogue === "object" && catalogue != null && typeof (catalogue as UnknownRecord).note === "string"
           ? (catalogue as UnknownRecord).note as string
           : null;
@@ -722,7 +732,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
             : [];
         const row = rows.find((entry) => entry != null && entry.id === agentId) ?? null;
         const model = row != null && typeof row.model === "string" ? row.model : null;
-        return cloneableRecord({ available: true, models, model, ...(note == null ? {} : { note }) });
+        return cloneableRecord({ available: true, models, points, model, ...(note == null ? {} : { note }) });
       } catch (error) {
         return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
       }
@@ -800,6 +810,79 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         return cloneableRecord({ available: true, spend: typeof spend === "object" && spend != null ? spend : {} });
       } catch (error) {
         return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    /**
+     * A coworker's usage per model in one window: requests, tokens, actual cost, list cost, points.
+     *
+     * A report, not a limit: the server reads its gateway ledger and knows nothing about caps here.
+     * The answer is passed through whole; a server older than the points work has no such route and
+     * its sentence comes back as `error`, which the pane words as "not served yet".
+     */
+    getCoworkerUsage: async (raw) => {
+      const r = req(raw);
+      const agentId = r.agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "getCoworkerUsage needs an agent id.");
+      const window = typeof r.window === "string" && ["5h", "24h", "7d", "month"].includes(r.window) ? r.window : "month";
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return cloneableRecord({ available: false });
+      try {
+        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const usage = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: `/coworkers/${encodeURIComponent(agentId)}/usage`,
+          query: { window },
+        });
+        return cloneableRecord({ available: true, window, usage: typeof usage === "object" && usage != null ? usage : {} });
+      } catch (error) {
+        return cloneableRecord({ available: true, window, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    /** A coworker's points limits: its monthly cap and daily brake (the owner's), and the owner's pool (the admin's). */
+    getCoworkerLimit: async (raw) => {
+      const agentId = req(raw).agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "getCoworkerLimit needs an agent id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return cloneableRecord({ available: false });
+      try {
+        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const limit = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: `/coworkers/${encodeURIComponent(agentId)}/limit`,
+        });
+        return cloneableRecord({ available: true, limit: typeof limit === "object" && limit != null ? limit : {} });
+      } catch (error) {
+        return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    /**
+     * Sets a coworker's monthly cap and daily brake, in points; null clears one. The server refuses a
+     * cap above the owner's pool and anyone but the owner, in its own words.
+     */
+    setCoworkerLimit: async (raw) => {
+      const r = req(raw);
+      const agentId = r.agentId;
+      invariant(typeof agentId === "string" && agentId.length > 0, "setCoworkerLimit needs an agent id.");
+      const whole = (value: unknown, name: string): number | null => {
+        if (value == null) return null;
+        invariant(typeof value === "number" && Number.isInteger(value) && value >= 0, `${name} must be a whole number of points, or null.`);
+        return value;
+      };
+      const cap = whole(r.cap, "cap");
+      const dayCap = whole(r.dayCap, "dayCap");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "This route has no OpenGrok server.");
+      const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      try {
+        const limit = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: `/coworkers/${encodeURIComponent(agentId)}/limit`,
+          method: "PUT",
+          body: { cap, dayCap },
+        });
+        return cloneableRecord({ saved: true, limit: typeof limit === "object" && limit != null ? limit : {} });
+      } catch (error) {
+        return cloneableRecord({ saved: false, error: String(error instanceof Error ? error.message : error) });
       }
     },
     getAgentAutoReview: async (raw) => {
