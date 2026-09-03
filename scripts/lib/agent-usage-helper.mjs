@@ -84,7 +84,7 @@ var summary=function(r,spend){if(r&&r.usage){var t=table(r.usage,"all").totals;i
 var seatLine=function(s){if(!s)return "";if(s.metered===false)return "Not metered"+(s.note?": "+String(s.note):".");var seat=s.seat==="subscription"?"Subscription seat":s.seat==="api"?"API key":"Metered";return seat+(s.keyPrefix?" · key "+String(s.keyPrefix)+"…":"")};
 // The pool sentence and the "nothing is set" line for the limits section.
 var limitsText=function(l,R){var out={pool:"",none:""};if(!l)return out;var pool=l.pool||{};
-  if(pool.max!=null){var eq=usdOfPoints(pool.max,R);out.pool="Your pool: "+int(pool.used||0)+" of "+int(pool.max)+" used"+(eq?" ("+eq+")":"")+(pool.setBy?", set by your "+String(pool.setBy):"")+(pool.resetsAt?", resets "+resetDay(pool.resetsAt):"")+"."}
+  if(pool.max!=null){var eq=usdOfPoints(pool.max,R);var used=pool.used==null?"usage unknown until your admin sets a reference price":int(pool.used)+" of "+int(pool.max)+" used";out.pool="Your pool: "+(pool.used==null?int(pool.max)+" points, ":"")+used+(eq?" ("+eq+")":"")+(pool.setBy?", set by your "+String(pool.setBy):"")+(pool.resetsAt?", resets "+resetDay(pool.resetsAt):"")+"."}
   else out.pool="No pool. Your admin has not set one.";
   if(l.cap==null&&l.dayCap==null&&pool.max==null)out.none="No limits. This coworker draws on nothing but the gateway's own budgets.";
   else if(l.cap==null&&l.dayCap==null)out.none="No cap on this coworker; it draws on your pool.";
@@ -104,7 +104,7 @@ var open=function(agentId){agentId=agentId||currentAgent();var a=window.desktop&
   var tbl=el("table","sand-us-table");var thead=el("thead");var hr=el("tr");[["Model",""],["Requests","n"],["Tokens in / out","n"],["List","n"],["Actual","n"],["Points","n"]].forEach(function(c){var th=el("th",c[1]||null,c[0]);hr.appendChild(th)});thead.appendChild(hr);var tbody=el("tbody");tbl.append(thead,tbody);P.table=tbl;P.tbody=tbody;
   var note=el("p","sand-us-note","");P.note=note;var err=el("p","sand-us-err","");P.err=err;
   var lim=el("div","sand-us-lim");lim.appendChild(el("h5",null,"Limits"));
-  var mk=function(label,key){var f=el("div","f");var l=el("label",null,label);var i=el("input");i.type="text";i.inputMode="numeric";i.setAttribute("aria-label",label+" in points");i.placeholder="none";var eq=el("span","eq","");i.addEventListener("input",function(){eq.textContent=usdOfPoints(parse(i.value),m.R)||(i.value.trim()?"":key==="cap"?"none = your pool":"none = off");refreshSave()});f.append(l,i,eq);lim.appendChild(f);P[key]=i;P[key+"Eq"]=eq};
+  var mk=function(label,key){var f=el("div","f");var l=el("label",null,label);var i=el("input");i.type="text";i.inputMode="numeric";i.setAttribute("aria-label",label+" in points");i.placeholder="none";var eq=el("span","eq","");i.addEventListener("input",function(){var v=parse(i.value);eq.textContent=v===0?"0 = nothing may run":usdOfPoints(v,m.R)||(i.value.trim()?"":key==="cap"?"none = your pool":"none = off");refreshSave()});f.append(l,i,eq);lim.appendChild(f);P[key]=i;P[key+"Eq"]=eq};
   mk("Monthly cap","cap");mk("Daily brake","dayCap");
   var foot=el("div","f");var save=el("button",null,"Save");save.type="button";save.disabled=true;var st=el("span","eq","");foot.append(save,st);lim.appendChild(foot);P.save=save;P.saveNote=st;
   var pool=el("p","sand-us-note","");P.pool=pool;lim.appendChild(pool);var limNote=el("p","sand-us-note","");P.limNote=limNote;lim.appendChild(limNote);P.lim=lim;
@@ -129,9 +129,9 @@ var open=function(agentId){agentId=agentId||currentAgent();var a=window.desktop&
       if(!r||r.available===false){lim.hidden=true;return}
       if(r.error){m.limit=null;P.cap.disabled=true;P.dayCap.disabled=true;save.disabled=true;limNote.textContent=notServed(r.error)?"Limits are not served by this server yet.":"The server could not be asked. "+String(r.error);return}
       var l=r.limit||{};m.limit=l;m.R=l.reference&&l.reference.usdPerMtok;P.cap.disabled=false;P.dayCap.disabled=false;
-      P.cap.value=l.cap==null?"":int(l.cap);P.capEq.textContent=l.cap==null?"none = your pool":usdOfPoints(Number(l.cap),m.R)+(l.effectiveCap!=null&&Number(l.effectiveCap)!==Number(l.cap)?" · effective "+int(l.effectiveCap):"");
+      P.cap.value=l.cap==null?"":int(l.cap);P.capEq.textContent=l.cap==null?"none = your pool":Number(l.cap)===0?"0 = nothing may run":usdOfPoints(Number(l.cap),m.R)+(l.effectiveCap!=null&&Number(l.effectiveCap)!==Number(l.cap)?" · effective "+int(l.effectiveCap):"");
       P.dayCap.value=l.dayCap==null?"":int(l.dayCap);P.dayCapEq.textContent=l.dayCap==null?"none = off":usdOfPoints(Number(l.dayCap),m.R)+(l.usedToday!=null?" · "+int(l.usedToday)+" used today":"");
-      var lt=limitsText(l,m.R);pool.textContent=lt.pool;limNote.textContent=lt.none;refreshSave()}).catch(function(e){limNote.textContent="The server could not be asked. "+String(e&&e.message||e)})};
+      var lt=limitsText(l,m.R);pool.textContent=lt.pool;limNote.textContent=l.metered===false&&l.note?"Not metered: "+String(l.note)+(lt.none?" "+lt.none:""):lt.none;refreshSave()}).catch(function(e){limNote.textContent="The server could not be asked. "+String(e&&e.message||e)})};
   sheet.append(top,sub,row,tbl,note,err,lim);scrim.appendChild(sheet);document.body.appendChild(scrim);
   onKey=function(e){if(e.key==="Escape"){e.preventDefault();close()}};document.addEventListener("keydown",onKey);
   scrim.addEventListener("mousedown",function(e){if(e.target===scrim)close()});

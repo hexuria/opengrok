@@ -99,6 +99,8 @@ test("limits text: the pool with its dollar equivalent and who set it; the no-ca
   assert.match(bare.none, /^No limits\./);
   const pooled = api.limitsText({ cap: null, dayCap: null, pool: { max: 5 } }, null);
   assert.equal(pooled.none, "No cap on this coworker; it draws on your pool.");
+  const unpriced = api.limitsText({ cap: null, dayCap: null, pool: { max: 1000000, used: null, setBy: "admin" } }, null);
+  assert.equal(unpriced.pool, "Your pool: 1,000,000 points, usage unknown until your admin sets a reference price, set by your admin.", "null usage is not zero usage");
 });
 
 test("the pane keeps one line under Model with an Open button; the line reads the month", async () => {
@@ -165,6 +167,16 @@ test("the modal: per-model rows with ×N, totals, the period switch re-reads, th
   assert.equal(api.current(), null);
 });
 
+test("an unmetered coworker's limits say so in the server's words", async () => {
+  const { settle, api } = fakePage({ usage: USAGE, catalogue: CAT, limit: { available: true, limit: { metered: false, note: "no gateway key of its own yet", cap: 500, effectiveCap: 500, usedPoints: null, dayCap: null, usedToday: null, dayFreesAt: null, pool: { max: null, used: null, resetsAt: "2026-10-01T00:00:00Z", setBy: null }, reference: null } } });
+  const m = api.open("cw_1");
+  await settle();
+  assert.equal(m.parts.limNote.textContent, "Not metered: no gateway key of its own yet");
+  assert.equal(m.parts.cap.value, "500");
+  assert.equal(m.parts.capEq.textContent, "", "no reference price, no dollar");
+  assert.equal(m.parts.pool.textContent, "No pool. Your admin has not set one.");
+});
+
 test("the limits section: fields carry their dollar equivalents, Save sends whole points or null, refusals show", async () => {
   const { calls, settle, api } = fakePage({ usage: USAGE, limit: LIMIT, catalogue: CAT, saveResult: { saved: false, error: "a cap above your pool of 1,000,000" } });
   const m = api.open("cw_1");
@@ -177,6 +189,8 @@ test("the limits section: fields carry their dollar equivalents, Save sends whol
   assert.equal(m.parts.save.disabled, true, "nothing changed yet");
   m.parts.dayCap.value = "20,000"; m.parts.dayCap.listeners.input();
   assert.equal(m.parts.dayCapEq.textContent, "≈ $0.0040");
+  m.parts.cap.value = "0"; m.parts.cap.listeners.input();
+  assert.equal(m.parts.capEq.textContent, "0 = nothing may run", "zero is an explicit stop, not no cap");
   assert.equal(m.parts.save.disabled, false);
   m.parts.cap.value = "abc"; m.parts.cap.listeners.input();
   assert.equal(m.parts.save.disabled, true);
