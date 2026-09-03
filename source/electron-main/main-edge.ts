@@ -738,13 +738,12 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       }
     },
     /**
-     * Repins a coworker, but only to a model the gateway will actually serve.
+     * Repins a coworker.
      *
-     * The catalogue is what the gateway ADVERTISES, which is not the same as what it can serve on
-     * this account's credentials — `oag/auto` is advertised everywhere and refused wherever no
-     * credential matches that route. A pin that refuses every turn looks exactly like a broken
-     * coworker, so the server's probe (a real, rate-limited completion) proves the pin first and
-     * the gateway's own words come back when it will not serve.
+     * It used to prove the pin with a real completion first, and refuse to save one the gateway
+     * would not serve. That probe is gone: it is a real turn the server rate-limits, and a model
+     * that will not answer is fixed by picking another, which costs a person one click and the
+     * deployment nothing.
      */
     setAgentModel: async (raw) => {
       const r = req(raw);
@@ -756,60 +755,16 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "This route has no OpenGrok server.");
       const secrets = openGrokAccountSecrets(deps, gatewayUrl);
       const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-      // A probe is a real completion, so the server rate-limits it. That is a "try again", not
-      // a broken pin, and it must not reach the pane as a raw handler failure.
-      let probe: unknown;
       try {
-        probe = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
-          path: "/models/probe",
-          method: "POST",
+        const answer = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: `/coworkers/${encodeURIComponent(agentId)}`,
+          method: "PATCH",
           body: { model },
         });
+        const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : { id: agentId, model };
+        return cloneableRecord({ ...row, saved: true });
       } catch (error) {
-        const message = String(error instanceof Error ? error.message : error);
-        return cloneableRecord({
-          pinned: false,
-          model,
-          detail: message.includes("429")
-            ? "the server is limiting model checks just now; try again in a moment"
-            : `the model could not be checked (${message})`,
-        });
-      }
-      const probed = typeof probe === "object" && probe != null ? probe as UnknownRecord : {};
-      if (probed.ok !== true) {
-        const detail = typeof probed.detail === "string" && probed.detail.length > 0 ? probed.detail : "the gateway would not serve it";
-        return cloneableRecord({ pinned: false, model, detail });
-      }
-      const answer = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
-        path: `/coworkers/${encodeURIComponent(agentId)}`,
-        method: "PATCH",
-        body: { model },
-      });
-      const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : { id: agentId, model };
-      return cloneableRecord({ ...row, pinned: true, ...(typeof probed.served === "string" ? { served: probed.served } : {}) });
-    },
-    /**
-     * What a coworker has spent on its own gateway key, as the server meters it.
-     *
-     * The server's answer is passed through whole (`metered`, `note`, `keyPrefix`, `seat`,
-     * `limits`, `windows`); the pane words it. A route with no OpenGrok server has no meter and
-     * says so with `available: false`; a server that cannot be asked returns its sentence rather
-     * than a raw handler failure, as the Model block does.
-     */
-    getCoworkerSpend: async (raw) => {
-      const agentId = req(raw).agentId;
-      invariant(typeof agentId === "string" && agentId.length > 0, "getCoworkerSpend needs an agent id.");
-      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
-      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return cloneableRecord({ available: false });
-      try {
-        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
-        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
-        const spend = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
-          path: `/coworkers/${encodeURIComponent(agentId)}/spend`,
-        });
-        return cloneableRecord({ available: true, spend: typeof spend === "object" && spend != null ? spend : {} });
-      } catch (error) {
-        return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
+        return cloneableRecord({ saved: false, model, error: String(error instanceof Error ? error.message : error) });
       }
     },
     /**
