@@ -326,6 +326,7 @@ export function createDesktopPreloadBridge(options: {
       getAgentModel: (agentId: string) => edge("getAgentModel", { agentId }),
       setAgentModel: (agentId: string, model: string) => edge("setAgentModel", { agentId, model }),
       setCoworkerRole: (agentId: string, role: string | null) => edge("setCoworkerRole", { agentId, role }),
+      setCoworkerVisibility: (agentId: string, visibility: string) => edge("setCoworkerVisibility", { agentId, visibility }),
       getCoworkerSpend: (agentId: string) => edge("getCoworkerSpend", { agentId }),
       getCoworkerUsage: (agentId: string, window: string) => edge("getCoworkerUsage", { agentId, window }),
       getCoworkerLimit: (agentId: string) => edge("getCoworkerLimit", { agentId }),

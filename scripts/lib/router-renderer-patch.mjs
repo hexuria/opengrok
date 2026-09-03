@@ -5,6 +5,7 @@ import { DELETE_MESSAGE_HELPER } from "./delete-message-helper.mjs";
 import { COLLECTIONS_RAIL_HELPER } from "./collections-rail-helper.mjs";
 import { AGENT_MODEL_HELPER } from "./agent-model-helper.mjs";
 import { AGENT_ROLE_HELPER } from "./agent-role-helper.mjs";
+import { AGENT_VISIBILITY_HELPER } from "./agent-visibility-helper.mjs";
 import { AGENT_USAGE_HELPER } from "./agent-usage-helper.mjs";
 import { SCREEN_PREVIEW_HELPER } from "./screen-preview-helper.mjs";
 import { SELECT_MODE_HELPER } from "./select-messages-helper.mjs";
@@ -2069,7 +2070,7 @@ export function patchOriginalMainChrome(source) {
   }
   // The banner for a server that cannot be read is chrome, not a feature of any one surface,
   // so it rides with the main chrome rather than in the helper chain the tests pin.
-  return `${source}\n${MAIN_CHROME_SOURCE}\n${SERVER_READS_BANNER_HELPER}\n${DELETE_MESSAGE_HELPER}\n${COLLECTIONS_RAIL_HELPER}\n${AGENT_MODEL_HELPER}\n${AGENT_ROLE_HELPER}\n${AGENT_USAGE_HELPER}\n${SCREEN_PREVIEW_HELPER}`;
+  return `${source}\n${MAIN_CHROME_SOURCE}\n${SERVER_READS_BANNER_HELPER}\n${DELETE_MESSAGE_HELPER}\n${COLLECTIONS_RAIL_HELPER}\n${AGENT_MODEL_HELPER}\n${AGENT_ROLE_HELPER}\n${AGENT_VISIBILITY_HELPER}\n${AGENT_USAGE_HELPER}\n${SCREEN_PREVIEW_HELPER}`;
 }
 
 const EXECUTION_ROW_ANCHOR='const De="Execution on Local Computer",ia="Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.";function da(){';
@@ -2222,6 +2223,7 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       "model-per-coworker",
       "usage-per-coworker",
       "role-per-coworker",
+      "visibility-per-coworker",
       "screen-preview-fits-its-screen",
     ],
     brandCounts: Object.fromEntries(brandCounts),

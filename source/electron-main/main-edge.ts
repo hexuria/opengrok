@@ -735,7 +735,19 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         // `role` arrives on the roster row once the server serves it; `undefined` means this
         // server has no such field yet, which the pane words differently from an empty role.
         const role = row != null && typeof row.role === "string" ? row.role : row != null && row.role === null ? null : undefined;
-        return cloneableRecord({ available: true, models, points, model, ...(role === undefined ? {} : { role }), ...(note == null ? {} : { note }) });
+        // Visibility and the server's own verdict on who may edit. The desktop renders these and
+        // never computes policy from them; absent means this server does not carry them yet.
+        const visibility = row != null && (row.visibility === "private" || row.visibility === "org") ? row.visibility : undefined;
+        const canManage = row != null && typeof row.canManage === "boolean" ? row.canManage : undefined;
+        const owner = row != null && typeof row.owner === "object" && row.owner != null ? row.owner as UnknownRecord : row != null && row.owner === null ? null : undefined;
+        const mine = row != null && typeof row.mine === "boolean" ? row.mine : undefined;
+        return cloneableRecord({ available: true, models, points, model,
+          ...(role === undefined ? {} : { role }),
+          ...(visibility === undefined ? {} : { visibility }),
+          ...(canManage === undefined ? {} : { canManage }),
+          ...(owner === undefined ? {} : { owner }),
+          ...(mine === undefined ? {} : { mine }),
+          ...(note == null ? {} : { note }) });
       } catch (error) {
         return cloneableRecord({ available: true, error: String(error instanceof Error ? error.message : error) });
       }
@@ -795,6 +807,34 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         });
         const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : {};
         return cloneableRecord({ saved: true, role, ...row });
+      } catch (error) {
+        return cloneableRecord({ saved: false, error: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    /**
+     * Who may talk to a coworker: its owner alone, or everyone in the organisation.
+     *
+     * The server decides whether the caller may change it and says so on the roster row; this
+     * door only carries the choice. A server that does not serve the field answers 404.
+     */
+    setCoworkerVisibility: async (raw) => {
+      const r = req(raw);
+      const agentId = r.agentId;
+      const visibility = r.visibility;
+      invariant(typeof agentId === "string" && agentId.length > 0, "setCoworkerVisibility needs an agent id.");
+      invariant(visibility === "private" || visibility === "org", "Visibility is either private or org.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      invariant(typeof gatewayUrl === "string" && gatewayUrl.length > 0, "This route has no OpenGrok server.");
+      const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+      const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+      try {
+        const answer = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: `/coworkers/${encodeURIComponent(agentId)}`,
+          method: "PATCH",
+          body: { visibility },
+        });
+        const row = typeof answer === "object" && answer != null ? answer as UnknownRecord : {};
+        return cloneableRecord({ saved: true, visibility, ...row });
       } catch (error) {
         return cloneableRecord({ saved: false, error: String(error instanceof Error ? error.message : error) });
       }

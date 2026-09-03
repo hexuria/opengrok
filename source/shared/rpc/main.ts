@@ -114,6 +114,7 @@ export const MAIN_METHOD_TABLE = {
   getAgentModel: { args: "object" },
   setAgentModel: { args: "object" },
   setCoworkerRole: { args: "object" },
+  setCoworkerVisibility: { args: "object" },
   getCoworkerSpend: { args: "object" },
   getCoworkerUsage: { args: "object" },
   getCoworkerLimit: { args: "object" },
