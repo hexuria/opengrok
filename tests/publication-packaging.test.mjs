@@ -27,6 +27,7 @@ test("publication ignore rules keep the recovered material out of this repositor
   const ignoreRules = await readFile(path.join(repoRoot, ".gitignore"), "utf8");
   assert.match(ignoreRules, /^\/recovered\/$/m);
   assert.doesNotMatch(ignoreRules, /^recovered\/$/m);
+  assert.match(ignoreRules, /^docs\/$/m);
   const matcher = createIgnore().add(ignoreRules);
   for (const excluded of [
     "frontend/src/recovered/ui/sand-form-primitives.css",
@@ -36,8 +37,6 @@ test("publication ignore rules keep the recovered material out of this repositor
     "patches/@connectrpc__connect@1.6.1.patch",
     "research-archives/original/0.18.0/SHA256SUMS",
     "PROVENANCE.md",
-    "docs/research/versions/rpc-methods-0.30.txt",
-    "docs/gap-analysis-0.30.md",
     "docs/ARCHITECTURE.md",
   ]) {
     assert.equal(matcher.ignores(excluded), true, `${excluded} must stay out of this repository`);
