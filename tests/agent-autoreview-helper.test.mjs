@@ -45,13 +45,14 @@ function fakePage({ row, effective, error, available = true, agent = "cw_1" } = 
   return { api: window.__sandAutoReview, pane, body, calls, settle, box: () => pane.querySelector(".sand-lp-ar") };
 }
 
-test("the pane is a summary and Manage, not allow/block fields", async () => {
+test("the pane is Auto-review and Manage, with no truncated summary", async () => {
   const { settle, box, calls } = fakePage({ row: { enabled: true, allowInstructions: "read files\nrun tests", blockInstructions: "install software" } });
   await settle();
   const b = box();
   assert.ok(b, "mounted");
   assert.equal(b.parts.open.textContent, "Manage…");
-  assert.equal(b.parts.sum.textContent, "On. 3 rules — 2 allow, 1 block.");
+  assert.equal(b.children[0].textContent, "Auto-review");
+  assert.equal(b.children.length, 2);
   assert.deepEqual(calls.get, ["cw_1"]);
   assert.equal(b.querySelector(".sand-ar-scrim"), null);
 });
@@ -75,11 +76,16 @@ test("adding a rule saves immediately; inherit with nothing deletes the row", as
   await settle();
   const m = api.open("cw_1");
   await settle();
+  assert.match(m.parts.stage.className, /sand-ar-stage/);
+  assert.equal(m.parts.stage.style.height || "", "", "height lives on the stylesheet, not inline");
+  m.parts.plus.listeners.click();
+  assert.match(m.parts.stage.className, /compose/);
   m.parts.draft.value = "read files"; m.parts.addBtn.listeners.click();
   await settle();
   assert.ok(calls.set.length >= 1);
   const added = calls.set[calls.set.length - 1][1];
   assert.deepEqual(added.allowInstructions, ["read files"]);
+  assert.doesNotMatch(m.parts.stage.className, /compose/);
   const on = fakePage({ row: { enabled: true, allowInstructions: "", blockInstructions: "" } });
   await on.settle();
   const m2 = on.api.open("cw_1");

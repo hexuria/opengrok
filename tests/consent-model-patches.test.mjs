@@ -78,7 +78,10 @@ test("the per-agent auto-review widget is injected and is valid JS", async () =>
   assert.match(AGENT_AUTOREVIEW_HELPER, /Manage…/);
   assert.match(AGENT_AUTOREVIEW_HELPER, /Inherit from global/);
   assert.match(AGENT_AUTOREVIEW_HELPER, /sand-ar-scrim/);
-  assert.doesNotMatch(AGENT_AUTOREVIEW_HELPER, /textarea/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /ROWS=10/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /sand-ar-plus/);
+  assert.match(AGENT_AUTOREVIEW_HELPER, /sand-ar-draft/);
+  assert.doesNotMatch(AGENT_AUTOREVIEW_HELPER, /lp-ar-sum/);
   assert.match(src, /import \{ AGENT_AUTOREVIEW_HELPER \} from "\.\/agent-autoreview-helper\.mjs"/);
   assert.match(src, /\+ AGENT_AUTOREVIEW_HELPER \+ patched;/);
 });
