@@ -111,7 +111,7 @@ export function startElectronDevControlsEntrypoint(
   const moduleDirectory = path.dirname(fileURLToPath(options.moduleUrl ?? import.meta.url));
   const projectDir = resolveElectronDevControlsProjectDir(options.moduleUrl ?? import.meta.url);
   const windowRuntime = createDevControlsWindowRuntime({ projectDir, env });
-  const onePasswordCli = createOnePasswordCliDevController({ projectDir });
+  const onePasswordCli = createOnePasswordCliDevController();
   let panelWindow: ElectronBrowserWindow | undefined;
   const open = (): void => openDevControlsWindow({
     electron: {
