@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 
 import { repoRoot } from "./lib/config.mjs";
-import { packagedElectronRuntimePackages } from "./build-electron-natives.mjs";
+import { packagedElectronRuntimePackages, retainedElectronNativePackagesFromMetafile } from "./build-electron-natives.mjs";
 
 export const hostBindingProvenancePath = "dist/host-production-bindings.json";
 
@@ -649,7 +649,7 @@ export async function buildProductionHostIfSupplied({ outputRoot, manifestPath =
     inventory: validated.inventory,
     activationEvidence: validated.activationEvidence,
     bindings: validated.bindings.map(({ resolvedModule: _resolvedModule, ...binding }) => binding),
-    executableGraph: { inputs, externalImports, forbiddenInputs, forbiddenOutputReferences: [] },
+    executableGraph: { inputs, externalImports, forbiddenInputs, forbiddenOutputReferences: [], retainedNativePackages: retainedElectronNativePackagesFromMetafile(result.metafile) },
     output: { path: "dist/host/host-main.cjs", bytes: outputBytes.byteLength, sha256: sha256(outputBytes) },
   };
   const provenancePath = path.join(outputRoot, hostBindingProvenancePath);

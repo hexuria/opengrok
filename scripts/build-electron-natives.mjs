@@ -14,7 +14,7 @@ export const electronHeadersUrl = `https://artifacts.electronjs.org/headers/dist
 
 export const electronNativePackages = Object.freeze(["better-sqlite3", "tree-sitter", "tree-sitter-bash"]);
 export const electronNativeJsDependencies = Object.freeze(["bindings", "file-uri-to-path", "node-addon-api", "node-gyp-build"]);
-// Temporary 0.18 copies until the source host ships; these are still packaged.
+// 0.18 copies; staged only when a production esbuild metafile mentions them.
 export const retainedElectronNativePackages = Object.freeze([
   "@anysphere/tree-chunk-napi",
   "whichlang-node",
@@ -30,6 +30,20 @@ export const retainedElectronNativeNodeFiles = Object.freeze([
   "@anysphere/tree-chunk-napi/tree-chunk-napi.darwin-arm64.node",
   "whichlang-node-darwin-arm64/whichlang-node.darwin-arm64.node",
 ]);
+
+export function retainedElectronNativePackagesFromMetafile(metafile) {
+  const text = typeof metafile === "string" ? metafile : JSON.stringify(metafile ?? {});
+  return retainedElectronNativePackages.filter(name => (
+    name.includes("tree-chunk-napi") ? text.includes("tree-chunk-napi")
+      : name.includes("whichlang") ? text.includes("whichlang")
+        : text.includes(name)
+  ));
+}
+
+export function retainedElectronNativeNodeFilesFor(packages) {
+  const selected = new Set(packages);
+  return retainedElectronNativeNodeFiles.filter(relative => selected.has(relativeNativePackageName(relative)));
+}
 
 const forbiddenElectronNativeNames = Object.freeze(["cursor-proclist"]);
 
@@ -67,10 +81,10 @@ function relativeNativePackageName(relative) {
   return relative.split("/")[0];
 }
 
-export function packagedElectronRuntimePackages() {
-  const nodeFiles = [...electronNativeNodeFiles, ...retainedElectronNativeNodeFiles];
+export function packagedElectronRuntimePackages({ retained = [] } = {}) {
+  const nodeFiles = [...electronNativeNodeFiles, ...retainedElectronNativeNodeFilesFor(retained)];
   return {
-    copied: new Set([...electronNativePackages, ...electronNativeJsDependencies, ...retainedElectronNativePackages]),
+    copied: new Set([...electronNativePackages, ...electronNativeJsDependencies, ...retained]),
     native: new Set(nodeFiles.map(relativeNativePackageName)),
   };
 }
@@ -194,35 +208,41 @@ export async function stageElectronNativeDeps(stageRoot, depsRoot = electronNati
   return destination;
 }
 
-export async function stageRetainedElectronNatives(depsRoot, unpackedDepsRoot) {
+export async function stageRetainedElectronNatives(depsRoot, unpackedDepsRoot, { packages = [] } = {}) {
   if (typeof depsRoot !== "string" || depsRoot.length === 0) throw new TypeError("An explicit Electron depsRoot is required");
-  if (typeof unpackedDepsRoot !== "string" || unpackedDepsRoot.length === 0) {
-    throw new TypeError("An explicit 0.18 unpacked depsRoot is required");
-  }
-  for (const packageName of retainedElectronNativePackages) {
-    const source = packageDirectory(unpackedDepsRoot, packageName);
-    const destination = packageDirectory(depsRoot, packageName);
-    if (!(await hasPackageJson(source))) {
-      throw new Error(`0.18 unpacked deps are missing retained native ${packageName} at ${source}`);
+  const unknown = packages.filter(name => !retainedElectronNativePackages.includes(name));
+  if (unknown.length > 0) throw new Error(`Unknown retained native package: ${unknown.join(", ")}`);
+  const selected = retainedElectronNativePackages.filter(name => packages.includes(name));
+  const selectedNodeFiles = retainedElectronNativeNodeFilesFor(selected);
+  if (selected.length > 0) {
+    if (typeof unpackedDepsRoot !== "string" || unpackedDepsRoot.length === 0) {
+      throw new TypeError("An explicit 0.18 unpacked depsRoot is required");
     }
-    await rm(destination, { recursive: true, force: true });
-    await mkdir(path.dirname(destination), { recursive: true });
-    await cp(source, destination, { recursive: true, dereference: false, preserveTimestamps: true });
-  }
-  for (const relative of retainedElectronNativeNodeFiles) {
-    const target = path.join(depsRoot, relative);
-    if (!(await exists(target)) || !(await stat(target)).isFile()) {
-      throw new Error(`Retained Electron native is missing ${relative}`);
+    for (const packageName of selected) {
+      const source = packageDirectory(unpackedDepsRoot, packageName);
+      const destination = packageDirectory(depsRoot, packageName);
+      if (!(await hasPackageJson(source))) {
+        throw new Error(`0.18 unpacked deps are missing retained native ${packageName} at ${source}`);
+      }
+      await rm(destination, { recursive: true, force: true });
+      await mkdir(path.dirname(destination), { recursive: true });
+      await cp(source, destination, { recursive: true, dereference: false, preserveTimestamps: true });
+    }
+    for (const relative of selectedNodeFiles) {
+      const target = path.join(depsRoot, relative);
+      if (!(await exists(target)) || !(await stat(target)).isFile()) {
+        throw new Error(`Retained Electron native is missing ${relative}`);
+      }
     }
   }
   await rm(packageDirectory(depsRoot, "cursor-proclist"), { recursive: true, force: true });
   const manifestPath = path.join(depsRoot, "runtime-deps-manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  manifest.copied = [...new Set([...(manifest.copied ?? []), ...retainedElectronNativePackages])].sort();
-  manifest.nodeFiles = [...electronNativeNodeFiles, ...retainedElectronNativeNodeFiles];
+  manifest.copied = [...new Set([...(manifest.copied ?? []).filter(name => !retainedElectronNativePackages.includes(name)), ...selected])].sort();
+  manifest.nodeFiles = [...electronNativeNodeFiles, ...selectedNodeFiles];
   manifest.retained = {
-    source: "0.18-unpacked",
-    packages: [...retainedElectronNativePackages],
+    source: "esbuild-metafile",
+    packages: selected,
   };
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
@@ -338,7 +358,7 @@ if (process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(i
     identity: electronNativeRebuildIdentity(),
     headers: process.env.ELECTRON_HEADERS_DIR ?? null,
     packages: [...electronNativePackages],
-    retained: [...retainedElectronNativePackages],
+    retainedCandidates: [...retainedElectronNativePackages],
     omitted: [...omittedElectronNativePackages],
     output,
     platform: process.platform,

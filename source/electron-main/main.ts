@@ -223,6 +223,10 @@ export function configureDesktopEnvironment(input: {
   input.env.SAND_PACKAGED = input.isAttachProdBox || input.isPackaged ? "1" : "0";
   input.env.SAND_LAB = input.isLabBuild ? "1" : "0";
   if (input.appVersion != null) input.env.SAND_CLIENT_APP_VERSION = input.appVersion;
+  // Official Cursor updater/telemetry endpoints must not run in this build.
+  input.env.SAND_DISABLE_UPDATES ??= "1";
+  input.env.SAND_DISABLE_SENTRY ??= "1";
+  input.env.SAND_DISABLE_TELEMETRY ??= "1";
 }
 
 export function isSameDocumentNavigation(target: string, current: string): boolean {

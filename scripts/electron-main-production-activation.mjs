@@ -5,10 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build as esbuild } from "esbuild";
-import { applyReconstructedUpdaterGuard } from "./lib/build-asar.mjs";
 
 import { repoRoot, sourceAppDir } from "./lib/config.mjs";
-import { packagedElectronRuntimePackages } from "./build-electron-natives.mjs";
+import { packagedElectronRuntimePackages, retainedElectronNativePackagesFromMetafile } from "./build-electron-natives.mjs";
 
 export const electronMainBindingProvenancePath = "dist/electron-main-production-bindings.json";
 export const electronMainNodeTarget = "node22";
@@ -390,7 +389,7 @@ export function resolveElectronMainBindingManifestPath({ argv = process.argv, en
   return environmentPath.length > 0 ? environmentPath : null;
 }
 
-export async function buildProductionElectronMainIfSupplied({ outputRoot, manifestPath = resolveElectronMainBindingManifestPath(), reconstructedPackage = false } = {}) {
+export async function buildProductionElectronMainIfSupplied({ outputRoot, manifestPath = resolveElectronMainBindingManifestPath() } = {}) {
   const assembled = await assembleElectronMainProductionBindingManifest(manifestPath);
   if (assembled.unboundBindings.length > 0) return {
     status: "incomplete-evidence-derived-manifest",
@@ -423,10 +422,6 @@ export async function buildProductionElectronMainIfSupplied({ outputRoot, manife
     stdin: { contents: entrySource(validated.bindings), loader: "ts", resolveDir: repoRoot, sourcefile: "scripts/build-entry/production-electron-main.ts" },
     target: electronMainNodeTarget,
   });
-  if (reconstructedPackage) {
-    const bundledSource = await readFile(outfile, "utf8");
-    await writeFile(outfile, applyReconstructedUpdaterGuard(bundledSource));
-  }
   const inputs = Object.keys(result.metafile.inputs).map(input => normalize(path.relative(repoRoot, path.resolve(repoRoot, input)))).sort();
   const forbiddenInputs = inputs.filter(input => input === "src/app" || input.startsWith("src/app/") || input.startsWith("recovered/source-capsules/") || input.startsWith("dist/deps/"));
   if (forbiddenInputs.length > 0) throw new Error(`Clean production Electron main reaches forbidden first-party artifact inputs: ${forbiddenInputs.join(", ")}`);
@@ -449,7 +444,7 @@ export async function buildProductionElectronMainIfSupplied({ outputRoot, manife
     bindings: validated.bindings.map(({ resolvedModule: _resolvedModule, ...binding }) => binding),
     boundBindings: validated.boundBindings,
     unboundBindings: validated.unboundBindings,
-    executableGraph: { target: electronMainNodeTarget, inputs, externalImports, forbiddenInputs, forbiddenOutputReferences: [], runtimePackages },
+    executableGraph: { target: electronMainNodeTarget, inputs, externalImports, forbiddenInputs, forbiddenOutputReferences: [], runtimePackages, retainedNativePackages: retainedElectronNativePackagesFromMetafile(result.metafile) },
     output: { path: "dist/electron-main/main.cjs", bytes: outputBytes.byteLength, sha256: sha256(outputBytes) },
   };
   const provenancePath = path.join(outputRoot, electronMainBindingProvenancePath);

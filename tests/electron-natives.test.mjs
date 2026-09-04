@@ -22,6 +22,7 @@ import {
   rebuiltElectronCopiedPackages,
   retainedElectronNativeNodeFiles,
   retainedElectronNativePackages,
+  retainedElectronNativePackagesFromMetafile,
   stageElectronNativeDeps,
   stageRetainedElectronNatives,
 } from "../scripts/build-electron-natives.mjs";
@@ -103,11 +104,14 @@ test("electron native rebuild inventory is public ABI packages, not 0.18 private
   assert.doesNotMatch(electronNativeDepsRoot(), /app\.asar\.unpacked/);
   const packaged = packagedElectronRuntimePackages();
   assert.ok(packaged.copied.has("better-sqlite3"));
-  assert.ok(packaged.copied.has("whichlang-node"));
-  assert.ok(packaged.copied.has("@anysphere/tree-chunk-napi"));
+  assert.ok(!packaged.copied.has("whichlang-node"));
+  assert.ok(!packaged.copied.has("@anysphere/tree-chunk-napi"));
   assert.ok(!packaged.copied.has("cursor-proclist"));
   assert.ok(packaged.native.has("better-sqlite3"));
-  assert.ok(packaged.native.has("@anysphere/tree-chunk-napi"));
+  assert.ok(!packaged.native.has("@anysphere/tree-chunk-napi"));
+  const retained = packagedElectronRuntimePackages({ retained: [...retainedElectronNativePackages] });
+  assert.ok(retained.copied.has("whichlang-node"));
+  assert.ok(retained.native.has("@anysphere/tree-chunk-napi"));
 });
 
 test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
@@ -121,10 +125,10 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.match(buildAsarSource, /from "\.\.\/build-electron-natives\.mjs"/);
   assert.match(buildAsarSource, /ensureElectronNativeDeps/);
   assert.match(buildAsarSource, /stageElectronNativeDeps\(stageRoot, depsRoot\)/);
-  assert.match(buildAsarSource, /stageRetainedElectronNatives\(path\.join\(stageRoot, "dist", "deps"\), path\.join\(runtimeUnpacked, "deps"\)\)/);
+  assert.doesNotMatch(buildAsarSource, /stageRetainedElectronNatives/);
   assert.match(buildAsarSource, /stageElectronRuntimeDependencyResolution\(path\.join\(stageRoot, "dist", "deps"\)\)/);
   assert.doesNotMatch(buildAsarSource, /\["deps", "native"\]/);
-  assert.match(buildAsarSource, /path\.join\(runtimeUnpacked, "deps"\)/);
+  assert.doesNotMatch(buildAsarSource, /path\.join\(runtimeUnpacked, "deps"\)/);
   assert.match(buildAsarSource, /path\.join\(runtimeUnpacked, "native"\)/);
 
   assert.match(nativesSource, /better-sqlite3/);
@@ -138,7 +142,7 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.doesNotMatch(nativesSource, /const output = await ensureElectronNativeDeps\(\)/);
 
   assert.match(cleanBuild, /rebuilt against Electron 42\.1\.0 \(ABI 146\)/);
-  assert.match(cleanBuild, /whichlang-node and @anysphere\/tree-chunk-napi are copied from the 0\.18 unpacked tree/);
+  assert.match(cleanBuild, /whichlang-node and @anysphere\/tree-chunk-napi are copied from the 0\.18 unpacked tree only when a production esbuild metafile mentions them/);
   assert.doesNotMatch(cleanBuild, /ABI-matched native and packaged dependencies are copied from the checksum-pinned 0\.18 runtime/);
   assert.match(hostActivation, /packagedElectronRuntimePackages/);
   assert.doesNotMatch(hostActivation, /sourceAppDir, "dist\/deps\/runtime-deps-manifest\.json"/);
@@ -171,8 +175,18 @@ test("stageElectronNativeDeps copies the rebuilt tree into dist/deps", async () 
     await assert.rejects(readFile(path.join(destination, "cursor-proclist", "package.json")));
     await assertElectronNativeDeps(destination);
 
-    const retained = await stageRetainedElectronNatives(destination, unpacked);
-    assert.deepEqual(retained.retained.packages, [...retainedElectronNativePackages]);
+    const omitted = await stageRetainedElectronNatives(destination, unpacked, { packages: [] });
+    assert.deepEqual(omitted.retained, { source: "esbuild-metafile", packages: [] });
+    await assert.rejects(readFile(path.join(destination, "whichlang-node", "package.json")));
+    await assert.rejects(readFile(path.join(destination, "@anysphere", "tree-chunk-napi", "package.json")));
+
+    const selected = retainedElectronNativePackagesFromMetafile({
+      inputs: { "node_modules/whichlang-node/index.js": {} },
+      outputs: { "host-main.cjs": { imports: [{ path: "@anysphere/tree-chunk-napi" }] } },
+    });
+    assert.deepEqual(selected, [...retainedElectronNativePackages]);
+    const retained = await stageRetainedElectronNatives(destination, unpacked, { packages: selected });
+    assert.deepEqual(retained.retained, { source: "esbuild-metafile", packages: [...retainedElectronNativePackages] });
     assert.equal(
       await readFile(path.join(destination, "whichlang-node-darwin-arm64", "whichlang-node.darwin-arm64.node"), "utf8"),
       "fake-whichlang\n",
@@ -185,6 +199,10 @@ test("stageElectronNativeDeps copies the rebuilt tree into dist/deps", async () 
     for (const relative of retainedElectronNativeNodeFiles) {
       assert.ok(retained.nodeFiles.includes(relative));
     }
+    await assert.rejects(
+      () => stageRetainedElectronNatives(destination, unpacked, { packages: ["cursor-proclist"] }),
+      /Unknown retained native package/,
+    );
 
     const closure = await stageElectronRuntimeDependencyResolution(destination);
     assert.equal(closure.mode, "byte-exact-sibling-package-copy");
@@ -226,6 +244,29 @@ test("assertElectronNativeDeps rejects a cache whose package identity drifted", 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("esbuild metafile presence decides which 0.18 natives are retained", () => {
+  assert.deepEqual(retainedElectronNativePackagesFromMetafile({ inputs: {}, outputs: {} }), []);
+  assert.deepEqual(retainedElectronNativePackagesFromMetafile(null), []);
+  assert.deepEqual(
+    retainedElectronNativePackagesFromMetafile({
+      inputs: { "node_modules/whichlang-node/index.js": {} },
+    }),
+    ["whichlang-node", "whichlang-node-darwin-arm64"],
+  );
+  assert.deepEqual(
+    retainedElectronNativePackagesFromMetafile({
+      outputs: { "host-main.cjs": { imports: [{ path: "@anysphere/tree-chunk-napi" }] } },
+    }),
+    ["@anysphere/tree-chunk-napi"],
+  );
+  assert.deepEqual(
+    retainedElectronNativePackagesFromMetafile({
+      inputs: { "node_modules/@anysphere/tree-chunk-napi/index.js": {}, "node_modules/whichlang-node/index.js": {} },
+    }),
+    [...retainedElectronNativePackages],
+  );
 });
 
 test("electron native rebuild requires ELECTRON_HEADERS_DIR", async () => {

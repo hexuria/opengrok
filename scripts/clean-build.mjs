@@ -36,6 +36,14 @@ import {
   electronMainBindingProvenancePath,
 } from "./electron-main-production-activation.mjs";
 import { applyOriginalRendererRouterPatch } from "./lib/router-renderer-patch.mjs";
+import {
+  assertProductionActivationsAreClean,
+  compositionWithProductionActivations,
+  fallbackSourcesReplacedByActivations as fallbackSourcesFromComposition,
+  retainedNativePackagesFromActivations,
+} from "./lib/production-activation.mjs";
+import { resolveRuntimeApp } from "./lib/runtime.mjs";
+import { stageRetainedElectronNatives } from "./build-electron-natives.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 export const defaultElectronMainBindingManifestPath = path.join(repoRoot, "manifests/reconstruction/electron-main-production-bindings-manifest.json");
@@ -44,27 +52,14 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function compositionWithProductionActivations(hostActivation, electronMainActivation, composition = runtimeComposition) {
-  return composition.map(runtime => {
-    if (runtime.runtime === "host") return hostActivation.clean ? {
-      runtime: "host", path: "dist/host/host-main.cjs", mode: "clean-source", source: "source/host/main.ts", bindingManifest: hostBindingProvenancePath,
-    } : { ...runtime, reason: hostActivation.blocker };
-    if (runtime.runtime === "electron-main") return electronMainActivation.clean ? {
-      runtime: "electron-main", path: "dist/electron-main/main.cjs", mode: "clean-source", source: "source/electron-main/main.ts", bindingManifest: electronMainBindingProvenancePath,
-      runtimePackageFiles: electronMainActivation.runtimePackageFiles,
-    } : { ...runtime, reason: electronMainActivation.blocker };
-    return runtime;
-  });
-}
+export {
+  assertProductionActivationsAreClean,
+  compositionWithProductionActivations,
+  retainedNativePackagesFromActivations,
+};
 
-export function fallbackSourcesReplacedByActivations(hostActivation, electronMainActivation) {
-  const cleanRuntimes = new Set([
-    ...(hostActivation.clean ? ["host"] : []),
-    ...(electronMainActivation.clean ? ["electron-main"] : []),
-  ]);
-  return runtimeComposition
-    .filter(({ runtime, mode, sourceBundle }) => cleanRuntimes.has(runtime) && mode === "artifact-fallback" && typeof sourceBundle === "string")
-    .map(({ sourceBundle }) => sourceBundle);
+export function fallbackSourcesReplacedByActivations(hostActivation, electronMainActivation, composition = runtimeComposition) {
+  return fallbackSourcesFromComposition(hostActivation, electronMainActivation, composition);
 }
 
 async function outputRecord(outputRoot, relative) {
@@ -72,11 +67,12 @@ async function outputRecord(outputRoot, relative) {
   return { path: relative, bytes: (await stat(target)).size, sha256: sha256(await readFile(target)) };
 }
 
-async function prepareProductionActivations(clean, hostBindingManifest, electronMainBindingManifest, composition = runtimeComposition, { reconstructedPackage = false } = {}) {
+async function prepareProductionActivations(clean, hostBindingManifest, electronMainBindingManifest, composition = runtimeComposition) {
   const [hostActivation, electronMainActivation] = await Promise.all([
     buildProductionHostIfSupplied({ outputRoot: clean.outputRoot, manifestPath: hostBindingManifest }),
-    buildProductionElectronMainIfSupplied({ outputRoot: clean.outputRoot, manifestPath: electronMainBindingManifest, reconstructedPackage }),
+    buildProductionElectronMainIfSupplied({ outputRoot: clean.outputRoot, manifestPath: electronMainBindingManifest }),
   ]);
+  assertProductionActivationsAreClean(hostActivation, electronMainActivation);
   const activatedComposition = compositionWithProductionActivations(hostActivation, electronMainActivation, composition);
   const excludedFallbacks = new Set(fallbackSourcesReplacedByActivations(hostActivation, electronMainActivation));
   let outputs = clean.buildManifest.outputs.filter(output => !excludedFallbacks.has(output.path));
@@ -209,6 +205,19 @@ export async function overlayAuditMetadata(clean, { stageRoot = stagedAppDir } =
   for (const relative of fallbackSourcesReplacedByActivations(clean.hostActivation, clean.electronMainActivation)) {
     await rm(path.join(stageRoot, relative), { recursive: true, force: true });
   }
+  await overlayRetainedNativesFromActivations(clean, { stageRoot });
+}
+
+async function overlayRetainedNativesFromActivations(clean, { stageRoot }) {
+  const packages = retainedNativePackagesFromActivations(clean.hostActivation, clean.electronMainActivation);
+  const depsRoot = path.join(stageRoot, "dist", "deps");
+  if (packages.length === 0) {
+    await stageRetainedElectronNatives(depsRoot, null, { packages });
+    return;
+  }
+  const runtimeApp = await resolveRuntimeApp();
+  const unpackedDepsRoot = path.join(runtimeApp, "Contents", "Resources", "app.asar.unpacked", "dist", "deps");
+  await stageRetainedElectronNatives(depsRoot, unpackedDepsRoot, { packages });
 }
 
 export { cleanBuildDir, fidelityCleanBuildDir, fidelityRuntimeComposition, runtimeComposition };
@@ -241,7 +250,7 @@ export async function buildReconstructedAsar({
     || (existsSync(defaultElectronMainBindingManifestPath) ? defaultElectronMainBindingManifestPath : null),
 } = {}) {
   const built = await buildBaseReconstructedAsar({ pack: false });
-  const prepared = await prepareProductionActivations(built, hostBindingManifest, electronMainBindingManifest, runtimeComposition, { reconstructedPackage: true });
+  const prepared = await prepareProductionActivations(built, hostBindingManifest, electronMainBindingManifest, runtimeComposition);
   const clean = await attachCompositionAudit(prepared);
   await overlayAuditMetadata(clean);
   await packStagedAppWithIntegrity({ stageRoot: stagedAppDir, archivePath: builtAsar, unpackedRoot: builtAsarUnpacked });
@@ -267,7 +276,7 @@ export async function buildFidelityReconstructedAsar({
     unpackedRoot,
   });
   const base = await buildBaseFidelityDistribution({ outputRoot: cleanOutputRoot });
-  const prepared = await prepareProductionActivations(base, hostBindingManifest, electronMainBindingManifest, fidelityRuntimeComposition, { reconstructedPackage: true });
+  const prepared = await prepareProductionActivations(base, hostBindingManifest, electronMainBindingManifest, fidelityRuntimeComposition);
   const clean = await attachCompositionAudit(prepared);
   await overlayCleanDistribution(clean.outputRoot, { stageRoot, composition: clean.buildManifest.runtimeComposition });
   await applyOriginalRendererRouterPatch({ stageRoot });

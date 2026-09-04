@@ -3,29 +3,22 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-import {
-  applyReconstructedUpdaterGuard,
-  prepareReconstructedElectronMainArtifactFallback,
-  reconstructedUpdaterGuard,
-} from "../scripts/lib/build-asar.mjs";
-
 const root = path.resolve(import.meta.dirname, "..");
 
-test("reconstructed fallback and clean packaging share one idempotent service guard", async () => {
-  const source = "console.log('electron-main');\n";
-  const guarded = applyReconstructedUpdaterGuard(source);
-  assert.equal(guarded, `${reconstructedUpdaterGuard}${source}`);
-  assert.equal(applyReconstructedUpdaterGuard(guarded), guarded);
-  assert.match(guarded, /SAND_DISABLE_UPDATES \?\?= "1"/);
-  assert.match(guarded, /SAND_DISABLE_SENTRY \?\?= "1"/);
-  assert.match(guarded, /SAND_DISABLE_TELEMETRY \?\?= "1"/);
+test("source electron-main disables updater and telemetry without wrapping a 0.18 artifact", async () => {
+  const main = await readFile(path.join(root, "source", "electron-main", "main.ts"), "utf8");
+  assert.match(main, /SAND_DISABLE_UPDATES \?\?= "1"/);
+  assert.match(main, /SAND_DISABLE_SENTRY \?\?= "1"/);
+  assert.match(main, /SAND_DISABLE_TELEMETRY \?\?= "1"/);
 
-  const fallbackFixture = [
-    "var isSandLabBuild2 = appPackageJson.sandLab === true;",
-    "var isPrimaryInstance = !import_electron51.app.isPackaged || import_electron51.app.requestSingleInstanceLock();",
-  ].join("\n");
-  assert.ok(prepareReconstructedElectronMainArtifactFallback(fallbackFixture).startsWith(reconstructedUpdaterGuard));
+  const asar = await readFile(path.join(root, "scripts", "lib", "build-asar.mjs"), "utf8");
+  assert.doesNotMatch(asar, /prepareReconstructedElectronMainArtifactFallback/);
+  assert.doesNotMatch(asar, /applyReconstructedUpdaterGuard/);
+  assert.doesNotMatch(asar, /enableReconstructedRuntimeSeams/);
 
-  const cleanBuildSource = await readFile(path.join(root, "scripts", "clean-build.mjs"), "utf8");
-  assert.match(cleanBuildSource, /fidelityRuntimeComposition, \{ reconstructedPackage: true \}/);
+  const cleanBuild = await readFile(path.join(root, "scripts", "clean-build.mjs"), "utf8");
+  assert.doesNotMatch(cleanBuild, /reconstructedPackage/);
+  const electronMainActivation = await readFile(path.join(root, "scripts", "electron-main-production-activation.mjs"), "utf8");
+  assert.doesNotMatch(electronMainActivation, /applyReconstructedUpdaterGuard/);
+  assert.doesNotMatch(electronMainActivation, /reconstructedPackage/);
 });
