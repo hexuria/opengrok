@@ -392,6 +392,11 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(menu, /Delete message/);
   const transcript = await readFrontend("frontend/src/recovered/features/conversation/workspace/transcript.tsx");
   assert.match(transcript, /convertLatexDelimiters/);
+  assert.match(transcript, /--sand-ts-progress/);
+  assert.match(transcript, /event\.deltaX/);
+  const mediaViewer = await readFrontend("frontend/src/recovered/features/conversation/workspace/media-viewer.tsx");
+  assert.match(mediaViewer, /className="sand-file-card"/);
+  assert.match(mediaViewer, /desktop-download/);
   assert.match(transcript, /splitMathSegments/);
   assert.match(transcript, /<p>\{renderAssistantInlineText\(visible\.text\)\}<\/p>/);
   const view = await readFrontend("frontend/src/recovered/features/conversation/workspace/view.css");
@@ -401,6 +406,7 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.doesNotMatch(view, /\.sand-message \{[^}]*overflow-wrap: anywhere;/);
   assert.match(view, /\.sand-message-action-anchor \{[^}]*max-width: min\(88%, 640px, calc\(100% - 82px\)\);/);
   assert.match(view, /\.sand-message-action-anchor \{[^}]*min-width: auto;/);
+  assert.match(view, /\.sand-message-action-anchor::after \{[^}]*width: 128px;/);
   assert.match(view, /\.sand-transcript-row\[data-role="user"\] \.sand-message-action-anchor \{[^}]*margin: 12px 0 0 82px;/);
   assert.match(view, /\.sand-message-prose \{[^}]*min-width: 0;/);
   assert.match(view, /\.sand-message-prose \{[^}]*overflow-wrap: anywhere;/);
@@ -411,6 +417,9 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.doesNotMatch(view, /\.sand-message-hover-actions \{[^}]*bottom: -30px;/s);
   assert.doesNotMatch(view, /\.sand-message-hover-actions \{[^}]*transform: translateY\(-100%\);/s);
   assert.match(view, /\.sand-row-timestamp \{/);
+  assert.match(view, /opacity: var\(--sand-ts-progress, 0\)/);
+  assert.doesNotMatch(view, /\.sand-transcript-row:hover \.sand-row-timestamp/);
+  assert.match(view, /\.sand-file-card \{/);
   assert.match(view, /\.sand-message-block \{/);
   assert.match(view, /\.sand-virtual-transcript \{[^}]*overflow-x: hidden;/);
   assert.match(view, /\.sand-virtual-transcript \{[^}]*padding: 16px 16px 8px;/);
