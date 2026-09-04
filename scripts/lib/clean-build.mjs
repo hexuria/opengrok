@@ -77,7 +77,7 @@ export const runtimeComposition = Object.freeze([
   { runtime: "electron-runtime-resolution-closure", path: "dist/deps/node_modules", mode: "generated-runtime", provenance: "dist/deps/runtime-deps-manifest.json", reason: "Byte-exact copies of checksum-pinned sibling packages provide standard Node package resolution for Electron utility-process native dependencies." },
   { runtime: "node-runtime-dependencies", path: "dist/node-deps", mode: "generated-runtime", reason: "Native parser packages are rebuilt for the local-exec daemon Node ABI at clean-build time; binaries are never source-controlled." },
   { runtime: "native-runtime-tools", path: "dist/native", mode: "artifact-runtime", reason: "ABI-matched native executables are copied from the checksum-pinned 0.18 runtime." },
-  { runtime: "electron-shell", path: "Contents/Frameworks/Electron Framework.framework", mode: "artifact-runtime", reason: "The macOS package reuses the checksum-pinned, ABI-matched Electron 0.18 application shell and helper executables." },
+  { runtime: "electron-shell", path: "Contents/Frameworks/Electron Framework.framework", mode: "artifact-runtime", reason: "The macOS package wraps npm Electron 42.1.0 (ABI-matched to the 0.18 runtime); the official 0.18 shell is diagnostic-only." },
 ]);
 
 export const fidelityRuntimeComposition = Object.freeze(runtimeComposition.map(runtime => (

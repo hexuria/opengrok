@@ -42,6 +42,7 @@ export const upstreamVersion = "0.18.0";
 export const reconstructedBundleId = "bot.opengrok.app";
 export const reconstructedName = "Open Grok";
 export const reconstructedProductUrl = "https://OpenGrok.app";
+export const reconstructedCopyright = "Copyright © 2026 Open Grok";
 export const fidelityBundleId = "bot.opengrok.app.fidelity";
 export const fidelityName = "Grok Bot 0.18 Fidelity";
 export const dmgUrl = "https://downloads.cursor.com/grokbot/stable/darwin-arm64/0.18.0/Grok_Bot_0.18.0.dmg";

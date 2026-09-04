@@ -56,6 +56,29 @@ test("default packaging keeps the polished checksum-pinned renderer", async () =
   assert.match(source, /await buildFidelityReconstructedAsar\(\)/);
 });
 
+test("default packaging wraps npm Electron and does not require the official Mac shell", async () => {
+  const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
+  const shell = await readFile(path.join(repoRoot, "scripts", "lib", "electron-shell.mjs"), "utf8");
+  const diagnostic = await readFile(path.join(repoRoot, "scripts", "package-fidelity-diagnostic.mjs"), "utf8");
+  assert.match(source, /from "\.\/lib\/electron-shell\.mjs"/);
+  assert.match(source, /stageNpmElectronShell/);
+  assert.doesNotMatch(source, /verifyOfficialMacReference/);
+  assert.doesNotMatch(source, /ditto, \[runtimeApp, outputApp\]/);
+  assert.doesNotMatch(source, /officialMacReleaseShellHash/);
+  assert.doesNotMatch(source, /expectedSignatureExcludedMachOHash/);
+  assert.match(shell, /CFBundleName/);
+  assert.match(shell, /<string>sand<\/string>/);
+  assert.match(shell, /<string>opengrok<\/string>/);
+  assert.match(shell, /MACOS_EXECUTABLE_NAME/);
+  assert.match(diagnostic, /verifyOfficialMacReference/);
+  assert.match(diagnostic, /buildFidelityReconstructedAsar/);
+  const verify = await readFile(path.join(repoRoot, "scripts", "verify.mjs"), "utf8");
+  assert.match(verify, /\["sand", "opengrok"\]/);
+  const cleanBuild = await readFile(path.join(repoRoot, "scripts", "lib", "clean-build.mjs"), "utf8");
+  assert.match(cleanBuild, /wraps npm Electron 42\.1\.0/);
+  assert.doesNotMatch(cleanBuild, /reuses the checksum-pinned, ABI-matched Electron 0\.18 application shell/);
+});
+
 test("Router settings use the trusted backend and display recorded inference usage", async () => {
   const rendererPatch = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
   const selectHelper = await readFile(path.join(repoRoot, "scripts/lib/select-messages-helper.mjs"), "utf8");
