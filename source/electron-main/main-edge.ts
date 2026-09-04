@@ -490,8 +490,21 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       return await subscriptionAuthOf(deps).startLogin(provider);
     },
     skipCursorLoginWall: async (raw) => {
-      optionalInvoke(deps.settingsStore, "setCursorLoginWallSkipped", true);
-      const requested = req(raw).provider;
+      const request = req(raw);
+      const skipped = request.skipped !== false;
+      optionalInvoke(deps.settingsStore, "setCursorLoginWallSkipped", skipped);
+      if (!skipped) {
+        const provider = invoke(deps.settingsStore, "getInferenceProvider");
+        const resolved = isSandInferenceProvider(provider) ? provider : "cursor";
+        return {
+          skipped: false,
+          provider: resolved,
+          loginWallSkipped: false,
+          local: await inferenceRouterLocal(deps),
+          computers: providerComputersOf(deps, resolved),
+        };
+      }
+      const requested = request.provider;
       if (isSandInferenceProvider(requested)) {
         invoke(deps.settingsStore, "setInferenceProvider", requested);
         const hasRuntimeSettings = typeof Reflect.get(deps.settingsStore, "getBoxRuntime") === "function" && typeof Reflect.get(deps.settingsStore, "setBoxRuntime") === "function";

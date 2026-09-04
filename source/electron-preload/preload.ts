@@ -302,7 +302,7 @@ export function createDesktopPreloadBridge(options: {
       ),
       setOpenRouterModel: (model: string) => edge("setInferenceRouter", { openRouterModel: `${model ?? ""}` }),
       startSubscriptionLogin: (provider: string) => edge("startSubscriptionLogin", { provider }),
-      skipCursorLoginWall: (request?: { provider?: string | null }) => edge("skipCursorLoginWall", request ?? {}),
+      skipCursorLoginWall: (request?: { provider?: string | null; skipped?: boolean }) => edge("skipCursorLoginWall", request ?? {}),
       getProviderComputers: () => edge("getProviderComputers"),
       setProviderComputer: (kind: string, enabled: boolean) => edge("setProviderComputer", { kind, enabled }),
       setComputerScreen: (screen: string) => edge("setComputerScreen", { screen }),

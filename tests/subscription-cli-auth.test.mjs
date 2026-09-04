@@ -330,6 +330,13 @@ test("main-edge persists Claude before official login and Skip records the login
     assert.equal(provider, "codex");
     const afterSkip = await handlers.getInferenceRouter();
     assert.equal(afterSkip.loginWallSkipped, true);
+    const cleared = await handlers.skipCursorLoginWall({ skipped: false });
+    assert.equal(cleared.skipped, false);
+    assert.equal(cleared.loginWallSkipped, false);
+    assert.equal(loginWallSkipped, false);
+    const skippedAgain = await handlers.skipCursorLoginWall({ provider: "codex" });
+    assert.equal(skippedAgain.skipped, true);
+    assert.equal(loginWallSkipped, true);
     const started = await handlers.startSubscriptionLogin({ provider: "codex" });
     assert.equal(started.started, true);
     assert.equal(logins, 1);
