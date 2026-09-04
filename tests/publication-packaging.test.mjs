@@ -50,10 +50,75 @@ test("publication ignore rules keep the recovered material out of this repositor
   }
 });
 
-test("default packaging keeps the polished checksum-pinned renderer", async () => {
+test("default packaging ships the Vite renderer", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
-  assert.match(source, /import \{ buildFidelityReconstructedAsar \} from "\.\/clean-build\.mjs"/);
-  assert.match(source, /await buildFidelityReconstructedAsar\(\)/);
+  const build = await readFile(path.join(repoRoot, "scripts", "build.mjs"), "utf8");
+  assert.match(source, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(source, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(source, /buildFidelityReconstructedAsar/);
+  assert.match(build, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(build, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(build, /buildFidelityReconstructedAsar/);
+});
+
+test("default packaging wraps npm Electron and does not require the official Mac shell", async () => {
+  const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
+  const bundle = await readFile(path.join(repoRoot, "scripts", "lib", "package-app-bundle.mjs"), "utf8");
+  const shell = await readFile(path.join(repoRoot, "scripts", "lib", "electron-shell.mjs"), "utf8");
+  const diagnostic = await readFile(path.join(repoRoot, "scripts", "package-fidelity-diagnostic.mjs"), "utf8");
+  assert.match(source, /assembleReconstructedAppBundle/);
+  assert.match(bundle, /stageNpmElectronShell/);
+  assert.match(bundle, /signAppBundle/);
+  assert.doesNotMatch(source, /signAppBundleForDistribution/);
+  assert.doesNotMatch(bundle, /signAppBundleForDistribution/);
+  assert.doesNotMatch(source, /verifyOfficialMacReference/);
+  assert.doesNotMatch(bundle, /verifyOfficialMacReference/);
+  assert.doesNotMatch(source, /ditto, \[runtimeApp, outputApp\]/);
+  assert.doesNotMatch(bundle, /ditto, \[runtimeApp, outputApp\]/);
+  assert.doesNotMatch(source, /officialMacReleaseShellHash/);
+  assert.doesNotMatch(source, /expectedSignatureExcludedMachOHash/);
+  assert.match(shell, /CFBundleName/);
+  assert.match(shell, /<string>sand<\/string>/);
+  assert.match(shell, /<string>opengrok<\/string>/);
+  assert.match(shell, /MACOS_EXECUTABLE_NAME/);
+  assert.match(diagnostic, /verifyOfficialMacReference/);
+  assert.match(diagnostic, /buildFidelityReconstructedAsar/);
+  const verify = await readFile(path.join(repoRoot, "scripts", "verify.mjs"), "utf8");
+  assert.match(verify, /\["sand", "opengrok"\]/);
+  const cleanBuild = await readFile(path.join(repoRoot, "scripts", "lib", "clean-build.mjs"), "utf8");
+  assert.match(cleanBuild, /wraps npm Electron 42\.1\.0/);
+  assert.doesNotMatch(cleanBuild, /reuses the checksum-pinned, ABI-matched Electron 0\.18 application shell/);
+  assert.match(cleanBuild, /rebuilt against Electron 42\.1\.0 \(ABI 146\)/);
+  assert.doesNotMatch(cleanBuild, /ABI-matched native and packaged dependencies are copied from the checksum-pinned 0\.18 runtime/);
+  const natives = await readFile(path.join(repoRoot, "scripts", "build-electron-natives.mjs"), "utf8");
+  const asar = await readFile(path.join(repoRoot, "scripts", "lib", "build-asar.mjs"), "utf8");
+  assert.match(natives, /better-sqlite3/);
+  assert.match(natives, /stageRetainedElectronNatives/);
+  assert.match(asar, /stageElectronNativeDeps/);
+  assert.doesNotMatch(asar, /stageRetainedElectronNatives/);
+  assert.doesNotMatch(asar, /\["deps", "native"\]/);
+  const cleanBuildScripts = await readFile(path.join(repoRoot, "scripts", "clean-build.mjs"), "utf8");
+  assert.match(cleanBuildScripts, /overlayRetainedNativesFromActivations/);
+  assert.match(cleanBuildScripts, /retainedNativePackagesFromActivations/);
+});
+
+test("package:vite shares the Vite asar builder and writes a side-by-side app", async () => {
+  const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
+  assert.equal(pkg.scripts.package, "npm run check && node scripts/package-macos.mjs");
+  assert.equal(pkg.scripts["package:vite"], "node scripts/package-vite.mjs");
+  assert.equal(pkg.scripts["package:diagnostic"], "npm run check && node scripts/package-fidelity-diagnostic.mjs");
+  const source = await readFile(path.join(repoRoot, "scripts", "package-vite.mjs"), "utf8");
+  const macos = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
+  const config = await readFile(path.join(repoRoot, "scripts", "lib", "config.mjs"), "utf8");
+  assert.match(source, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(source, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(source, /buildFidelityReconstructedAsar/);
+  assert.match(macos, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(macos, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(macos, /buildFidelityReconstructedAsar/);
+  assert.match(source, /assembleReconstructedAppBundle/);
+  assert.match(macos, /assembleReconstructedAppBundle/);
+  assert.match(config, /Open Grok Vite\.app/);
 });
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {

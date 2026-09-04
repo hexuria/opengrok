@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { repoRoot } from "./lib/config.mjs";
 
@@ -124,10 +125,20 @@ const TONES = [
   },
 ];
 
-await mkdir(outputDir, { recursive: true });
-for (const tone of TONES) {
-  const file = path.join(outputDir, `${tone.id}.wav`);
-  const wav = encodeWav(render(tone.durationMs, tone.voice));
-  await writeFile(file, wav);
-  console.log(`Wrote ${path.relative(repoRoot, file)} (${tone.durationMs} ms, ${wav.byteLength} bytes).`);
+export function wavBytesForToneFile(file) {
+  const id = path.basename(file, path.extname(file));
+  const tone = TONES.find((entry) => entry.id === id);
+  if (tone == null) return null;
+  return encodeWav(render(tone.durationMs, tone.voice));
+}
+
+const scriptPath = fileURLToPath(import.meta.url);
+if (process.argv[1] != null && path.resolve(process.argv[1]) === scriptPath) {
+  await mkdir(outputDir, { recursive: true });
+  for (const tone of TONES) {
+    const file = path.join(outputDir, `${tone.id}.wav`);
+    const wav = encodeWav(render(tone.durationMs, tone.voice));
+    await writeFile(file, wav);
+    console.log(`Wrote ${path.relative(repoRoot, file)} (${tone.durationMs} ms, ${wav.byteLength} bytes).`);
+  }
 }

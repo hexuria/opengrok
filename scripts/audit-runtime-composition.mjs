@@ -9,7 +9,8 @@ import { extractFile, listPackage } from "@electron/asar";
 import { build as esbuild } from "esbuild";
 
 import { runtimeComposition } from "./lib/clean-build.mjs";
-import { repoRoot, sourceAppDir } from "./lib/config.mjs";
+import { repoRoot } from "./lib/config.mjs";
+import { immutableRendererAssetAllowlist, isNpmVendoredRendererAsset } from "./lib/renderer-runtime-assets.mjs";
 import { requiredElectronMainProductionBindings } from "./electron-main-production-activation.mjs";
 import { assembleHostProductionBindingManifest } from "./host-production-activation.mjs";
 
@@ -52,31 +53,29 @@ const requiredElectronProductionAreas = new Set([
 // source banner. The policy is derived from the recovery manifest so an
 // exemption is exact manifest path + size + SHA, followed by exact ASAR
 // placement when a packaged output is being audited.
-const rendererRuntimeManifest = JSON.parse(readFileSync(
-  path.join(repoRoot, "frontend/manifests/renderer-runtime-assets.json"),
-  "utf8",
-));
 const forbiddenImmutableRendererAssets = new Set([
   "assets/index-UbX-y3il.js",
   "assets/mermaid.core-CYC_FcEu.js",
 ]);
 export const IMMUTABLE_RENDERER_ASSET_FORBIDDEN = Object.freeze([...forbiddenImmutableRendererAssets]);
-export const IMMUTABLE_RENDERER_ASSET_ALLOWLIST = Object.freeze(Object.fromEntries(
-  (rendererRuntimeManifest.immutableAssets ?? [])
-    .map((asset) => [`assets/${asset.file}`, Object.freeze({
-      artifact: `${rendererRuntimeManifest.artifactRoot}/${asset.file}`,
-      manifestFile: asset.file,
-      bytes: asset.bytes ?? readFileSync(path.join(repoRoot, rendererRuntimeManifest.artifactRoot, asset.file)).byteLength,
-      sha256: asset.sha256,
-    })])
-    .filter(([relativePath]) => !forbiddenImmutableRendererAssets.has(relativePath)),
-));
+function loadRendererRuntimeManifest() {
+  try {
+    return JSON.parse(readFileSync(path.join(repoRoot, "frontend/manifests/renderer-runtime-assets.json"), "utf8"));
+  } catch {
+    return { artifactRoot: null, assets: [], immutableAssets: [] };
+  }
+}
+// Empty when the stow manifest still names src/app: the Vite renderer does not
+// ship those 0.18 hashed chunks, so they must not block composition.
+export const IMMUTABLE_RENDERER_ASSET_ALLOWLIST = Object.freeze(immutableRendererAssetAllowlist(loadRendererRuntimeManifest()));
 
 export function isAllowlistedImmutableRendererAsset(relativePath, content) {
   if (forbiddenImmutableRendererAssets.has(relativePath)) return false;
   const record = IMMUTABLE_RENDERER_ASSET_ALLOWLIST[relativePath];
   const bytes = typeof content === "string" ? Buffer.byteLength(content) : content.byteLength;
-  return record != null && bytes === record.bytes && sha256(content) === record.sha256;
+  if (record == null || sha256(content) !== record.sha256) return false;
+  if (record.bytes != null && bytes !== record.bytes) return false;
+  return true;
 }
 
 const runtimeSpecs = Object.freeze({
@@ -172,6 +171,24 @@ async function walk(root, current = root) {
     else if (entry.isFile()) found.push(normalize(path.relative(root, target)));
   }
   return found.sort();
+}
+
+async function readOptionalUtf8(target) {
+  try {
+    return await readFile(target, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function walkIfPresent(root) {
+  try {
+    return await walk(root);
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
 }
 
 function lineNumberAt(text, offset) {
@@ -407,16 +424,19 @@ function externalRequires(text, artifact) {
 }
 
 async function nativeRuntimeInventory() {
-  const roots = ["src/app/dist/native", "src/app/dist/deps"];
   const inventory = [];
-  for (const root of roots) {
-    const absolute = path.join(repoRoot, root);
-    for (const relative of await walk(absolute)) {
-      if (!root.endsWith("/native") && !relative.endsWith(".node")) continue;
-      const target = path.join(absolute, relative);
-      const bytes = await readFile(target);
-      inventory.push({ path: `${root}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "artifact-runtime-boundary" });
-    }
+  const depsRoot = "src/app/dist/deps";
+  for (const relative of await walkIfPresent(path.join(repoRoot, depsRoot))) {
+    if (!relative.endsWith(".node")) continue;
+    const target = path.join(repoRoot, depsRoot, relative);
+    const bytes = await readFile(target);
+    inventory.push({ path: `${depsRoot}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "artifact-runtime-boundary" });
+  }
+  const nativeRoot = "src/app/dist/native";
+  for (const relative of await walkIfPresent(path.join(repoRoot, nativeRoot))) {
+    const target = path.join(repoRoot, nativeRoot, relative);
+    const bytes = await readFile(target);
+    inventory.push({ path: `${nativeRoot}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "forbidden-unshipped-helper" });
   }
   return inventory.sort((left, right) => left.path.localeCompare(right.path));
 }
@@ -455,7 +475,7 @@ async function runnerCompositionClosure({ hostGraph, hostProductionExtensionsGra
   }
 
   const artifact = "src/app/dist/host/host-main.cjs";
-  const artifactText = await readFile(path.join(repoRoot, artifact), "utf8");
+  const artifactText = await readOptionalUtf8(path.join(repoRoot, artifact));
   const sandHostSource = "source/host/sand-host.ts";
   const sandHostText = await readFile(path.join(repoRoot, sandHostSource), "utf8");
   const runnerCompositionSource = "source/host/host-runner-composition.ts";
@@ -500,7 +520,7 @@ async function runnerCompositionClosure({ hostGraph, hostProductionExtensionsGra
       unreachableExecutableSources: generatedEntryUnreachableExecutableSources,
       nonClosureFidelityResiduals: activeFidelityResiduals,
     },
-    immutableConstructionOrder: [
+    immutableConstructionOrder: artifactText == null ? [] : [
       { step: "start-host-extension-graph", anchor: anchorFor(artifactText, artifact, "const hostExtensions = await startHostPluginRegistry({") },
       { step: "create-roster-bookkeeping", anchor: anchorFor(artifactText, artifact, "this.rosterBookkeeping = createHostRosterBookkeeping(hostExtensions);") },
       { step: "create-runner-composition", anchor: anchorFor(artifactText, artifact, "this.runnerComposition = createHostRunnerComposition({") },
@@ -585,7 +605,7 @@ async function auditImmutableRendererAssets({ outputRoot, outputPath, outputFile
   if (asarPath != null) {
     const listing = new Set(listPackage(asarPath));
     const packagedAssets = [];
-    for (const [relativePath, record] of Object.entries(IMMUTABLE_RENDERER_ASSET_ALLOWLIST)) {
+    for (const [relativePath] of Object.entries(IMMUTABLE_RENDERER_ASSET_ALLOWLIST)) {
       const packagedPath = `dist/renderer/${relativePath}`;
       const listed = listing.has(`/${packagedPath}`) && !listing.has(`/${packagedPath}.unpacked`);
       let packaged = null;
@@ -643,6 +663,7 @@ async function cleanRuntimeVerdicts(outputRoot, requireOutputs, runtimeNames = n
       const missingBanners = jsChunks.filter(({ file, text }) => (
         !text.includes(`"Deterministic clean-source renderer: ${runtime.entrypoint}";`)
         && !isAllowlistedImmutableRendererAsset(file, text)
+        && !isNpmVendoredRendererAsset(file, provenance)
       )).map(({ file }) => file);
       const blockers = [
         ...graph.forbiddenEvidenceInputs.map(input => `source-graph:${input}`),
@@ -784,7 +805,7 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
   let hostEntrypointGraph = null;
   for (const [runtimeName, spec] of Object.entries(runtimeSpecs)) {
     const sourceText = await readFile(path.join(repoRoot, spec.entrypoint), "utf8");
-    const artifactText = await readFile(path.join(repoRoot, spec.artifact), "utf8");
+    const artifactText = await readOptionalUtf8(path.join(repoRoot, spec.artifact));
     const members = interfaceMembers(sourceText, spec.entrypoint, spec.contract);
     const declaredMode = composition.find(runtime => runtime.runtime === runtimeName)?.mode ?? null;
     const cleanActivated = declaredMode === "clean-source";
@@ -802,7 +823,9 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
         ...member,
         status,
         cleanProvider,
-        artifactAnchor: anchorFor(artifactText, spec.artifact, needle, artifactText.lastIndexOf(spec.artifactSourceMarker)),
+        artifactAnchor: artifactText == null
+          ? { artifact: spec.artifact, needle, status: "artifact-not-present" }
+          : anchorFor(artifactText, spec.artifact, needle, artifactText.lastIndexOf(spec.artifactSourceMarker)),
       };
     });
     const nestedContracts = [];
@@ -832,9 +855,16 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
         }),
       });
     }
-    const artifactBytes = Buffer.from(artifactText);
     const cleanEntrypointGraph = await sourceGraph(spec.entrypoint);
     if (runtimeName === "host") hostEntrypointGraph = cleanEntrypointGraph;
+    const artifactRecord = artifactText == null
+      ? { path: spec.artifact, status: "not-present" }
+      : {
+        path: spec.artifact,
+        bytes: Buffer.byteLength(artifactText),
+        sha256: sha256(artifactText),
+        compositionAnchor: anchorFor(artifactText, spec.artifact, spec.artifactSourceMarker, artifactText.lastIndexOf(spec.artifactSourceMarker)),
+      };
     runtimes[runtimeName] = {
       declaredMode,
       verdict: cleanActivated ? "clean-source" : "blocked-artifact-fallback",
@@ -844,15 +874,10 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
       ...(runtimeName === "electron-main" ? { bindingManifest: electronMainActivation ?? { status: "not-supplied", clean: false, requiredBindings: requiredElectronMainProductionBindings } } : {}),
       ...(runtimeName === "electron-main" ? { productionAdapterGraph: electronAdapterEvidence } : {}),
       ...(runtimeName === "host" ? { bindingManifest: effectiveHostActivation } : {}),
-      constructorFactoryClosure: factoryInventory(artifactText, spec.artifact, spec.artifactSourceMarker, cleanExports),
-      generatedBindingClosure: generatedBindings(artifactText, spec.artifact),
-      externalRuntimeBoundaries: externalRequires(artifactText, spec.artifact),
-      artifact: {
-        path: spec.artifact,
-        bytes: artifactBytes.byteLength,
-        sha256: sha256(artifactBytes),
-        compositionAnchor: anchorFor(artifactText, spec.artifact, spec.artifactSourceMarker, artifactText.lastIndexOf(spec.artifactSourceMarker)),
-      },
+      constructorFactoryClosure: artifactText == null ? { status: "artifact-not-present" } : factoryInventory(artifactText, spec.artifact, spec.artifactSourceMarker, cleanExports),
+      generatedBindingClosure: artifactText == null ? { status: "artifact-not-present" } : generatedBindings(artifactText, spec.artifact),
+      externalRuntimeBoundaries: artifactText == null ? [] : externalRequires(artifactText, spec.artifact),
+      artifact: artifactRecord,
     };
   }
 

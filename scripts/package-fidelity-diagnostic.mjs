@@ -40,6 +40,9 @@ const built = await buildFidelityReconstructedAsar({
   unpackedRoot,
   cleanOutputRoot,
 });
+// Official shell/asar hashes stay on this diagnostic path only. Default
+// packaging wraps npm Electron 42.1.0 and does not require Anysphere Mach-O
+// identity.
 await verifyOfficialMacReference({ runtimeApp: built.runtimeApp });
 const officialArchivePath = path.join(built.runtimeApp, "Contents", "Resources", "app.asar");
 const renderer = await verifyChecksumPinnedRendererPackage({

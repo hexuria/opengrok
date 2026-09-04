@@ -4,17 +4,20 @@ import path from "node:path";
 
 import { extractFile, listPackage, statFile } from "@electron/asar";
 
+import { helperInfoPlistPath, MACOS_EXECUTABLE_NAME, reconstructedHelperIdentities } from "./macos-helper-identity.mjs";
 import {
   expectedSignatureExcludedMachOHash,
   inspectReconstructedMacShell,
   officialMacReleaseAsarHash,
   officialMacReleaseShellHash,
 } from "./macos-shell-invariant.mjs";
+import { capture } from "./process.mjs";
+import { SYSTEM_TOOLS } from "./system-tools.mjs";
 
 // Electron and daemon-native payloads are separate runtime domains. Both are
 // unpacked from the ASAR and must remain byte-identical to their staged trees;
 // collapsing them would let a package silently omit the daemon ABI payload.
-const RUNTIME_ROOTS = ["dist/deps", "dist/native", "dist/node-deps"];
+const RUNTIME_ROOTS = ["dist/deps", "dist/node-deps"];
 const MANIFEST_RELATIVE = "dist/deps/runtime-deps-manifest.json";
 const CSNAPS_RELATIVE = "dist/host/extensions/codebase-telemetry/csnaps";
 
@@ -263,6 +266,18 @@ function assertSafeRelative(relative) {
   }
 }
 
+async function assertNoNativeRuntime(root, label) {
+  const nativeRoot = path.join(root, "dist", "native");
+  let files;
+  try {
+    files = await walkFiles(nativeRoot);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (files.length > 0) throw new Error(`${label} still contains dist/native: ${files.join(", ")}`);
+}
+
 async function runtimeSnapshot(root) {
   const files = [];
   for (const relativeRoot of RUNTIME_ROOTS) {
@@ -322,6 +337,8 @@ export async function verifyUnpackedRuntimeManifest({ sourceUnpackedRoot, packag
     const target = path.join("dist/deps", relative);
     if (!(await stat(path.join(packagedUnpackedRoot, target))).isFile()) throw new Error(`Manifest native file is not a regular packaged file: ${relative}`);
   }
+  await assertNoNativeRuntime(sourceUnpackedRoot, "Staged unpacked runtime");
+  await assertNoNativeRuntime(packagedUnpackedRoot, "Packaged unpacked runtime");
   if (manifest.resolutionClosure?.mode !== "byte-exact-sibling-package-copy" || !Array.isArray(manifest.resolutionClosure.packages) || manifest.resolutionClosure.packages.length === 0) {
     throw new Error("runtime-deps-manifest.json is missing the Electron package resolution closure");
   }
@@ -347,28 +364,68 @@ export async function verifyUnpackedRuntimeManifest({ sourceUnpackedRoot, packag
   return { platform, arch, nodeFileCount: manifest.nodeFiles.length, runtimeFileCount: source.size, manifestSha256: sha256(sourceManifestBytes) };
 }
 
-export async function verifyReconstructedMacPackage({ officialApp, reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot } = {}) {
-  if ([officialApp, reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot].some(value => typeof value !== "string" || value.length === 0)) {
-    throw new TypeError("Explicit officialApp, reconstructedApp, sourceUnpackedRoot, and packagedUnpackedRoot paths are required");
+export async function verifyReconstructedHelperIdentities({ reconstructedApp, parentBundleId } = {}) {
+  if (typeof reconstructedApp !== "string" || reconstructedApp.length === 0) {
+    throw new TypeError("An explicit reconstructedApp path is required");
   }
-  const officialShellPath = path.join(officialApp, "Contents", "MacOS", "Grok Bot");
-  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", "Grok Bot");
-  const officialAsarPath = path.join(officialApp, "Contents", "Resources", "app.asar");
-  const reconstructedAsarPath = path.join(reconstructedApp, "Contents", "Resources", "app.asar");
-  const [officialShell, reconstructedShell, officialAsar, reconstructedAsar] = await Promise.all([
-    readFile(officialShellPath),
+  const helpers = [];
+  for (const { folder, bundleId } of reconstructedHelperIdentities(parentBundleId)) {
+    const plist = helperInfoPlistPath(reconstructedApp, folder);
+    const actual = await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleIdentifier", "raw", plist]);
+    if (actual !== bundleId) throw new Error(`Helper ${folder} bundle id is ${actual}, expected ${bundleId}`);
+    helpers.push({ folder, bundleId });
+  }
+  return helpers;
+}
+
+export async function verifyNpmElectronMacShell({ electronApp, reconstructedApp } = {}) {
+  if ([electronApp, reconstructedApp].some(value => typeof value !== "string" || value.length === 0)) {
+    throw new TypeError("Explicit electronApp and reconstructedApp paths are required");
+  }
+  const electronShellPath = path.join(electronApp, "Contents", "MacOS", "Electron");
+  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", MACOS_EXECUTABLE_NAME);
+  const [electronShell, reconstructedShell] = await Promise.all([
+    readFile(electronShellPath),
     readFile(reconstructedShellPath),
-    readFile(officialAsarPath),
+  ]);
+  const invariant = inspectReconstructedMacShell(electronShell, reconstructedShell);
+  if (!invariant.structuralMatch || invariant.officialNormalizedHash !== invariant.reconstructedNormalizedHash) {
+    throw new Error("Reconstructed Mac shell failed the signature-excluded npm Electron structural invariant");
+  }
+  if (invariant.reconstructedHash === officialMacReleaseShellHash || invariant.reconstructedHash === invariant.officialHash) {
+    throw new Error("Reconstructed package must not copy a vendor-signed Electron stub unchanged");
+  }
+  return invariant;
+}
+
+export async function verifyReconstructedMacPackage({ officialApp, reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot } = {}) {
+  if ([reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot].some(value => typeof value !== "string" || value.length === 0)) {
+    throw new TypeError("Explicit reconstructedApp, sourceUnpackedRoot, and packagedUnpackedRoot paths are required");
+  }
+  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", MACOS_EXECUTABLE_NAME);
+  const reconstructedAsarPath = path.join(reconstructedApp, "Contents", "Resources", "app.asar");
+  const [reconstructedShell, reconstructedAsar] = await Promise.all([
+    readFile(reconstructedShellPath),
     readFile(reconstructedAsarPath),
   ]);
-  const invariant = inspectReconstructedMacShell(officialShell, reconstructedShell);
-  if (invariant.officialHash !== officialMacReleaseShellHash) throw new Error("Reconstructed verification received a non-canonical official shell reference");
-  if (invariant.officialNormalizedHash !== expectedSignatureExcludedMachOHash || invariant.reconstructedNormalizedHash !== expectedSignatureExcludedMachOHash || !invariant.structuralMatch) {
-    throw new Error("Reconstructed Mac shell failed the signature-excluded Electron structural invariant");
-  }
-  if (invariant.reconstructedHash === officialMacReleaseShellHash) throw new Error("Reconstructed package must not copy the official signed shell");
-  if (sha256(officialAsar) !== officialMacReleaseAsarHash) throw new Error("Reconstructed verification received a non-canonical official app.asar reference");
+  if (sha256(reconstructedShell) === officialMacReleaseShellHash) throw new Error("Reconstructed package must not copy the official signed shell");
   if (sha256(reconstructedAsar) === officialMacReleaseAsarHash) throw new Error("Reconstructed package must not copy the official app.asar");
+  let invariant = null;
+  if (officialApp != null) {
+    if (typeof officialApp !== "string" || officialApp.length === 0) throw new TypeError("officialApp must be an explicit path when provided");
+    const officialShellPath = path.join(officialApp, "Contents", "MacOS", "Grok Bot");
+    const officialAsarPath = path.join(officialApp, "Contents", "Resources", "app.asar");
+    const [officialShell, officialAsar] = await Promise.all([
+      readFile(officialShellPath),
+      readFile(officialAsarPath),
+    ]);
+    invariant = inspectReconstructedMacShell(officialShell, reconstructedShell);
+    if (invariant.officialHash !== officialMacReleaseShellHash) throw new Error("Reconstructed verification received a non-canonical official shell reference");
+    if (invariant.officialNormalizedHash !== expectedSignatureExcludedMachOHash || invariant.reconstructedNormalizedHash !== expectedSignatureExcludedMachOHash || !invariant.structuralMatch) {
+      throw new Error("Reconstructed Mac shell failed the signature-excluded Electron structural invariant");
+    }
+    if (sha256(officialAsar) !== officialMacReleaseAsarHash) throw new Error("Reconstructed verification received a non-canonical official app.asar reference");
+  }
   const runtime = await verifyUnpackedRuntimeManifest({ sourceUnpackedRoot, packagedUnpackedRoot });
   return { invariant, reconstructedAsarHash: sha256(reconstructedAsar), runtime };
 }
