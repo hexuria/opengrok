@@ -1,8 +1,21 @@
 import { createHash } from "node:crypto";
-import { access, cp, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import { extractAll } from "@electron/asar";
-import { cacheDir, cachedRuntimeApp, sourceAppDir, upstreamAsarSha256, upstreamVersion } from "./config.mjs";
+import {
+  archivedDmg,
+  cacheDir,
+  cachedDmg,
+  cachedRuntimeApp,
+  dmgSha256,
+  dmgUrl,
+  sourceAppDir,
+  upstreamAsarSha256,
+  upstreamVersion,
+} from "./config.mjs";
 import { capture, run } from "./process.mjs";
 import { SYSTEM_TOOLS } from "./system-tools.mjs";
 
@@ -13,6 +26,53 @@ async function exists(target) {
   } catch {
     return false;
   }
+}
+
+async function sha256File(target) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(target)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+export async function downloadDmg({
+  archivedDmg: archivePath = archivedDmg,
+  cachedDmg: cachePath = cachedDmg,
+  dmgSha256: expectedSha256 = dmgSha256,
+  dmgUrl: url = dmgUrl,
+  fetch: fetchImpl = globalThis.fetch,
+} = {}) {
+  await mkdir(path.dirname(cachePath), { recursive: true });
+  if (await exists(cachePath)) {
+    const digest = await sha256File(cachePath);
+    if (digest === expectedSha256) return cachePath;
+    await rm(cachePath, { force: true });
+  }
+
+  if (await exists(archivePath)) {
+    const archivedDigest = await sha256File(archivePath);
+    if (archivedDigest !== expectedSha256) {
+      throw new Error(`Archived DMG checksum mismatch: expected ${expectedSha256}, got ${archivedDigest}. Run git lfs pull before bootstrapping.`);
+    }
+    console.log(`Using archived release ${archivePath}`);
+    await copyFile(archivePath, cachePath);
+    return cachePath;
+  }
+
+  console.log(`Downloading ${url}`);
+  const response = await fetchImpl(url, { redirect: "follow" });
+  if (!response.ok || response.body == null) {
+    throw new Error(`Download failed: HTTP ${response.status}`);
+  }
+  const partial = `${cachePath}.partial`;
+  await rm(partial, { force: true });
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(partial, { mode: 0o600 }));
+  const digest = await sha256File(partial);
+  if (digest !== expectedSha256) {
+    await rm(partial, { force: true });
+    throw new Error(`DMG checksum mismatch: expected ${expectedSha256}, got ${digest}`);
+  }
+  await rename(partial, cachePath);
+  return cachePath;
 }
 
 export async function validateRuntimeApp(appPath) {
