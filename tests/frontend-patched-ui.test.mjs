@@ -389,6 +389,13 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(transcript, /convertLatexDelimiters/);
   assert.match(transcript, /splitMathSegments/);
   assert.match(transcript, /<p>\{renderAssistantInlineText\(visible\.text\)\}<\/p>/);
+  const view = await readFrontend("frontend/src/recovered/features/conversation/workspace/view.css");
+  assert.match(view, /\.sand-message \{[^}]*width: max-content;/);
+  assert.match(view, /\.sand-message \{[^}]*overflow-wrap: break-word;/);
+  assert.doesNotMatch(view, /\.sand-message \{[^}]*overflow-wrap: anywhere;/);
+  assert.doesNotMatch(view, /\.sand-message-action-anchor \{[^}]*width: fit-content;/);
+  assert.match(view, /\.sand-transcript-row\[data-role="user"\] \{[^}]*align-items: flex-end;/);
+  assert.match(sidebar, /sections == null \|\| sections\.length === 0/);
   const math = await readFrontend("frontend/src/recovered/features/conversation/workspace/math.tsx");
   assert.match(math, /splitMathSegments\(text\)/);
   const attachment = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/views/attachment.tsx");
