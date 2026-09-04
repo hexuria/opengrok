@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -122,16 +122,26 @@ function run(command, args, env, cwd = repoRoot) {
   });
 }
 
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
-function lockedPackageVersion(lock, name) {
+function lockedPackageEntry(lock, name) {
   const entry = lock.packages?.[`node_modules/${name}`];
   if (typeof entry?.version !== "string" || entry.version.length === 0) {
     throw new Error(`package-lock.json is missing ${name}; run npm ci`);
   }
-  return entry.version;
+  if (typeof entry.resolved !== "string" || !entry.resolved.endsWith(".tgz")) {
+    throw new Error(`package-lock.json is missing a tarball URL for ${name}`);
+  }
+  if (typeof entry.integrity !== "string" || !entry.integrity.includes("-")) {
+    throw new Error(`package-lock.json is missing integrity for ${name}`);
+  }
+  return entry;
+}
+
+function verifyNpmIntegrity(bytes, integrity, name) {
+  const dash = integrity.indexOf("-");
+  const algo = integrity.slice(0, dash);
+  const expected = integrity.slice(dash + 1);
+  const actual = createHash(algo).update(bytes).digest("base64");
+  if (actual !== expected) throw new Error(`Lockfile integrity mismatch for ${name}`);
 }
 
 export function electronNativeGypRebuildArgs(packageDirectory, headersDir) {
@@ -142,33 +152,37 @@ export function electronNativePackageSourceNames() {
   return [...electronNativePackages, ...electronNativeJsDependencies];
 }
 
-// npm omits optional better-sqlite3 when the host ABI compile fails; packaging still needs the source tree.
+// Optional host compile can omit the tree; the lockfile tarball is the source, not a live npm pack.
 export async function ensureElectronNativePackageSources({
   root = repoRoot,
-  env = process.env,
   names = electronNativePackageSourceNames(),
+  fetch: fetchImpl = globalThis.fetch,
 } = {}) {
   const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
   const extracted = [];
   for (const name of names) {
     const destination = path.join(root, "node_modules", name);
     if (await hasPackageJson(destination)) continue;
-    const version = lockedPackageVersion(lock, name);
+    const entry = lockedPackageEntry(lock, name);
     const packedRoot = await mkdtemp(path.join(root, ".tmp-electron-pack-"));
     try {
-      await run(npmCommand(), ["pack", `${name}@${version}`, "--pack-destination", packedRoot, "--silent"], env, root);
-      const tarballName = (await readdir(packedRoot)).find(entry => entry.endsWith(".tgz"));
-      if (!tarballName) throw new Error(`npm pack did not yield a tarball for ${name}@${version}`);
+      const tarballName = path.basename(new URL(entry.resolved).pathname);
+      const tarballPath = path.join(packedRoot, tarballName);
+      const response = await fetchImpl(entry.resolved, { redirect: "follow" });
+      if (!response.ok) throw new Error(`Download failed for ${name}@${entry.version}: HTTP ${response.status}`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      verifyNpmIntegrity(bytes, entry.integrity, name);
+      await writeFile(tarballPath, bytes);
       await mkdir(destination, { recursive: true });
-      await extractTar({ file: path.join(packedRoot, tarballName), cwd: destination, strip: 1 });
+      await extractTar({ file: tarballPath, cwd: destination, strip: 1 });
     } finally {
       await rm(packedRoot, { recursive: true, force: true });
     }
     if (!(await hasPackageJson(destination))) {
-      throw new Error(`Failed to extract ${name}@${version} into node_modules`);
+      throw new Error(`Failed to extract ${name}@${entry.version} into node_modules`);
     }
     const pkg = JSON.parse(await readFile(path.join(destination, "package.json"), "utf8"));
-    if (pkg.name !== name || pkg.version !== version) {
+    if (pkg.name !== name || pkg.version !== entry.version) {
       throw new Error(`Extracted ${name} identity drifted (got ${pkg.name}@${pkg.version})`);
     }
     extracted.push(name);
@@ -371,7 +385,7 @@ export async function rebuildElectronNativeDeps({ env = process.env, runCommand 
   const headersDir = requireElectronHeaders(env);
   await validateElectronHeaders(headersDir);
   await validateRebuildIdentity();
-  await ensureElectronNativePackageSources({ root, env });
+  await ensureElectronNativePackageSources({ root });
 
   const gypEnv = electronGypEnv(env);
   const gyp = nodeGypCommand(root);
@@ -390,6 +404,8 @@ export async function rebuildElectronNativeDeps({ env = process.env, runCommand 
     for (const packageName of electronNativePackages) {
       const packageDirectoryPath = path.join(packageRoot, packageName);
       await rm(path.join(packageDirectoryPath, "prebuilds"), { recursive: true, force: true });
+      // Drop any host-ABI .node copied from node_modules; gyp must produce the Electron one.
+      await rm(path.join(packageDirectoryPath, "build"), { recursive: true, force: true });
       await runCommand(gyp, electronNativeGypRebuildArgs(packageDirectoryPath, headersDir), gypEnv, root);
     }
     await writeFile(
@@ -407,7 +423,6 @@ export async function rebuildElectronNativeDeps({ env = process.env, runCommand 
 }
 
 export async function ensureElectronNativeDeps() {
-  await ensureElectronNativePackageSources();
   const cacheRoot = electronNativeDepsRoot();
   if (await hasElectronNativeBinaries(cacheRoot)) return cacheRoot;
   return rebuildElectronNativeDeps();

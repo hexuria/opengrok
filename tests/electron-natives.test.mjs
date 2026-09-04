@@ -129,6 +129,7 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   const hostActivation = await readFile(path.join(repoRoot, "scripts", "host-production-activation.mjs"), "utf8");
   const electronMainActivation = await readFile(path.join(repoRoot, "scripts", "electron-main-production-activation.mjs"), "utf8");
   const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
+  const lock = JSON.parse(await readFile(path.join(repoRoot, "package-lock.json"), "utf8"));
 
   assert.match(buildAsarSource, /from "\.\.\/build-electron-natives\.mjs"/);
   assert.match(buildAsarSource, /ensureElectronNativeDeps/);
@@ -150,9 +151,20 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.match(nativesSource, /const output = await rebuildElectronNativeDeps\(\)/);
   assert.doesNotMatch(nativesSource, /const output = await ensureElectronNativeDeps\(\)/);
   assert.match(nativesSource, /ensureElectronNativePackageSources/);
-  assert.match(nativesSource, /\["pack", `\$\{name\}@\$\{version\}`/);
+  assert.doesNotMatch(nativesSource, /npm\.cmd/);
+  assert.doesNotMatch(nativesSource, /npmCommand/);
+  assert.match(nativesSource, /entry\.resolved/);
+  assert.match(nativesSource, /entry\.integrity/);
+  assert.match(nativesSource, /verifyNpmIntegrity\(bytes, entry\.integrity, name\)/);
   assert.match(nativesSource, /await runCommand\(gyp, electronNativeGypRebuildArgs\(packageDirectoryPath, headersDir\), gypEnv, root\)/);
   assert.match(nativesSource, /better-sqlite3@\$\{betterSqlite3Version\} must remain/);
+  const ensureFn = nativesSource.slice(
+    nativesSource.indexOf("export async function ensureElectronNativeDeps"),
+    nativesSource.indexOf("if (process.argv[1]"),
+  );
+  assert.match(ensureFn, /hasElectronNativeBinaries\(cacheRoot\)/);
+  assert.doesNotMatch(ensureFn, /ensureElectronNativePackageSources/);
+  assert.match(nativesSource, /await ensureElectronNativePackageSources\(\{ root \}\)/);
 
   assert.match(cleanBuild, /rebuilt against Electron 42\.1\.0 \(ABI 146\)/);
   assert.match(cleanBuild, /whichlang-node and @anysphere\/tree-chunk-napi are copied from the 0\.18 unpacked tree only when a production esbuild metafile mentions them/);
@@ -164,6 +176,15 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.equal(pkg.scripts["native:build:electron"], "node scripts/build-electron-natives.mjs");
   assert.equal(pkg.optionalDependencies["better-sqlite3"], "12.11.1");
   assert.equal(pkg.dependencies["better-sqlite3"], undefined);
+  assert.equal(lock.packages["node_modules/better-sqlite3"].version, "12.11.1");
+  assert.equal(
+    lock.packages["node_modules/better-sqlite3"].integrity,
+    "sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==",
+  );
+  assert.equal(
+    lock.packages["node_modules/better-sqlite3"].resolved,
+    "https://registry.npmjs.org/better-sqlite3/-/better-sqlite3-12.11.1.tgz",
+  );
 });
 
 test("stageElectronNativeDeps copies the rebuilt tree into dist/deps", async () => {
@@ -315,14 +336,54 @@ test("ensureElectronNativePackageSources pack-extracts better-sqlite3 when npm o
   const root = await mkdtemp(path.join(os.tmpdir(), "opengrok-electron-sqlite-pack-"));
   try {
     await cp(path.join(repoRoot, "package-lock.json"), path.join(root, "package-lock.json"));
-    const extracted = await ensureElectronNativePackageSources({ root, names: ["better-sqlite3"] });
+    const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
+    const entry = lock.packages["node_modules/better-sqlite3"];
+    assert.equal(entry.version, "12.11.1");
+    assert.equal(
+      entry.integrity,
+      "sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==",
+    );
+    const fetched = [];
+    const extracted = await ensureElectronNativePackageSources({
+      root,
+      names: ["better-sqlite3"],
+      fetch: async (url, init) => {
+        fetched.push(url);
+        return globalThis.fetch(url, init);
+      },
+    });
     assert.deepEqual(extracted, ["better-sqlite3"]);
+    assert.deepEqual(fetched, [entry.resolved]);
     const pkg = JSON.parse(await readFile(path.join(root, "node_modules", "better-sqlite3", "package.json"), "utf8"));
     assert.equal(pkg.name, "better-sqlite3");
     assert.equal(pkg.version, "12.11.1");
     await assert.rejects(readFile(path.join(root, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node")));
-    const again = await ensureElectronNativePackageSources({ root, names: ["better-sqlite3"] });
+    const again = await ensureElectronNativePackageSources({
+      root,
+      names: ["better-sqlite3"],
+      fetch: async () => {
+        throw new Error("must not fetch when the source tree is already present");
+      },
+    });
     assert.deepEqual(again, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ensureElectronNativePackageSources rejects a lockfile integrity mismatch", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opengrok-electron-sqlite-integrity-"));
+  try {
+    await cp(path.join(repoRoot, "package-lock.json"), path.join(root, "package-lock.json"));
+    await assert.rejects(
+      () => ensureElectronNativePackageSources({
+        root,
+        names: ["better-sqlite3"],
+        fetch: async () => new Response(Buffer.from("not-the-locked-tarball"), { status: 200 }),
+      }),
+      /Lockfile integrity mismatch for better-sqlite3/,
+    );
+    await assert.rejects(readFile(path.join(root, "node_modules", "better-sqlite3", "package.json")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -359,15 +420,26 @@ test.describe("electron native node-gyp rebuild", { concurrency: false }, () => 
     }
   });
 
-  test("better-sqlite3 12.11.1 compiles against Electron 42 headers", async () => {
+  test("rebuildElectronNativeDeps rejects a missing .node after a no-op gyp", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "opengrok-electron-gyp-missing-"));
+    try {
+      const headersDir = await writeFixtureElectronHeaders(root);
+      await assert.rejects(
+        () => rebuildElectronNativeDeps({
+          env: { ...process.env, ELECTRON_HEADERS_DIR: headersDir },
+          runCommand: async () => {},
+        }),
+        /Rebuilt Electron native is missing/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("better-sqlite3 12.11.1 compiles against Electron 42 headers", async t => {
     const headersDir = electronHeadersDir;
     if (!headersDir) {
-      const env = { ...process.env };
-      delete env.ELECTRON_HEADERS_DIR;
-      await assert.rejects(
-        () => rebuildElectronNativeDeps({ env }),
-        /ELECTRON_HEADERS_DIR is required/,
-      );
+      t.skip("ELECTRON_HEADERS_DIR is unset; not claiming a compile pass");
       return;
     }
     const output = await rebuildElectronNativeDeps({ env: { ...process.env, ELECTRON_HEADERS_DIR: headersDir } });
