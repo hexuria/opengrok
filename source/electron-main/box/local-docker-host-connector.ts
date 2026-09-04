@@ -10,6 +10,7 @@ import type { SandSettingsStore } from "../../shared/node/settings/sand-settings
 import { isSubscriptionInferenceProvider } from "../../shared/node/subscription-cli-auth.js";
 import type { RecreateResult } from "./box-recreate-commands.js";
 import { noteOpenGrokServerStatus } from "./opengrok-server-status.js";
+import { OPENGROK_ACCOUNT_HEADER } from "./box-host-connector.js";
 import type { SandRemoteHostConnector } from "./box-host-connector.js";
 import { formatAccountComputerError, noteAccountComputerStatus } from "./account-computer-status.js";
 import { DOCKER_CLI_NOT_FOUND, DOCKER_DESKTOP_APP, classifyDockerUnavailable, dockerCliCandidates, dockerSearchPath } from "./docker-cli.js";
@@ -445,6 +446,7 @@ export function createSettingsRoutedHostConnector(
   remote: SandRemoteHostConnector,
   settings: SandSettingsStore,
   readOpenGrokToken?: () => Promise<string | null>,
+  readOpenGrokAccountToken?: () => Promise<string | null>,
 ): SandRemoteHostConnector {
   const localConnect = (): Promise<GatewayConnection> => {
     if (ensureInFlight == null) ensureInFlight = connectLocalDocker(settings.settingsPath, async () => {
@@ -489,11 +491,19 @@ export function createSettingsRoutedHostConnector(
         }
         let token = "";
         try { token = (readOpenGrokToken == null ? null : await readOpenGrokToken()) ?? ""; } catch { token = ""; }
+        let account = "";
+        try { account = (readOpenGrokAccountToken == null ? null : await readOpenGrokAccountToken()) ?? ""; } catch { account = ""; }
         await noteConnector(settings.settingsPath, `target=opengrok url=${baseUrl}`).catch(() => undefined);
         noteOpenGrokServerStatus({ ok: true, detail: `Using the OpenGrok server at ${baseUrl}.`, gatewayUrl: baseUrl });
         // Built inline rather than via buildConnection: importing it drags the
         // Connect/proto graph into main-edge, which tests load in isolation.
-        return { baseUrl, ...(token.length > 0 ? { token } : {}) };
+        // The bearer names the gateway; the account header names whose bots to
+        // list. Without it the server falls back to its configured account.
+        return {
+          baseUrl,
+          ...(token.length > 0 ? { token } : {}),
+          ...(account.length > 0 ? { headers: { [OPENGROK_ACCOUNT_HEADER]: account } } : {}),
+        };
       }
       // Leave grok-bot-local-vm running so Local VM can attach to the existing container.
       if (runtime === "windows365") {

@@ -11,6 +11,7 @@ import { findSystemErrno } from "../../shared/system-errno.js";
 import { createLocalCliModeHeaders } from "../../packages/cursor-config/request.js";
 import { LoginManager } from "../../packages/cursor-config/auth/login.js";
 import { mdmSignInPolicyHeaders, SignInPolicyViolationError, SIGN_IN_POLICY_VIOLATION_ERROR, SIGN_IN_POLICY_VIOLATION_MESSAGE } from "../../packages/cursor-config/auth/mdm-sign-in-policy.js";
+import { OPENGROK_ACCESS_TOKEN_SECRET } from "../../shared/box-runtime.js";
 import { deleteSecret, isEncryptedStorageAvailable, readSecret, shouldPersistSecretsOnDisk, waitForEncryptedStorage, writeSecret } from "../secrets/secret-store.js";
 import { reportSessionEvent, type SessionRefreshFailure, type SessionSignoutCause } from "./session-funnel-telemetry.js";
 import { reportSigninLogin, reportSigninSignout, signinSignoutCause } from "./signin-funnel-telemetry.js";
@@ -311,14 +312,25 @@ export class SandCursorAuthService {
   }
   subscribe(listener: (status: SandAuthStatus) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
 
+  private async readOpenGrokAccessToken(): Promise<string | null> {
+    try {
+      const token = await this.secrets.readSecret(OPENGROK_ACCESS_TOKEN_SECRET);
+      return token != null && token.length > 0 ? token : null;
+    } catch {
+      return null;
+    }
+  }
+
   async getStatus(): Promise<SandAuthStatus> {
     const operationEpoch = this.authOperationEpoch;
     if (this.credentialsRetainedAfterFailedLogout) return RETAINED_AFTER_FAILED_LOGOUT_STATUS;
     if (this.credentialsRevoked) return this.reportedLoggedOutStatus;
     const [accessToken, refreshToken] = await Promise.all([this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY), this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY)]);
     if (this.credentialsRetainedAfterFailedLogout) return RETAINED_AFTER_FAILED_LOGOUT_STATUS;
-    if (this.credentialsRevoked || accessToken == null || refreshToken == null) return this.credentialsRevoked ? this.reportedLoggedOutStatus : LOGGED_OUT_STATUS;
-    const status = createLoggedInStatus(accessToken);
+    if (this.credentialsRevoked) return this.reportedLoggedOutStatus;
+    const sessionToken = accessToken != null && refreshToken != null ? accessToken : await this.readOpenGrokAccessToken();
+    if (sessionToken == null) return LOGGED_OUT_STATUS;
+    const status = createLoggedInStatus(sessionToken);
     if (status.kind === "logged-in" && status.authId != null) await this.ensureProfile(status.authId, operationEpoch);
     if (this.credentialUseRevoked || !this.isCurrentAuthOperation(operationEpoch)) return await this.getStatus();
     return this.withProfile(status);
@@ -354,10 +366,21 @@ export class SandCursorAuthService {
     const operationEpoch = this.authOperationEpoch; if (this.credentialUseRevoked) throw new SandAuthSignInRequiredError();
     const backendUrl = options?.backendUrl ?? DEFAULT_CURSOR_BACKEND_URL;
     const [accessToken, refreshToken] = await Promise.all([this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY), this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY)]);
-    if (!this.isCurrentAuthOperation(operationEpoch) || this.credentialUseRevoked || accessToken == null || refreshToken == null) throw new SandAuthSignInRequiredError();
+    if (!this.isCurrentAuthOperation(operationEpoch) || this.credentialUseRevoked) throw new SandAuthSignInRequiredError();
+    if (accessToken == null || refreshToken == null) {
+      const opengrok = await this.readOpenGrokAccessToken();
+      if (opengrok == null) throw new SandAuthSignInRequiredError();
+      return opengrok;
+    }
     return shouldRefreshAccessToken(backendUrl, accessToken) ? await this.refreshAccessToken({ backendUrl, operationEpoch, refreshToken }) : accessToken;
   }
-  async peekAccessToken(): Promise<string | null> { if (this.credentialUseRevoked) return null; const [access, refresh] = await Promise.all([this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY), this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY)]); return this.credentialUseRevoked || access == null || refresh == null ? null : access; }
+  async peekAccessToken(): Promise<string | null> {
+    if (this.credentialUseRevoked) return null;
+    const [access, refresh] = await Promise.all([this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY), this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY)]);
+    if (this.credentialUseRevoked) return null;
+    if (access != null && refresh != null) return access;
+    return await this.readOpenGrokAccessToken();
+  }
   async exportTokens(): Promise<CursorTokens | null> { if (this.credentialUseRevoked) return null; const [accessToken, refreshToken] = await Promise.all([this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY), this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY)]); return this.credentialUseRevoked || accessToken == null || refreshToken == null ? null : { accessToken, refreshToken }; }
   async login(): Promise<SandAuthStatus> {
     this.abortActiveLogin(); const operationEpoch = this.advanceAuthOperationEpoch(); const controller = new AbortController(); this.loginAbortController = controller;

@@ -50,7 +50,7 @@ import { registerElectronProductionVncTrust, type ElectronProductionVncTrustDeps
 import { registerProductionTelemetryIpc } from "./telemetry/production-telemetry-ipc.js";
 import type { SandAuthStatus } from "./account/cursor-auth.js";
 import { shouldPreserveComputersAcrossAccountDeparture } from "./account/preserve-computers.js";
-import { OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
+import { OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
 import { setBackendUrlResolver } from "../shared/node/cursor-token.js";
 import { readSecret } from "./secrets/secret-store.js";
 import type { SecureStorageCodec } from "./secrets/secret-store.js";
@@ -707,7 +707,7 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
           env,
           { noteBackendUpdateRequirement: (required) => requireValue(update, "update").noteBackendUpdateRequirement(required) },
           gatewayFastPath,
-        ), requireValue(settings, "settings").settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET));
+        ), requireValue(settings, "settings").settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET), async () => await readSecret(OPENGROK_ACCESS_TOKEN_SECRET));
       const baseRemoteConnector = wrapRemoteHostConnectorWithDevBoxPlane(
         rawRemoteConnector,
         {

@@ -878,3 +878,52 @@ test("nothing asks the store to update during a render", async () => {
   assert.match(fallback, /const t=n&&n\.retry/, "the retry callback must not be thrown away");
   assert.match(fallback, /Try again/, "a stuck error needs a way out");
 });
+
+test("OpenGrok connect names the signed-in account on the gateway", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-opengrok-connect-account-"));
+  try {
+    const outfile = path.join(temporary, "connector.mjs");
+    await build({
+      entryPoints: [path.join(repoRoot, "source/electron-main/box/local-docker-host-connector.ts")],
+      outfile, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
+    });
+    const { createSettingsRoutedHostConnector } = await import(pathToFileURL(outfile).href);
+    const settings = {
+      settingsPath: path.join(temporary, "settings.json"),
+      getBoxRuntime: () => "opengrok",
+      getOpenGrokGatewayUrl: () => "https://server.test:1447",
+      getInferenceProvider: () => "cursor",
+    };
+    const remote = { connect: async () => { throw new Error("OpenGrok must not use the Cursor broker"); } };
+    const connection = await createSettingsRoutedHostConnector(
+      remote,
+      settings,
+      async () => "gw-bearer",
+      async () => "account-jwt",
+    ).connect();
+    assert.equal(connection.baseUrl, "https://server.test:1447");
+    assert.equal(connection.token, "gw-bearer");
+    assert.equal(connection.headers?.["x-opengrok-account"], "account-jwt");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+test("an OpenGrok server sign-in is a logged-in session", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-opengrok-session-"));
+  try {
+    const mod = await loadAuth(temporary);
+    const payload = Buffer.from(JSON.stringify({ sub: "acct_acme", email: "signin@acme.test" })).toString("base64url");
+    const token = `eyJhbGciOiJub25lIn0.${payload}.x`;
+    const secrets = fakeSecrets({ "opengrok-access-token": token });
+    const service = new mod.SandCursorAuthService({ secrets });
+    const status = await service.getStatus();
+    assert.equal(status.kind, "logged-in");
+    assert.equal(status.authId, "acct_acme");
+    assert.equal(status.email, "signin@acme.test");
+    assert.equal(await service.peekAccessToken(), token);
+    assert.equal(await service.getValidAccessToken({ backendUrl: "https://server.test:1447" }), token);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
