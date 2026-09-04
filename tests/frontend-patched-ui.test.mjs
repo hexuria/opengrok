@@ -395,7 +395,13 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.doesNotMatch(view, /\.sand-message \{[^}]*overflow-wrap: anywhere;/);
   assert.doesNotMatch(view, /\.sand-message-action-anchor \{[^}]*width: fit-content;/);
   assert.match(view, /\.sand-transcript-row\[data-role="user"\] \{[^}]*align-items: flex-end;/);
-  assert.match(sidebar, /sections == null \|\| sections\.length === 0/);
+  assert.match(view, /\.sand-transcript-row\[data-role="assistant"\] \{[^}]*align-items: flex-start;/);
+  assert.match(view, /\.sand-message-hover-actions__button \{[^}]*background: var\(--cursor-bg-elevated\);/);
+  assert.match(view, /\.sand-message-more-menu \{[^}]*background: var\(--cursor-bg-elevated\);/);
+  assert.doesNotMatch(view, /\.sand-message-hover-actions__button \{[^}]*#20231f/);
+  assert.doesNotMatch(view, /\.sand-message-more-menu \{[^}]*#20231f/);
+  assert.match(sidebar, /rosterNavAgentsFromUnpinned\(unpinned, sections\)/);
+  assert.match(sidebar, /listedUnpinned\.map/);
   const math = await readFrontend("frontend/src/recovered/features/conversation/workspace/math.tsx");
   assert.match(math, /splitMathSegments\(text\)/);
   const attachment = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/views/attachment.tsx");
