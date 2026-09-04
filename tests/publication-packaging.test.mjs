@@ -80,6 +80,15 @@ test("default packaging wraps npm Electron and does not require the official Mac
   const cleanBuild = await readFile(path.join(repoRoot, "scripts", "lib", "clean-build.mjs"), "utf8");
   assert.match(cleanBuild, /wraps npm Electron 42\.1\.0/);
   assert.doesNotMatch(cleanBuild, /reuses the checksum-pinned, ABI-matched Electron 0\.18 application shell/);
+  assert.match(cleanBuild, /rebuilt against Electron 42\.1\.0 \(ABI 146\)/);
+  assert.doesNotMatch(cleanBuild, /ABI-matched native and packaged dependencies are copied from the checksum-pinned 0\.18 runtime/);
+  const natives = await readFile(path.join(repoRoot, "scripts", "build-electron-natives.mjs"), "utf8");
+  const asar = await readFile(path.join(repoRoot, "scripts", "lib", "build-asar.mjs"), "utf8");
+  assert.match(natives, /better-sqlite3/);
+  assert.match(natives, /stageRetainedElectronNatives/);
+  assert.match(asar, /stageElectronNativeDeps/);
+  assert.match(asar, /stageRetainedElectronNatives/);
+  assert.doesNotMatch(asar, /\["deps", "native"\]/);
 });
 
 test("package:vite is the opt-in clean renderer packager", async () => {
