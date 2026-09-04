@@ -14,12 +14,12 @@ export const electronHeadersUrl = `https://artifacts.electronjs.org/headers/dist
 
 export const electronNativePackages = Object.freeze(["better-sqlite3", "tree-sitter", "tree-sitter-bash"]);
 export const electronNativeJsDependencies = Object.freeze(["bindings", "file-uri-to-path", "node-addon-api", "node-gyp-build"]);
+// Temporary 0.18 copies until the source host ships; these are still packaged.
 export const retainedElectronNativePackages = Object.freeze([
   "@anysphere/tree-chunk-napi",
   "whichlang-node",
   "whichlang-node-darwin-arm64",
 ]);
-export const deferredElectronNativePackages = Object.freeze(["whichlang-node", "@anysphere/tree-chunk-napi"]);
 export const omittedElectronNativePackages = Object.freeze(["cursor-proclist"]);
 export const electronNativeNodeFiles = Object.freeze([
   "better-sqlite3/build/Release/better_sqlite3.node",
@@ -339,7 +339,6 @@ if (process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(i
     headers: process.env.ELECTRON_HEADERS_DIR ?? null,
     packages: [...electronNativePackages],
     retained: [...retainedElectronNativePackages],
-    deferred: [...deferredElectronNativePackages],
     omitted: [...omittedElectronNativePackages],
     output,
     platform: process.platform,

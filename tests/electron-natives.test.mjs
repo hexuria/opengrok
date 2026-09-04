@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import {
   assertElectronNativeDeps,
   createElectronRuntimeDepsManifest,
-  deferredElectronNativePackages,
   electronAbi,
   electronNativeDepsRoot,
   electronNativeIdentityKey,
@@ -74,7 +73,11 @@ test("electron native rebuild inventory is public ABI packages, not 0.18 private
   assert.equal(electronAbi, "146");
   assert.deepEqual([...electronNativePackages], ["better-sqlite3", "tree-sitter", "tree-sitter-bash"]);
   assert.deepEqual([...electronNativeJsDependencies], ["bindings", "file-uri-to-path", "node-addon-api", "node-gyp-build"]);
-  assert.deepEqual([...deferredElectronNativePackages], ["whichlang-node", "@anysphere/tree-chunk-napi"]);
+  assert.deepEqual([...retainedElectronNativePackages], [
+    "@anysphere/tree-chunk-napi",
+    "whichlang-node",
+    "whichlang-node-darwin-arm64",
+  ]);
   assert.deepEqual([...omittedElectronNativePackages], ["cursor-proclist"]);
   assert.ok(!electronNativePackages.includes("cursor-proclist"));
   const identity = electronNativeRebuildIdentity();
@@ -128,6 +131,8 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.match(nativesSource, /tree-sitter-bash/);
   assert.match(nativesSource, /ELECTRON_HEADERS_DIR is required/);
   assert.match(nativesSource, /omittedElectronNativePackages = Object\.freeze\(\["cursor-proclist"\]\)/);
+  assert.match(nativesSource, /retainedElectronNativePackages/);
+  assert.doesNotMatch(nativesSource, /deferredElectronNativePackages/);
   assert.doesNotMatch(nativesSource, /electronNativePackages = Object\.freeze\(\[[^\]]*cursor-proclist/);
   assert.match(nativesSource, /const output = await rebuildElectronNativeDeps\(\)/);
   assert.doesNotMatch(nativesSource, /const output = await ensureElectronNativeDeps\(\)/);
