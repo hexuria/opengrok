@@ -6,6 +6,7 @@ macOS on Apple Silicon only. This is an unofficial project, not an Anysphere rel
 
 ## Unreleased
 
+- Native helpers: stop copying Anysphere's 1Password launcher and webauthn signer. System `op` is enough; WebAuthn stays fail-closed.
 - Auto-review: Allow and Block live in a standing-rules modal (inherit / on / off, ten-row list, + to write a rule).
 - Agent settings: the Description heading is Role.
 - Restore `getCoworkerSpend` so the packaged app creates a window again after #60 dropped the handler.

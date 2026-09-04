@@ -52,10 +52,11 @@ export function devRepoRoot(override?: string): string {
   return join(moduleDirectory, "..", "..", "..");
 }
 
-export function resolveWebAuthnSignerPath(options: { readonly isPackaged: boolean; readonly repoRoot?: string }): string | undefined {
-  const override = process.env.SAND_WEBAUTHN_SIGNER_PATH;
+export function resolveWebAuthnSignerPath(options: { readonly isPackaged: boolean; readonly repoRoot?: string; readonly resourcesPath?: string; readonly env?: NodeJS.ProcessEnv }): string | undefined {
+  const env = options.env ?? process.env;
+  const override = env.SAND_WEBAUTHN_SIGNER_PATH;
   if (override !== undefined && override.length > 0) return existsSync(override) ? override : undefined;
-  const resourcesPath = (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath ?? "";
+  const resourcesPath = options.resourcesPath ?? (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath ?? "";
   const candidates = options.isPackaged
     ? [join(resourcesPath, "app.asar.unpacked", "dist", "native", SIGNER_BINARY)]
     : [

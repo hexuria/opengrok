@@ -76,7 +76,7 @@ export const runtimeComposition = Object.freeze([
   { runtime: "electron-runtime-dependencies", path: "dist/deps", mode: "generated-runtime", reason: "Public native addons (better-sqlite3, tree-sitter, tree-sitter-bash) are rebuilt against Electron 42.1.0 (ABI 146) headers and staged as dist/deps; whichlang-node and @anysphere/tree-chunk-napi are copied from the 0.18 unpacked tree until the source host ships; cursor-proclist is omitted and process scan no-ops." },
   { runtime: "electron-runtime-resolution-closure", path: "dist/deps/node_modules", mode: "generated-runtime", provenance: "dist/deps/runtime-deps-manifest.json", reason: "Byte-exact copies of rebuilt sibling packages provide standard Node package resolution for Electron utility-process native dependencies." },
   { runtime: "node-runtime-dependencies", path: "dist/node-deps", mode: "generated-runtime", reason: "Native parser packages are rebuilt for the local-exec daemon Node ABI at clean-build time; binaries are never source-controlled." },
-  { runtime: "native-runtime-tools", path: "dist/native", mode: "artifact-runtime", reason: "ABI-matched native executables are copied from the checksum-pinned 0.18 runtime." },
+  { runtime: "native-runtime-tools", path: "dist/native", mode: "system-runtime", reason: "1Password uses the system op CLI; WebAuthn stays fail-closed without a signer we own. Anysphere Mach-Os from 0.18 are not copied." },
   { runtime: "electron-shell", path: "Contents/Frameworks/Electron Framework.framework", mode: "artifact-runtime", reason: "The macOS package wraps npm Electron 42.1.0 (ABI-matched to the 0.18 runtime); the official 0.18 shell is diagnostic-only." },
 ]);
 

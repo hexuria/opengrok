@@ -56,10 +56,17 @@ if (sourceMarkers < 1_000) throw new Error(`Expected at least 1,000 surviving ev
 
 await requirePath(builtAsar);
 await requirePath(path.join(builtAsarUnpacked, "dist", "deps", "better-sqlite3", "build", "Release", "better_sqlite3.node"));
-await requirePath(path.join(builtAsarUnpacked, "dist", "native", "sand-webauthn-signer"));
 await requirePath(verifiedApp);
 
 const listing = new Set(listPackage(builtAsar));
+const nativePacked = [...listing].filter(entry => entry === "/dist/native" || entry.startsWith("/dist/native/"));
+if (nativePacked.length > 0) throw new Error(`ASAR still contains dist/native: ${nativePacked.join(", ")}`);
+try {
+  const unpackedNative = await walkFiles(path.join(builtAsarUnpacked, "dist", "native"));
+  if (unpackedNative.length > 0) throw new Error(`Packaged unpacked runtime still contains dist/native: ${unpackedNative.join(", ")}`);
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
 for (const required of [
   "/dist/electron-main/main.cjs",
   "/dist/electron-dev-controls/main.cjs",
