@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
   AD_HOC_CODESIGN_IDENTITY,
   CODESIGN_IDENTITY_ENV,
   ELECTRON_ENTITLEMENTS_PATH,
+  LOCAL_CODESIGN_OPTIONS,
   codesignArguments,
+  compareSignTargetDepth,
   distributionCodesignArguments,
+  listNestedDistributionSignTargets,
   parseSigningIdentities,
   pickCodesignIdentity,
   resolveCodesignIdentity,
@@ -77,6 +82,23 @@ test("signing passes the resolved identity through to codesign", async () => {
     "Developer ID Application: Example Dev (TEAMID1234)",
     "/Applications/Example.app",
   ]);
+  assert.deepEqual(
+    codesignArguments("/Applications/Example.app", "Developer ID Application: Example Dev (TEAMID1234)", LOCAL_CODESIGN_OPTIONS),
+    calls[0].args,
+  );
+
+  const ignored = [];
+  await signAppBundle(
+    "/Applications/Example.app",
+    async (_command, args) => { ignored.push(args); },
+    {
+      identity: "Developer ID Application: Example Dev (TEAMID1234)",
+      timestamp: true,
+      hardenedRuntime: true,
+      entitlements: ELECTRON_ENTITLEMENTS_PATH,
+    },
+  );
+  assert.deepEqual(ignored[0], calls[0].args);
 
   // Packaging must never sign an unspecified target.
   assert.throws(() => codesignArguments(""), /application bundle path/);
@@ -89,7 +111,6 @@ test("distribution signing uses a timestamp, hardened runtime, and Electron enti
     distributionCodesignArguments("/Applications/Example.app", identityName),
     [
       "--force",
-      "--deep",
       "--timestamp",
       "--options",
       "runtime",
@@ -100,20 +121,25 @@ test("distribution signing uses a timestamp, hardened runtime, and Electron enti
       "/Applications/Example.app",
     ],
   );
+  assert.equal(distributionCodesignArguments("/Applications/Example.app", identityName).includes("--deep"), false);
   assert.throws(
     () => distributionCodesignArguments("/Applications/Example.app", AD_HOC_CODESIGN_IDENTITY),
-    /Developer ID/,
+    /Developer ID Application/,
   );
   assert.throws(
     () => distributionCodesignArguments("/Applications/Example.app", ""),
-    /Developer ID/,
+    /Developer ID Application/,
+  );
+  assert.throws(
+    () => distributionCodesignArguments("/Applications/Example.app", "Apple Development: Example Dev (TEAMID5678)"),
+    /Developer ID Application/,
   );
 
   const calls = [];
   const identity = await signAppBundleForDistribution(
     "/Applications/Example.app",
     async (command, args) => { calls.push({ command, args }); },
-    { env: {}, listIdentities: async () => SECURITY_OUTPUT },
+    { env: {}, listIdentities: async () => SECURITY_OUTPUT, listNestedTargets: async () => [] },
   );
   assert.equal(identity, identityName);
   assert.equal(calls.length, 1);
@@ -121,9 +147,61 @@ test("distribution signing uses a timestamp, hardened runtime, and Electron enti
   assert.deepEqual(calls[0].args, distributionCodesignArguments("/Applications/Example.app", identityName));
   assert.equal(calls[0].args.includes("--timestamp=none"), false);
 
+  await assert.rejects(
+    () => signAppBundleForDistribution(
+      "/Applications/Example.app",
+      async () => {},
+      {
+        env: {},
+        listIdentities: async () => `  1) ${"A".repeat(40)} "Apple Development: Example Dev (TEAMID5678)"\n     1 valid identities found\n`,
+        listNestedTargets: async () => [],
+      },
+    ),
+    /Developer ID Application/,
+  );
+
   const entitlements = await readFile(ELECTRON_ENTITLEMENTS_PATH, "utf8");
   assert.match(entitlements, /com\.apple\.security\.cs\.allow-jit/);
   assert.match(entitlements, /com\.apple\.security\.cs\.allow-unsigned-executable-memory/);
   assert.match(entitlements, /com\.apple\.security\.cs\.disable-library-validation/);
+  assert.match(entitlements, /com\.apple\.security\.automation\.apple-events/);
   assert.doesNotMatch(entitlements, /com\.apple\.security\.app-sandbox/);
+  assert.doesNotMatch(entitlements, /allow-dyld-environment-variables/);
+});
+
+test("distribution signing signs nested helpers inside-out without --deep", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opengrok-codesign-nested-"));
+  const appPath = path.join(root, "Open Grok.app");
+  const helper = path.join(appPath, "Contents", "Frameworks", "Grok Bot Helper.app");
+  const framework = path.join(appPath, "Contents", "Frameworks", "Electron Framework.framework");
+  const dylib = path.join(framework, "Versions", "A", "Libraries", "libffmpeg.dylib");
+  const crashpad = path.join(appPath, "Contents", "Frameworks", "chrome_crashpad_handler");
+  await mkdir(helper, { recursive: true });
+  await mkdir(path.dirname(dylib), { recursive: true });
+  await writeFile(dylib, "");
+  await writeFile(crashpad, Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]));
+  try {
+    const nested = await listNestedDistributionSignTargets(appPath);
+    assert.deepEqual(nested, [dylib, framework, crashpad, helper].sort(compareSignTargetDepth));
+    assert.ok(nested.indexOf(dylib) < nested.indexOf(framework));
+    assert.equal(nested.includes(appPath), false);
+
+    const calls = [];
+    const identityName = "Developer ID Application: Example Dev (TEAMID1234)";
+    await signAppBundleForDistribution(
+      appPath,
+      async (_command, args) => { calls.push(args); },
+      { identity: identityName },
+    );
+    const targets = calls.map((args) => args.at(-1));
+    assert.deepEqual(targets.slice(0, -1), nested);
+    assert.equal(targets.at(-1), appPath);
+    for (const args of calls) {
+      assert.equal(args.includes("--deep"), false);
+      assert.ok(args.includes("--timestamp"));
+      assert.ok(args.includes("runtime"));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

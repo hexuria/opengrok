@@ -44,11 +44,23 @@ export function resolveNotaryCredentials(env = process.env) {
   if (!shouldNotarize(env)) return null;
   const profile = env.SAND_NOTARY_KEYCHAIN_PROFILE?.trim();
   if (profile) return { type: "keychain-profile", profile };
-  const key = env.SAND_NOTARY_API_KEY?.trim();
+  const keyPath = env.SAND_NOTARY_API_KEY_PATH?.trim();
   const keyId = env.SAND_NOTARY_API_KEY_ID?.trim();
   const issuer = env.SAND_NOTARY_ISSUER?.trim();
-  if (key && keyId && issuer) return { type: "api-key", key, keyId, issuer };
-  throw new Error("SAND_NOTARIZE is set but neither SAND_NOTARY_KEYCHAIN_PROFILE nor SAND_NOTARY_API_KEY + SAND_NOTARY_API_KEY_ID + SAND_NOTARY_ISSUER are configured.");
+  if (keyPath && keyId && issuer) {
+    assertNotaryApiKeyPath(keyPath);
+    return { type: "api-key", key: keyPath, keyId, issuer };
+  }
+  throw new Error("SAND_NOTARIZE is set but neither SAND_NOTARY_KEYCHAIN_PROFILE nor SAND_NOTARY_API_KEY_PATH + SAND_NOTARY_API_KEY_ID + SAND_NOTARY_ISSUER are configured.");
+}
+
+export function assertNotaryApiKeyPath(keyPath) {
+  if (typeof keyPath !== "string" || keyPath.length === 0) {
+    throw new TypeError("SAND_NOTARY_API_KEY_PATH must be a filesystem path to a .p8 file.");
+  }
+  if (/-----BEGIN/.test(keyPath) || keyPath.includes("\n") || keyPath.includes("\r")) {
+    throw new Error("SAND_NOTARY_API_KEY_PATH must be a filesystem path to a .p8 file, not the key PEM.");
+  }
 }
 
 export function notarytoolSubmitArguments(zipPath, credentials) {
@@ -111,8 +123,8 @@ export async function releaseMacosApp(options = {}) {
     entitlements: options.entitlements,
     listIdentities: options.listIdentities,
   };
-  // Refuse ad-hoc before the codesign retry; Apple's timestamp server cannot
-  // notarize a dash identity, and retrying that would only reprint the error.
+  // Refuse ad-hoc / Apple Development before the codesign retry; only a
+  // Developer ID Application identity can be timestamped and notarized.
   distributionCodesignArguments(appPath, identity, signOptions);
 
   try {

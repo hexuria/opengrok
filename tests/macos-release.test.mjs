@@ -25,13 +25,13 @@ const SECURITY_OUTPUT = `
 `;
 
 test("ditto zip keeps the parent .app and skips Apple notary unless opted in", () => {
-  const appPath = "/tmp/Open Grok.app";
+  const appPath = path.join("/tmp", "Open Grok.app");
   const zipPath = distributionZipPath(appPath);
-  assert.equal(zipPath, "/tmp/Open Grok.zip");
+  assert.equal(zipPath, path.join(path.dirname(appPath), "Open Grok.zip"));
   assert.deepEqual(dittoZipArguments(appPath, zipPath), ["-c", "-k", "--keepParent", appPath, zipPath]);
   assert.throws(() => dittoZipArguments("", zipPath), /application bundle path/);
   assert.throws(() => dittoZipArguments(appPath, ""), /zip destination path/);
-  assert.throws(() => distributionZipPath("/tmp/Open Grok"), /\.app/);
+  assert.throws(() => distributionZipPath(path.join("/tmp", "Open Grok")), /\.app/);
 
   assert.equal(shouldNotarize({}), false);
   assert.equal(shouldNotarize({ SAND_NOTARIZE: "0" }), false);
@@ -42,26 +42,41 @@ test("ditto zip keeps the parent .app and skips Apple notary unless opted in", (
     resolveNotaryCredentials({ SAND_NOTARIZE: "1", SAND_NOTARY_KEYCHAIN_PROFILE: "AC_PASSWORD" }),
     { type: "keychain-profile", profile: "AC_PASSWORD" },
   );
+  const apiKeyPath = path.join("/tmp", "AuthKey.p8");
   assert.deepEqual(
     resolveNotaryCredentials({
       SAND_NOTARIZE: "true",
-      SAND_NOTARY_API_KEY: "/tmp/AuthKey.p8",
+      SAND_NOTARY_API_KEY_PATH: apiKeyPath,
       SAND_NOTARY_API_KEY_ID: "KEYID",
       SAND_NOTARY_ISSUER: "ISSUER",
     }),
-    { type: "api-key", key: "/tmp/AuthKey.p8", keyId: "KEYID", issuer: "ISSUER" },
+    { type: "api-key", key: apiKeyPath, keyId: "KEYID", issuer: "ISSUER" },
   );
   assert.throws(
     () => resolveNotaryCredentials({ SAND_NOTARIZE: "1" }),
     /SAND_NOTARY_KEYCHAIN_PROFILE/,
   );
+  assert.throws(
+    () => resolveNotaryCredentials({
+      SAND_NOTARIZE: "1",
+      SAND_NOTARY_API_KEY_PATH: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+      SAND_NOTARY_API_KEY_ID: "KEYID",
+      SAND_NOTARY_ISSUER: "ISSUER",
+    }),
+    /path to a \.p8 file/,
+  );
+  const zipForNotary = path.join("/tmp", "Open Grok.zip");
   assert.deepEqual(
-    notarytoolSubmitArguments("/tmp/Open Grok.zip", { type: "keychain-profile", profile: "AC_PASSWORD" }),
-    ["notarytool", "submit", "/tmp/Open Grok.zip", "--wait", "--keychain-profile", "AC_PASSWORD"],
+    notarytoolSubmitArguments(zipForNotary, { type: "keychain-profile", profile: "AC_PASSWORD" }),
+    ["notarytool", "submit", zipForNotary, "--wait", "--keychain-profile", "AC_PASSWORD"],
   );
   assert.deepEqual(
-    staplerStapleArguments("/tmp/Open Grok.app"),
-    ["stapler", "staple", "/tmp/Open Grok.app"],
+    notarytoolSubmitArguments(zipForNotary, { type: "api-key", key: apiKeyPath, keyId: "KEYID", issuer: "ISSUER" }),
+    ["notarytool", "submit", zipForNotary, "--wait", "--key", apiKeyPath, "--key-id", "KEYID", "--issuer", "ISSUER"],
+  );
+  assert.deepEqual(
+    staplerStapleArguments(appPath),
+    ["stapler", "staple", appPath],
   );
 });
 
@@ -85,7 +100,6 @@ test("release-macos signs with timestamp and zips without calling notarytool", a
         command: "/usr/bin/codesign",
         args: [
           "--force",
-          "--deep",
           "--timestamp",
           "--options",
           "runtime",
@@ -143,6 +157,34 @@ test("release-macos notarizes and staples only when SAND_NOTARIZE is set", async
   }
 });
 
+test("release-macos submits notarytool with a .p8 path, not key contents", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opengrok-macos-notary-key-"));
+  const appPath = path.join(root, "Open Grok.app");
+  const keyPath = path.join(root, "AuthKey.p8");
+  await mkdir(appPath);
+  const calls = [];
+  try {
+    const result = await releaseMacosApp({
+      appPath,
+      env: {
+        SAND_NOTARIZE: "1",
+        SAND_NOTARY_API_KEY_PATH: keyPath,
+        SAND_NOTARY_API_KEY_ID: "KEYID",
+        SAND_NOTARY_ISSUER: "ISSUER",
+      },
+      listIdentities: async () => SECURITY_OUTPUT,
+      runCommand: async (command, args) => { calls.push({ command, args }); },
+    });
+    assert.equal(result.notarized, true);
+    assert.deepEqual(
+      calls.find((call) => call.args?.[0] === "notarytool")?.args,
+      ["notarytool", "submit", result.zipPath, "--wait", "--key", keyPath, "--key-id", "KEYID", "--issuer", "ISSUER"],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release-macos refuses a missing app and incomplete notary credentials without contacting Apple", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "opengrok-macos-release-missing-"));
   const calls = [];
@@ -174,7 +216,15 @@ test("release-macos refuses a missing app and incomplete notary credentials with
         env: { SAND_CODESIGN_IDENTITY: "-" },
         runCommand,
       }),
-      /Developer ID/,
+      /Developer ID Application/,
+    );
+    await assert.rejects(
+      () => releaseMacosApp({
+        appPath,
+        env: { SAND_CODESIGN_IDENTITY: "Apple Development: Example Dev (TEAMID5678)" },
+        runCommand,
+      }),
+      /Developer ID Application/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
