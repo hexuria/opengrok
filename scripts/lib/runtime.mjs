@@ -34,6 +34,16 @@ async function sha256File(target) {
   return hash.digest("hex");
 }
 
+async function isGitLfsPointer(target) {
+  try {
+    if ((await stat(target)).size >= 1024) return false;
+    const head = await readFile(target, "utf8");
+    return head.startsWith("version https://git-lfs.github.com/spec/v1");
+  } catch {
+    return false;
+  }
+}
+
 export async function downloadDmg({
   archivedDmg: archivePath = archivedDmg,
   cachedDmg: cachePath = cachedDmg,
@@ -48,10 +58,10 @@ export async function downloadDmg({
     await rm(cachePath, { force: true });
   }
 
-  if (await exists(archivePath)) {
+  if (await exists(archivePath) && !(await isGitLfsPointer(archivePath))) {
     const archivedDigest = await sha256File(archivePath);
     if (archivedDigest !== expectedSha256) {
-      throw new Error(`Archived DMG checksum mismatch: expected ${expectedSha256}, got ${archivedDigest}. Run git lfs pull before bootstrapping.`);
+      throw new Error(`Archived DMG checksum mismatch: expected ${expectedSha256}, got ${archivedDigest}. Restore it from hexuria/opengrok-stow (\`git lfs pull\` in that clone, then \`scripts/ci-restore-recovered.sh\`) or set GROK_BOT_018_APP.`);
     }
     console.log(`Using archived release ${archivePath}`);
     await copyFile(archivePath, cachePath);

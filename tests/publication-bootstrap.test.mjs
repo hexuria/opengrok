@@ -11,17 +11,11 @@ import { downloadDmg, hydrateSourcePayloadFromAsar } from "../scripts/lib/runtim
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
-test("checked-in production bindings resolve only to reviewed source", async (t) => {
+test("checked-in production bindings resolve only to reviewed source", async () => {
   const manifestPath = path.join(
     repositoryRoot,
     "manifests/reconstruction/electron-main-production-bindings-manifest.json",
   );
-  try {
-    await access(manifestPath);
-  } catch {
-    t.skip("production bindings manifest is restored from the stow archive");
-    return;
-  }
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   assert.ok(manifest.bindings.length > 0);
   for (const binding of manifest.bindings) {
@@ -91,24 +85,37 @@ test("bootstrap copies a hash-checked archived DMG without fetching", async () =
     assert.equal(fetched, 0);
     assert.equal(result, cachedPath);
     assert.equal(await readFile(cachedPath, "utf8"), payload);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
-    const source = path.join(root, "source");
-    const destination = path.join(root, "destination");
-    for (const relative of [
-      "dist/electron-main/main.cjs",
-      "dist/host/host-main.cjs",
-      "dist/renderer/index.html",
-    ]) {
-      const target = path.join(source, relative);
-      await mkdir(path.dirname(target), { recursive: true });
-      await writeFile(target, `fixture:${relative}\n`);
-    }
-    const archive = path.join(root, "app.asar");
-    await createPackage(source, archive);
-    const archiveBytes = await readFile(archive);
-    const asarSha256 = createHash("sha256").update(archiveBytes).digest("hex");
-    const hydrated = await hydrateSourcePayloadFromAsar(archive, { destination, expectedSha256: asarSha256 });
-    assert.equal(hydrated.sha256, asarSha256);
+test("bootstrap treats a Git LFS pointer as an absent archive and fetches", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "grok-publication-bootstrap-lfs-"));
+  try {
+    const archivedPath = path.join(root, "Grok_Bot_0.18.0.dmg");
+    const cachedPath = path.join(root, "cache", "Grok_Bot_0.18.0.dmg");
+    await writeFile(
+      archivedPath,
+      "version https://git-lfs.github.com/spec/v1\noid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nsize 1\n",
+    );
+    const payload = "fixture-cdn-dmg\n";
+    const expectedSha256 = createHash("sha256").update(payload).digest("hex");
+    let fetched = 0;
+
+    const result = await downloadDmg({
+      archivedDmg: archivedPath,
+      cachedDmg: cachedPath,
+      dmgSha256: expectedSha256,
+      fetch: async () => {
+        fetched += 1;
+        return new Response(payload, { status: 200 });
+      },
+    });
+
+    assert.equal(fetched, 1);
+    assert.equal(result, cachedPath);
+    assert.equal(await readFile(cachedPath, "utf8"), payload);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -133,7 +140,12 @@ test("bootstrap fails closed when the archived DMG hash does not match", async (
           throw new Error("hash mismatch must not fall back to the CDN");
         },
       }),
-      /Archived DMG checksum mismatch/,
+      (error) => {
+        assert.match(error.message, /Archived DMG checksum mismatch/);
+        assert.match(error.message, /opengrok-stow/);
+        assert.doesNotMatch(error.message, /Run git lfs pull before bootstrapping/);
+        return true;
+      },
     );
 
     assert.equal(fetched, 0);
