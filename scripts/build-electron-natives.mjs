@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { extract as extractTar } from "tar";
 
 import { cacheDir, repoRoot } from "./lib/config.mjs";
+
+export const betterSqlite3Version = "12.11.1";
 
 export const electronVersion = "42.1.0";
 export const electronAbi = "146";
@@ -111,12 +114,66 @@ export function createElectronRuntimeDepsManifest({
   };
 }
 
-function run(command, args, env) {
+function run(command, args, env, cwd = repoRoot) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: repoRoot, env, stdio: ["ignore", "inherit", "inherit"] });
+    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "inherit", "inherit"] });
     child.once("error", reject);
     child.once("exit", code => code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`)));
   });
+}
+
+function npmCommand() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function lockedPackageVersion(lock, name) {
+  const entry = lock.packages?.[`node_modules/${name}`];
+  if (typeof entry?.version !== "string" || entry.version.length === 0) {
+    throw new Error(`package-lock.json is missing ${name}; run npm ci`);
+  }
+  return entry.version;
+}
+
+export function electronNativeGypRebuildArgs(packageDirectory, headersDir) {
+  return ["rebuild", "--directory", packageDirectory, "--release", "--nodedir", headersDir, "--jobs", "max"];
+}
+
+export function electronNativePackageSourceNames() {
+  return [...electronNativePackages, ...electronNativeJsDependencies];
+}
+
+// npm omits optional better-sqlite3 when the host ABI compile fails; packaging still needs the source tree.
+export async function ensureElectronNativePackageSources({
+  root = repoRoot,
+  env = process.env,
+  names = electronNativePackageSourceNames(),
+} = {}) {
+  const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
+  const extracted = [];
+  for (const name of names) {
+    const destination = path.join(root, "node_modules", name);
+    if (await hasPackageJson(destination)) continue;
+    const version = lockedPackageVersion(lock, name);
+    const packedRoot = await mkdtemp(path.join(root, ".tmp-electron-pack-"));
+    try {
+      await run(npmCommand(), ["pack", `${name}@${version}`, "--pack-destination", packedRoot, "--silent"], env, root);
+      const tarballName = (await readdir(packedRoot)).find(entry => entry.endsWith(".tgz"));
+      if (!tarballName) throw new Error(`npm pack did not yield a tarball for ${name}@${version}`);
+      await mkdir(destination, { recursive: true });
+      await extractTar({ file: path.join(packedRoot, tarballName), cwd: destination, strip: 1 });
+    } finally {
+      await rm(packedRoot, { recursive: true, force: true });
+    }
+    if (!(await hasPackageJson(destination))) {
+      throw new Error(`Failed to extract ${name}@${version} into node_modules`);
+    }
+    const pkg = JSON.parse(await readFile(path.join(destination, "package.json"), "utf8"));
+    if (pkg.name !== name || pkg.version !== version) {
+      throw new Error(`Extracted ${name} identity drifted (got ${pkg.name}@${pkg.version})`);
+    }
+    extracted.push(name);
+  }
+  return extracted;
 }
 
 async function readJson(relative) {
@@ -143,11 +200,11 @@ async function hasPackageJson(target) {
   }
 }
 
-export async function resolveInstalledPackage(name) {
+export async function resolveInstalledPackage(name, root = repoRoot) {
   const candidates = [
-    path.join(repoRoot, "node_modules", name),
-    path.join(repoRoot, "node_modules", "better-sqlite3", "node_modules", name),
-    path.join(repoRoot, "node_modules", "bindings", "node_modules", name),
+    path.join(root, "node_modules", name),
+    path.join(root, "node_modules", "better-sqlite3", "node_modules", name),
+    path.join(root, "node_modules", "bindings", "node_modules", name),
   ];
   for (const candidate of candidates) {
     if (await hasPackageJson(candidate)) return candidate;
@@ -286,8 +343,8 @@ async function validateRebuildIdentity() {
   const packageJson = await readJson("package.json");
   const identity = electronNativeRebuildIdentity(packageJson);
   if (packageJson.devDependencies?.electron !== electronVersion) throw new Error("package.json Electron target drifted");
-  if (identity["better-sqlite3"] !== "12.6.2") {
-    throw new Error("better-sqlite3@12.6.2 must remain the Electron native rebuild identity");
+  if (identity["better-sqlite3"] !== betterSqlite3Version) {
+    throw new Error(`better-sqlite3@${betterSqlite3Version} must remain the Electron native rebuild identity`);
   }
   if (identity["node-addon-api"] !== "8.5.0" || packageJson.overrides?.["node-addon-api"] !== "8.5.0") {
     throw new Error("node-addon-api@8.5.0 must remain both the direct build identity and the global override");
@@ -304,27 +361,28 @@ function electronGypEnv(env) {
   };
 }
 
-function nodeGypCommand() {
+function nodeGypCommand(root = repoRoot) {
   return process.platform === "win32"
-    ? path.join(repoRoot, "node_modules", ".bin", "node-gyp.cmd")
-    : path.join(repoRoot, "node_modules", ".bin", "node-gyp");
+    ? path.join(root, "node_modules", ".bin", "node-gyp.cmd")
+    : path.join(root, "node_modules", ".bin", "node-gyp");
 }
 
-export async function rebuildElectronNativeDeps({ env = process.env } = {}) {
+export async function rebuildElectronNativeDeps({ env = process.env, runCommand = run, root = repoRoot } = {}) {
   const headersDir = requireElectronHeaders(env);
   await validateElectronHeaders(headersDir);
   await validateRebuildIdentity();
+  await ensureElectronNativePackageSources({ root, env });
 
   const gypEnv = electronGypEnv(env);
-  const gyp = nodeGypCommand();
+  const gyp = nodeGypCommand(root);
   const cacheRoot = electronNativeDepsRoot();
-  const temporaryRoot = await mkdtemp(path.join(repoRoot, ".tmp-electron-deps-"));
+  const temporaryRoot = await mkdtemp(path.join(root, ".tmp-electron-deps-"));
   try {
     const packageRoot = path.join(temporaryRoot, "node_modules");
     await mkdir(packageRoot, { recursive: true });
-    for (const packageName of [...electronNativePackages, ...electronNativeJsDependencies]) {
+    for (const packageName of electronNativePackageSourceNames()) {
       await cp(
-        await resolveInstalledPackage(packageName),
+        await resolveInstalledPackage(packageName, root),
         path.join(packageRoot, packageName),
         { recursive: true, dereference: true },
       );
@@ -332,7 +390,7 @@ export async function rebuildElectronNativeDeps({ env = process.env } = {}) {
     for (const packageName of electronNativePackages) {
       const packageDirectoryPath = path.join(packageRoot, packageName);
       await rm(path.join(packageDirectoryPath, "prebuilds"), { recursive: true, force: true });
-      await run(gyp, ["rebuild", "--directory", packageDirectoryPath, "--release", "--nodedir", headersDir, "--jobs", "max"], gypEnv);
+      await runCommand(gyp, electronNativeGypRebuildArgs(packageDirectoryPath, headersDir), gypEnv, root);
     }
     await writeFile(
       path.join(packageRoot, "runtime-deps-manifest.json"),
@@ -349,6 +407,7 @@ export async function rebuildElectronNativeDeps({ env = process.env } = {}) {
 }
 
 export async function ensureElectronNativeDeps() {
+  await ensureElectronNativePackageSources();
   const cacheRoot = electronNativeDepsRoot();
   if (await hasElectronNativeBinaries(cacheRoot)) return cacheRoot;
   return rebuildElectronNativeDeps();

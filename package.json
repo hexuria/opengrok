@@ -132,7 +132,7 @@
     "zod": "^4.5.4"
   },
   "optionalDependencies": {
-    "better-sqlite3": "12.6.2"
+    "better-sqlite3": "12.11.1"
   },
   "overrides": {
     "node-addon-api": "8.5.0",
