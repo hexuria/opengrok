@@ -85,7 +85,9 @@ test("default packaging wraps npm Electron and does not require the official Mac
   const natives = await readFile(path.join(repoRoot, "scripts", "build-electron-natives.mjs"), "utf8");
   const asar = await readFile(path.join(repoRoot, "scripts", "lib", "build-asar.mjs"), "utf8");
   assert.match(natives, /better-sqlite3/);
+  assert.match(natives, /stageRetainedElectronNatives/);
   assert.match(asar, /stageElectronNativeDeps/);
+  assert.match(asar, /stageRetainedElectronNatives/);
   assert.doesNotMatch(asar, /\["deps", "native"\]/);
 });
 

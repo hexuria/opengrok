@@ -8,6 +8,7 @@ import { build as esbuild } from "esbuild";
 import { applyReconstructedUpdaterGuard } from "./lib/build-asar.mjs";
 
 import { repoRoot, sourceAppDir } from "./lib/config.mjs";
+import { packagedElectronRuntimePackages } from "./build-electron-natives.mjs";
 
 export const electronMainBindingProvenancePath = "dist/electron-main-production-bindings.json";
 export const electronMainNodeTarget = "node22";
@@ -264,9 +265,9 @@ export async function validateElectronMainProductionBindingManifest(manifestPath
     const extra = actual.filter(key => !expected.includes(key));
     throw new Error(`Electron-main production binding manifest is not exact: missing=[${missing.join(",")}] extra=[${extra.join(",")}]`);
   }
-  const runtimeManifest = JSON.parse(await readFile(path.join(sourceAppDir, "dist/deps/runtime-deps-manifest.json"), "utf8"));
-  const copiedPackages = new Set(runtimeManifest.copied ?? []);
-  const nativePackages = new Set((runtimeManifest.nodeFiles ?? []).map(packageName));
+  const runtimePackages = packagedElectronRuntimePackages();
+  const copiedPackages = runtimePackages.copied;
+  const nativePackages = runtimePackages.native;
   const artifactLines = (await readFile(path.join(sourceAppDir, "dist/electron-main/main.cjs"), "utf8")).split("\n");
   const bindings = await validateElectronMainBindingEntries(manifest.bindings, absoluteManifest, artifactLines, { copiedPackages, nativePackages });
   return { manifestPath: normalize(path.relative(repoRoot, absoluteManifest)), manifestSha256: sha256(manifestBytes), bindings };
@@ -301,10 +302,10 @@ async function validateElectronMainBindingEntries(entries, baseManifestPath, art
 }
 
 async function electronMainRuntimePackages() {
-  const runtimeManifest = JSON.parse(await readFile(path.join(sourceAppDir, "dist/deps/runtime-deps-manifest.json"), "utf8"));
+  const runtimePackages = packagedElectronRuntimePackages();
   return {
-    copiedPackages: new Set(runtimeManifest.copied ?? []),
-    nativePackages: new Set((runtimeManifest.nodeFiles ?? []).map(packageName)),
+    copiedPackages: runtimePackages.copied,
+    nativePackages: runtimePackages.native,
   };
 }
 

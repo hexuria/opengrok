@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { build as esbuild } from "esbuild";
 
-import { repoRoot, sourceAppDir } from "./lib/config.mjs";
+import { repoRoot } from "./lib/config.mjs";
+import { packagedElectronRuntimePackages } from "./build-electron-natives.mjs";
 
 export const hostBindingProvenancePath = "dist/host-production-bindings.json";
 
@@ -298,11 +299,7 @@ async function validateBinding(binding, baseManifestPath, artifactText, runtimeP
 }
 
 async function runtimeBindingPackages() {
-  const runtimeManifest = JSON.parse(await readFile(path.join(sourceAppDir, "dist/deps/runtime-deps-manifest.json"), "utf8"));
-  return {
-    copied: new Set(runtimeManifest.copied ?? []),
-    native: new Set((runtimeManifest.nodeFiles ?? []).map(file => packageName(file))),
-  };
+  return packagedElectronRuntimePackages();
 }
 
 async function pathExists(target) {

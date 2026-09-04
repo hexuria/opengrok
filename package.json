@@ -102,7 +102,6 @@
     "@tiptap/starter-kit": "3.14.0",
     "@tiptap/suggestion": "3.14.0",
     "ai": "7.0.84",
-    "better-sqlite3": "12.6.2",
     "diff": "9.0.0",
     "emojibase": "17.0.0",
     "emojibase-data": "17.0.0",
@@ -130,6 +129,9 @@
     "web-tree-sitter": "0.21.0",
     "ws": "8.20.0",
     "zod": "^4.5.4"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "12.6.2"
   },
   "overrides": {
     "node-addon-api": "8.5.0",

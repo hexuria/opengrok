@@ -11,7 +11,7 @@ import {
 } from "./config.mjs";
 import { packStagedAppWithIntegrity } from "./asar-integrity.mjs";
 import { resolveRuntimeApp } from "./runtime.mjs";
-import { ensureElectronNativeDeps, stageElectronNativeDeps } from "../build-electron-natives.mjs";
+import { ensureElectronNativeDeps, stageElectronNativeDeps, stageRetainedElectronNatives } from "../build-electron-natives.mjs";
 
 export const reconstructedUpdaterGuard = [
   "// Reconstructed-build guard: do not consume official update or telemetry services.",
@@ -161,6 +161,7 @@ export async function buildAsar({
 
   const depsRoot = await ensureElectronNativeDeps();
   await stageElectronNativeDeps(stageRoot, depsRoot);
+  await stageRetainedElectronNatives(path.join(stageRoot, "dist", "deps"), path.join(runtimeUnpacked, "deps"));
   await stageElectronRuntimeDependencyResolution(path.join(stageRoot, "dist", "deps"));
 
   const mainBundle = path.join(stageRoot, "dist", "electron-main", "main.cjs");

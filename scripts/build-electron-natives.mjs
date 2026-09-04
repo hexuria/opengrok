@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -12,35 +14,78 @@ export const electronHeadersUrl = `https://artifacts.electronjs.org/headers/dist
 
 export const electronNativePackages = Object.freeze(["better-sqlite3", "tree-sitter", "tree-sitter-bash"]);
 export const electronNativeJsDependencies = Object.freeze(["bindings", "file-uri-to-path", "node-addon-api", "node-gyp-build"]);
-export const deferredElectronNativePackages = Object.freeze(["whichlang-node", "tree-chunk-napi"]);
+export const retainedElectronNativePackages = Object.freeze([
+  "@anysphere/tree-chunk-napi",
+  "whichlang-node",
+  "whichlang-node-darwin-arm64",
+]);
+export const deferredElectronNativePackages = Object.freeze(["whichlang-node", "@anysphere/tree-chunk-napi"]);
 export const omittedElectronNativePackages = Object.freeze(["cursor-proclist"]);
 export const electronNativeNodeFiles = Object.freeze([
   "better-sqlite3/build/Release/better_sqlite3.node",
   "tree-sitter/build/Release/tree_sitter_runtime_binding.node",
   "tree-sitter-bash/build/Release/tree_sitter_bash_binding.node",
 ]);
-
-const forbiddenElectronNativeNames = Object.freeze([
-  "cursor-proclist",
-  "whichlang-node",
-  "whichlang-node-darwin-arm64",
-  "tree-chunk-napi",
-  "@anysphere/tree-chunk-napi",
+export const retainedElectronNativeNodeFiles = Object.freeze([
+  "@anysphere/tree-chunk-napi/tree-chunk-napi.darwin-arm64.node",
+  "whichlang-node-darwin-arm64/whichlang-node.darwin-arm64.node",
 ]);
 
+const forbiddenElectronNativeNames = Object.freeze(["cursor-proclist"]);
+
+function readRootPackageJson() {
+  return JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+}
+
+export function electronNativeRebuildIdentity(pkg = readRootPackageJson()) {
+  return {
+    electron: electronVersion,
+    abi: electronAbi,
+    node: electronNodeVersion,
+    "better-sqlite3": pkg.optionalDependencies?.["better-sqlite3"] ?? pkg.dependencies?.["better-sqlite3"] ?? null,
+    "tree-sitter": pkg.dependencies?.["tree-sitter"] ?? null,
+    "tree-sitter-bash": pkg.dependencies?.["tree-sitter-bash"] ?? null,
+    "node-addon-api": pkg.devDependencies?.["node-addon-api"] ?? null,
+    "node-gyp-build": pkg.devDependencies?.["node-gyp-build"] ?? null,
+  };
+}
+
+export function electronNativeIdentityKey(identity = electronNativeRebuildIdentity()) {
+  return createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0, 16);
+}
+
 export function electronNativeDepsRoot() {
-  return path.join(cacheDir, "electron-deps", electronAbi, `${process.platform}-${process.arch}`);
+  return path.join(cacheDir, "electron-deps", electronAbi, electronNativeIdentityKey(), `${process.platform}-${process.arch}`);
+}
+
+export function rebuiltElectronCopiedPackages() {
+  return [...electronNativePackages, ...electronNativeJsDependencies].sort();
+}
+
+function relativeNativePackageName(relative) {
+  if (relative.startsWith("@")) return relative.split("/").slice(0, 2).join("/");
+  return relative.split("/")[0];
+}
+
+export function packagedElectronRuntimePackages() {
+  const nodeFiles = [...electronNativeNodeFiles, ...retainedElectronNativeNodeFiles];
+  return {
+    copied: new Set([...electronNativePackages, ...electronNativeJsDependencies, ...retainedElectronNativePackages]),
+    native: new Set(nodeFiles.map(relativeNativePackageName)),
+  };
 }
 
 export function createElectronRuntimeDepsManifest({
   platform = process.platform,
   arch = process.arch,
+  identity = electronNativeRebuildIdentity(),
 } = {}) {
   return {
     platform,
     arch,
+    rebuildIdentity: identity,
     required: [...electronNativePackages],
-    copied: [...electronNativePackages, ...electronNativeJsDependencies].sort(),
+    copied: rebuiltElectronCopiedPackages(),
     nodeFiles: [...electronNativeNodeFiles],
   };
 }
@@ -94,18 +139,28 @@ function mentionsForbiddenNative(value) {
   return forbiddenElectronNativeNames.some(name => value === name || value.startsWith(`${name}/`) || value.includes(`/${name}/`) || value.endsWith(`/${name}`));
 }
 
+function packageDirectory(root, packageName) {
+  return path.join(root, ...packageName.split("/"));
+}
+
 export async function assertElectronNativeDeps(depsRoot) {
   if (typeof depsRoot !== "string" || depsRoot.length === 0) throw new TypeError("An explicit Electron depsRoot is required");
   const manifestPath = path.join(depsRoot, "runtime-deps-manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const expectedCopied = rebuiltElectronCopiedPackages();
   if (JSON.stringify(manifest.required) !== JSON.stringify([...electronNativePackages])) {
     throw new Error("Rebuilt Electron deps required packages drifted");
+  }
+  if (JSON.stringify(manifest.copied ?? []) !== JSON.stringify(expectedCopied)) {
+    throw new Error("Rebuilt Electron deps copied packages drifted");
   }
   if (JSON.stringify(manifest.nodeFiles) !== JSON.stringify([...electronNativeNodeFiles])) {
     throw new Error("Rebuilt Electron deps nodeFiles drifted");
   }
-  const copied = manifest.copied ?? [];
-  const listed = [...(manifest.required ?? []), ...copied, ...(manifest.nodeFiles ?? [])];
+  if (JSON.stringify(manifest.rebuildIdentity) !== JSON.stringify(electronNativeRebuildIdentity())) {
+    throw new Error("Rebuilt Electron deps identity drifted");
+  }
+  const listed = [...(manifest.required ?? []), ...(manifest.copied ?? []), ...(manifest.nodeFiles ?? [])];
   for (const entry of listed) {
     if (mentionsForbiddenNative(entry)) throw new Error(`Rebuilt Electron deps must not include ${entry}`);
   }
@@ -115,8 +170,13 @@ export async function assertElectronNativeDeps(depsRoot) {
       throw new Error(`Rebuilt Electron native is missing ${relative} at ${depsRoot}`);
     }
   }
+  for (const name of expectedCopied) {
+    if (!(await hasPackageJson(packageDirectory(depsRoot, name)))) {
+      throw new Error(`Rebuilt Electron deps are missing JS package ${name}`);
+    }
+  }
   for (const name of forbiddenElectronNativeNames) {
-    if (await exists(path.join(depsRoot, ...name.split("/")))) {
+    if (await exists(packageDirectory(depsRoot, name))) {
       throw new Error(`Rebuilt Electron deps must not include ${name}`);
     }
   }
@@ -132,6 +192,40 @@ export async function stageElectronNativeDeps(stageRoot, depsRoot = electronNati
   await mkdir(path.dirname(destination), { recursive: true });
   await cp(depsRoot, destination, { recursive: true, dereference: false, preserveTimestamps: true });
   return destination;
+}
+
+export async function stageRetainedElectronNatives(depsRoot, unpackedDepsRoot) {
+  if (typeof depsRoot !== "string" || depsRoot.length === 0) throw new TypeError("An explicit Electron depsRoot is required");
+  if (typeof unpackedDepsRoot !== "string" || unpackedDepsRoot.length === 0) {
+    throw new TypeError("An explicit 0.18 unpacked depsRoot is required");
+  }
+  for (const packageName of retainedElectronNativePackages) {
+    const source = packageDirectory(unpackedDepsRoot, packageName);
+    const destination = packageDirectory(depsRoot, packageName);
+    if (!(await hasPackageJson(source))) {
+      throw new Error(`0.18 unpacked deps are missing retained native ${packageName} at ${source}`);
+    }
+    await rm(destination, { recursive: true, force: true });
+    await mkdir(path.dirname(destination), { recursive: true });
+    await cp(source, destination, { recursive: true, dereference: false, preserveTimestamps: true });
+  }
+  for (const relative of retainedElectronNativeNodeFiles) {
+    const target = path.join(depsRoot, relative);
+    if (!(await exists(target)) || !(await stat(target)).isFile()) {
+      throw new Error(`Retained Electron native is missing ${relative}`);
+    }
+  }
+  await rm(packageDirectory(depsRoot, "cursor-proclist"), { recursive: true, force: true });
+  const manifestPath = path.join(depsRoot, "runtime-deps-manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.copied = [...new Set([...(manifest.copied ?? []), ...retainedElectronNativePackages])].sort();
+  manifest.nodeFiles = [...electronNativeNodeFiles, ...retainedElectronNativeNodeFiles];
+  manifest.retained = {
+    source: "0.18-unpacked",
+    packages: [...retainedElectronNativePackages],
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
 }
 
 async function hasElectronNativeBinaries(root) {
@@ -165,11 +259,12 @@ async function validateElectronHeaders(headersDir) {
 
 async function validateRebuildIdentity() {
   const packageJson = await readJson("package.json");
+  const identity = electronNativeRebuildIdentity(packageJson);
   if (packageJson.devDependencies?.electron !== electronVersion) throw new Error("package.json Electron target drifted");
-  if (packageJson.dependencies?.["better-sqlite3"] !== "12.6.2") {
+  if (identity["better-sqlite3"] !== "12.6.2") {
     throw new Error("better-sqlite3@12.6.2 must remain the Electron native rebuild identity");
   }
-  if (packageJson.devDependencies?.["node-addon-api"] !== "8.5.0" || packageJson.overrides?.["node-addon-api"] !== "8.5.0") {
+  if (identity["node-addon-api"] !== "8.5.0" || packageJson.overrides?.["node-addon-api"] !== "8.5.0") {
     throw new Error("node-addon-api@8.5.0 must remain both the direct build identity and the global override");
   }
 }
@@ -210,9 +305,9 @@ export async function rebuildElectronNativeDeps({ env = process.env } = {}) {
       );
     }
     for (const packageName of electronNativePackages) {
-      const packageDirectory = path.join(packageRoot, packageName);
-      await rm(path.join(packageDirectory, "prebuilds"), { recursive: true, force: true });
-      await run(gyp, ["rebuild", "--directory", packageDirectory, "--release", "--nodedir", headersDir, "--jobs", "max"], gypEnv);
+      const packageDirectoryPath = path.join(packageRoot, packageName);
+      await rm(path.join(packageDirectoryPath, "prebuilds"), { recursive: true, force: true });
+      await run(gyp, ["rebuild", "--directory", packageDirectoryPath, "--release", "--nodedir", headersDir, "--jobs", "max"], gypEnv);
     }
     await writeFile(
       path.join(packageRoot, "runtime-deps-manifest.json"),
@@ -235,13 +330,15 @@ export async function ensureElectronNativeDeps() {
 }
 
 if (process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const output = await ensureElectronNativeDeps();
+  const output = await rebuildElectronNativeDeps();
   console.log(JSON.stringify({
     electron: electronVersion,
     node: electronNodeVersion,
     modules: Number(electronAbi),
+    identity: electronNativeRebuildIdentity(),
     headers: process.env.ELECTRON_HEADERS_DIR ?? null,
     packages: [...electronNativePackages],
+    retained: [...retainedElectronNativePackages],
     deferred: [...deferredElectronNativePackages],
     omitted: [...omittedElectronNativePackages],
     output,
