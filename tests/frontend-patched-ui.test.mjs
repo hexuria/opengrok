@@ -432,6 +432,24 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(deleteHost, /findRow\(id\)\?\.appendChild\(box\)/);
 });
 
+whenFrontend("first-run is loader then provider picker, not the shell", async () => {
+  const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
+  assert.match(renderer, /if \(bridge != null && account == null\)/);
+  assert.match(renderer, /if \(showSignIn && bridge != null && account != null\)/);
+  assert.match(renderer, /from "\.\.\/recovered\/features\/account\/session\/provider-landing"/);
+  const landing = await readFrontend("frontend/src/recovered/features/account/session/provider-landing.tsx");
+  assert.match(landing, /id: "cursor"/);
+  assert.match(landing, /id: "claude-code"/);
+  assert.match(landing, /id: "codex"/);
+  assert.match(landing, /id: "opengrok"/);
+  assert.match(landing, /Choose a provider to sign in/);
+  assert.match(landing, /signInToOpenGrokServer/);
+  assert.match(landing, /startSubscriptionLogin/);
+  assert.match(landing, /Back to providers/);
+  const status = await readFrontend("frontend/src/recovered/features/account/session/sign-in-status.tsx");
+  assert.match(status, /onSkip == null \? null/);
+});
+
 whenFrontend("openAgent does not bump the tail generation until it actually fetches", async () => {
   const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
   const start = renderer.indexOf("const openAgent = useCallback");
