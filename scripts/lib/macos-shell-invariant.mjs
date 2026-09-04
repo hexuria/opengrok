@@ -1,12 +1,5 @@
 import { createHash } from "node:crypto";
 
-// Official 0.18 Grok Bot.app Mach-O / asar identity. package:diagnostic still
-// audits this against the cached runtime. Default packaging wraps npm Electron
-// 42.1.0 and must not require these hashes to match the reconstructed shell.
-export const officialMacReleaseShellHash = "7fcdbad6228f0b7b90078c9f81968d9246c7f904e62cc5f2bce96dc504e3383e";
-export const officialMacReleaseAsarHash = "6665408168466f9cacc6087e917890c17f59d2e2e9c2404a5c4a59ad79c1de58";
-export const expectedSignatureExcludedMachOHash = "0076e3c5a6fda431b0a0c5bf25510c4b37562ff178d4f2053bac32f3885d6875";
-
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 
 export function parseMachO(bytes) {

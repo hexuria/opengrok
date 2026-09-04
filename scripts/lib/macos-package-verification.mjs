@@ -2,15 +2,8 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { extractFile, listPackage, statFile } from "@electron/asar";
-
 import { helperInfoPlistPath, MACOS_EXECUTABLE_NAME, reconstructedHelperIdentities } from "./macos-helper-identity.mjs";
-import {
-  expectedSignatureExcludedMachOHash,
-  inspectReconstructedMacShell,
-  officialMacReleaseAsarHash,
-  officialMacReleaseShellHash,
-} from "./macos-shell-invariant.mjs";
+import { inspectReconstructedMacShell } from "./macos-shell-invariant.mjs";
 import { capture } from "./process.mjs";
 import { SYSTEM_TOOLS } from "./system-tools.mjs";
 
@@ -19,236 +12,8 @@ import { SYSTEM_TOOLS } from "./system-tools.mjs";
 // collapsing them would let a package silently omit the daemon ABI payload.
 const RUNTIME_ROOTS = ["dist/deps", "dist/node-deps"];
 const MANIFEST_RELATIVE = "dist/deps/runtime-deps-manifest.json";
-const CSNAPS_RELATIVE = "dist/host/extensions/codebase-telemetry/csnaps";
 
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-
-export async function verifyChecksumPinnedRendererPackage({
-  archivePath,
-  sourceRendererRoot,
-  officialArchivePath,
-  provenancePath = "dist/renderer-artifact-provenance.json",
-  buildManifestPath = "dist/reconstruction-build.json",
-  rendererExtensionPath = "dist/renderer-router-extension.json",
-} = {}) {
-  if ([archivePath, sourceRendererRoot].some(value => typeof value !== "string" || value.length === 0)) {
-    throw new TypeError("Explicit archivePath and sourceRendererRoot paths are required");
-  }
-  const buildManifest = JSON.parse(extractFile(archivePath, buildManifestPath).toString("utf8"));
-  const renderer = buildManifest.runtimeComposition?.find(runtime => runtime.runtime === "renderer");
-  if (renderer?.mode !== "checksum-pinned-artifact-runtime" || renderer.provenance !== provenancePath) {
-    throw new Error(`Fidelity renderer has an invalid runtime classification: ${renderer?.mode}`);
-  }
-  const provenanceBytes = extractFile(archivePath, provenancePath);
-  const provenance = JSON.parse(provenanceBytes.toString("utf8"));
-  if (provenance.mode !== renderer.mode || provenance.hashAlgorithm !== "sha256" || !Array.isArray(provenance.files)) {
-    throw new Error("Fidelity renderer provenance contract is invalid");
-  }
-  if (provenance.upstreamAppAsarSha256 !== officialMacReleaseAsarHash) {
-    throw new Error("Fidelity renderer provenance is not bound to the canonical shipped 0.18 Mac ASAR");
-  }
-  const expectedFiles = new Map();
-  for (const record of provenance.files) {
-    assertSafeRelative(record.path);
-    if (expectedFiles.has(record.path) || typeof record.bytes !== "number" || !/^[0-9a-f]{64}$/.test(record.sha256)) {
-      throw new Error(`Invalid renderer provenance entry: ${JSON.stringify(record)}`);
-    }
-    const source = await readFile(path.join(sourceRendererRoot, record.path));
-    const sourceRecord = { path: record.path, bytes: source.byteLength, sha256: sha256(source) };
-    if (sourceRecord.bytes !== record.bytes || sourceRecord.sha256 !== record.sha256) {
-      throw new Error(`Shipped renderer source drift at ${record.path}`);
-    }
-    expectedFiles.set(record.path, record);
-  }
-  const sourceFiles = await walkFiles(sourceRendererRoot);
-  if (JSON.stringify(sourceFiles) !== JSON.stringify([...expectedFiles.keys()])) {
-    throw new Error("Shipped renderer source inventory differs from embedded provenance");
-  }
-  if (provenance.fileCount !== expectedFiles.size || provenance.inventorySha256 !== sha256(JSON.stringify([...expectedFiles.values()]))) {
-    throw new Error("Fidelity renderer aggregate inventory hash is invalid");
-  }
-  if (officialArchivePath != null) {
-    if (sha256(await readFile(officialArchivePath)) !== officialMacReleaseAsarHash) {
-      throw new Error("Renderer verification received a non-canonical official Mac ASAR");
-    }
-    const officialFiles = [];
-    for (const raw of listPackage(officialArchivePath)) {
-      const relative = raw.replace(/^\/+/, "");
-      if (!relative.startsWith("dist/renderer/")) continue;
-      try {
-        const entry = statFile(officialArchivePath, relative);
-        if (typeof entry.size === "number") officialFiles.push(relative.slice("dist/renderer/".length));
-      } catch {
-        // Directory entries are intentionally excluded from the byte inventory.
-      }
-    }
-    officialFiles.sort();
-    if (JSON.stringify(officialFiles) !== JSON.stringify([...expectedFiles.keys()])) {
-      throw new Error("Renderer provenance inventory differs from the canonical shipped 0.18 Mac ASAR");
-    }
-    for (const [relative, expected] of expectedFiles) {
-      const official = extractFile(officialArchivePath, `dist/renderer/${relative}`);
-      if (official.byteLength !== expected.bytes || sha256(official) !== expected.sha256) {
-        throw new Error(`Renderer provenance differs from the canonical shipped Mac ASAR at ${relative}`);
-      }
-    }
-  }
-  let rendererExtension = null;
-  try {
-    const bytes = extractFile(archivePath, rendererExtensionPath);
-    const parsed = JSON.parse(bytes.toString("utf8"));
-    if (parsed?.schemaVersion !== 1 || parsed?.mode !== "original-renderer-settings-extension" || !Array.isArray(parsed.chunks)) {
-      throw new Error("Renderer extension provenance contract is invalid");
-    }
-    // brandCounts joined the record when the brand pass began reporting per-chunk counts; the
-    // contract had not been told, so this diagnostic would have refused a record the packager
-    // writes on every build. It is diagnostic-only, which is why packaging never noticed.
-    const requiredKeys = ["schemaVersion", "mode", "chunks", "features", "transformations"];
-    const optionalKeys = ["brandCounts"];
-    const keys = Object.keys(parsed);
-    if (requiredKeys.some((key) => !keys.includes(key))) throw new Error("Renderer extension provenance is missing fields");
-    if (keys.some((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key))) throw new Error("Renderer extension provenance has unknown fields");
-    const chunks = new Map();
-    for (const row of parsed.chunks) {
-      const relative = typeof row?.path === "string" && row.path.startsWith("dist/renderer/") ? row.path.slice("dist/renderer/".length) : null;
-      // "card" joined "registry" and "panel" when the approval card's own lazily imported chunk
-      // began carrying a patch. The contract is widened by exactly one named role, not relaxed:
-      // an unknown role is still refused, a chunk is still named, still counted once, and still
-      // matched byte for byte against both its recorded hashes below.
-      if (relative == null || !expectedFiles.has(relative) || chunks.has(relative) || !["registry", "panel", "card"].includes(row.role)
-        || !Number.isInteger(row.original?.bytes) || !/^[0-9a-f]{64}$/.test(row.original?.sha256)
-        || !Number.isInteger(row.patched?.bytes) || !/^[0-9a-f]{64}$/.test(row.patched?.sha256)) {
-        throw new Error("Renderer extension chunk provenance is invalid");
-      }
-      const expected = expectedFiles.get(relative);
-      if (row.original.bytes !== expected.bytes || row.original.sha256 !== expected.sha256) throw new Error(`Renderer extension source identity drift at ${relative}`);
-      chunks.set(relative, row);
-    }
-    // Every role, once. A build that silently lost the panel or the card patch must not verify
-    // clean, so the bound is exact rather than a range.
-    const roles = parsed.chunks.map((row) => row.role).sort();
-    if (roles.join(",") !== "card,panel,registry") throw new Error(`Renderer extension roles must be exactly card, panel and registry; got ${roles.join(",") || "none"}`);
-    rendererExtension = { bytes, parsed, chunks };
-  } catch (error) {
-    if (!(error instanceof Error) || !/not found in archive|Cannot find/.test(error.message)) throw error;
-  }
-  const packagedFiles = [];
-  for (const raw of listPackage(archivePath)) {
-    const relative = raw.replace(/^\/+/, "");
-    if (!relative.startsWith("dist/renderer/")) continue;
-    try {
-      const entry = statFile(archivePath, relative);
-      if (typeof entry.size === "number") packagedFiles.push(relative.slice("dist/renderer/".length));
-    } catch {
-      // Directory entries are intentionally excluded from the byte inventory.
-    }
-  }
-  packagedFiles.sort();
-  if (JSON.stringify(packagedFiles) !== JSON.stringify([...expectedFiles.keys()])) {
-    throw new Error("Packaged renderer file inventory differs from the exact shipped renderer");
-  }
-  for (const [relative, expected] of expectedFiles) {
-    const packaged = extractFile(archivePath, `dist/renderer/${relative}`);
-    const extension = rendererExtension?.chunks.get(relative);
-    const wanted = extension?.patched ?? expected;
-    if (packaged.byteLength !== wanted.bytes || sha256(packaged) !== wanted.sha256) {
-      throw new Error(`Packaged renderer drift at ${relative}`);
-    }
-  }
-  return {
-    mode: renderer.mode,
-    provenancePath,
-    provenanceSha256: sha256(provenanceBytes),
-    fileCount: expectedFiles.size,
-    inventorySha256: provenance.inventorySha256,
-    upstreamAppAsarSha256: provenance.upstreamAppAsarSha256,
-    ...(rendererExtension == null ? {} : {
-      extension: {
-        path: rendererExtensionPath,
-        sha256: sha256(rendererExtension.bytes),
-        chunks: rendererExtension.parsed.chunks,
-      },
-    }),
-  };
-}
-
-export function verifyFidelityActivationPayloads({ archivePath } = {}) {
-  if (typeof archivePath !== "string" || archivePath.length === 0) throw new TypeError("An explicit archivePath is required");
-  const contracts = [
-    {
-      runtime: "electron-main",
-      path: "dist/electron-main/main.cjs",
-      activation: "cursor-auth",
-      markers: ["createCursorAuthWiring", "SUPPORTED_DASHBOARD_ACTIONS", "local-tool-ceiling", "requestLimitIncrease"],
-    },
-    {
-      runtime: "host",
-      path: "dist/host/host-main.cjs",
-      activation: "typed-tool-producer",
-      markers: ["ClientSideToolV2Producer", "encodeClientSideToolV2Message", "protobuf-base64", "aiserver.v1.ClientSideToolV2Call"],
-    },
-    {
-      runtime: "node-agent-coordinator",
-      path: "dist/node-agent-coordinator/main.cjs",
-      activation: "typed-tool-relay",
-      markers: ["ClientSideToolV2Relay", "parseClientSideToolV2TransportEvent", "materializeClientSideToolV2RendererEvent", "aiserver.v1.ClientSideToolV2Result"],
-    },
-  ];
-  return contracts.map(contract => {
-    const bytes = extractFile(archivePath, contract.path);
-    const source = bytes.toString("utf8");
-    const missingMarkers = contract.markers.filter(marker => !source.includes(marker));
-    if (missingMarkers.length > 0) {
-      throw new Error(`Fidelity activation is absent from ${contract.path}: ${missingMarkers.join(", ")}`);
-    }
-    return {
-      runtime: contract.runtime,
-      path: contract.path,
-      activation: contract.activation,
-      sha256: sha256(bytes),
-      markers: contract.markers,
-      verdict: "verified-in-packaged-executable",
-    };
-  });
-}
-
-export async function verifyCsnapsCarrierClassification({ archivePath, unpackedRoot } = {}) {
-  if ([archivePath, unpackedRoot].some(value => typeof value !== "string" || value.length === 0)) {
-    throw new TypeError("Explicit archivePath and unpackedRoot paths are required");
-  }
-  const listing = new Set(listPackage(archivePath).map(entry => entry.replace(/^\/+/, "")));
-  if (listing.has(CSNAPS_RELATIVE)) {
-    throw new Error("A csnaps carrier was packaged even though no shipped carrier is recoverable");
-  }
-  try {
-    await stat(path.join(unpackedRoot, CSNAPS_RELATIVE));
-    throw new Error("A physical csnaps carrier was staged outside the ASAR without shipped provenance");
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  const host = extractFile(archivePath, "dist/host/host-main.cjs").toString("utf8");
-  const markers = [
-    "resolveCsnapsCapability",
-    "Codebase Telemetry unavailable: csnaps",
-    "not-executable",
-    "flushPendingUploads",
-  ];
-  const missingMarkers = markers.filter(marker => !host.includes(marker));
-  if (missingMarkers.length > 0) {
-    throw new Error(`Packaged host is missing the csnaps availability/no-op gate: ${missingMarkers.join(", ")}`);
-  }
-  if (!/Codebase Telemetry unavailable: csnaps[\s\S]{0,800}?flushPendingUploads/.test(host)) {
-    throw new Error("Packaged host does not return the no-op telemetry API from the unavailable csnaps branch");
-  }
-  return {
-    classification: "shipped-carrier-unavailable",
-    carrierPath: CSNAPS_RELATIVE,
-    packagedCarrier: "absent",
-    behavior: "availability-gated-no-op-no-spawn",
-    markers,
-    verdict: "verified-in-packaged-executable",
-  };
-}
 
 async function walkFiles(root, current = root) {
   const files = [];
@@ -304,18 +69,6 @@ async function relativeInventory(root) {
     files.push({ path: relative, bytes: bytes.byteLength, sha256: sha256(bytes) });
   }
   return files.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-export async function verifyOfficialMacReference({ runtimeApp } = {}) {
-  if (typeof runtimeApp !== "string" || runtimeApp.length === 0) throw new TypeError("An explicit official runtime app path is required");
-  const shellPath = path.join(runtimeApp, "Contents", "MacOS", "Grok Bot");
-  const asarPath = path.join(runtimeApp, "Contents", "Resources", "app.asar");
-  const [shell, asar] = await Promise.all([readFile(shellPath), readFile(asarPath)]);
-  const shellHash = sha256(shell);
-  const asarHash = sha256(asar);
-  if (shellHash !== officialMacReleaseShellHash) throw new Error(`Official Mac shell reference drifted: ${shellHash}`);
-  if (asarHash !== officialMacReleaseAsarHash) throw new Error(`Official Mac app.asar reference drifted: ${asarHash}`);
-  return { shellPath, asarPath, shellHash, asarHash };
 }
 
 export async function verifyUnpackedRuntimeManifest({ sourceUnpackedRoot, packagedUnpackedRoot, platform = "darwin", arch = "arm64" } = {}) {
@@ -392,40 +145,18 @@ export async function verifyNpmElectronMacShell({ electronApp, reconstructedApp 
   if (!invariant.structuralMatch || invariant.officialNormalizedHash !== invariant.reconstructedNormalizedHash) {
     throw new Error("Reconstructed Mac shell failed the signature-excluded npm Electron structural invariant");
   }
-  if (invariant.reconstructedHash === officialMacReleaseShellHash || invariant.reconstructedHash === invariant.officialHash) {
+  if (invariant.reconstructedHash === invariant.officialHash) {
     throw new Error("Reconstructed package must not copy a vendor-signed Electron stub unchanged");
   }
   return invariant;
 }
 
-export async function verifyReconstructedMacPackage({ officialApp, reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot } = {}) {
+export async function verifyReconstructedMacPackage({ reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot } = {}) {
   if ([reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot].some(value => typeof value !== "string" || value.length === 0)) {
     throw new TypeError("Explicit reconstructedApp, sourceUnpackedRoot, and packagedUnpackedRoot paths are required");
   }
-  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", MACOS_EXECUTABLE_NAME);
   const reconstructedAsarPath = path.join(reconstructedApp, "Contents", "Resources", "app.asar");
-  const [reconstructedShell, reconstructedAsar] = await Promise.all([
-    readFile(reconstructedShellPath),
-    readFile(reconstructedAsarPath),
-  ]);
-  if (sha256(reconstructedShell) === officialMacReleaseShellHash) throw new Error("Reconstructed package must not copy the official signed shell");
-  if (sha256(reconstructedAsar) === officialMacReleaseAsarHash) throw new Error("Reconstructed package must not copy the official app.asar");
-  let invariant = null;
-  if (officialApp != null) {
-    if (typeof officialApp !== "string" || officialApp.length === 0) throw new TypeError("officialApp must be an explicit path when provided");
-    const officialShellPath = path.join(officialApp, "Contents", "MacOS", "Grok Bot");
-    const officialAsarPath = path.join(officialApp, "Contents", "Resources", "app.asar");
-    const [officialShell, officialAsar] = await Promise.all([
-      readFile(officialShellPath),
-      readFile(officialAsarPath),
-    ]);
-    invariant = inspectReconstructedMacShell(officialShell, reconstructedShell);
-    if (invariant.officialHash !== officialMacReleaseShellHash) throw new Error("Reconstructed verification received a non-canonical official shell reference");
-    if (invariant.officialNormalizedHash !== expectedSignatureExcludedMachOHash || invariant.reconstructedNormalizedHash !== expectedSignatureExcludedMachOHash || !invariant.structuralMatch) {
-      throw new Error("Reconstructed Mac shell failed the signature-excluded Electron structural invariant");
-    }
-    if (sha256(officialAsar) !== officialMacReleaseAsarHash) throw new Error("Reconstructed verification received a non-canonical official app.asar reference");
-  }
+  const reconstructedAsar = await readFile(reconstructedAsarPath);
   const runtime = await verifyUnpackedRuntimeManifest({ sourceUnpackedRoot, packagedUnpackedRoot });
-  return { invariant, reconstructedAsarHash: sha256(reconstructedAsar), runtime };
+  return { reconstructedAsarHash: sha256(reconstructedAsar), runtime };
 }

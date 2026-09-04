@@ -129,8 +129,9 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.doesNotMatch(buildAsarSource, /stageRetainedElectronNatives/);
   assert.match(buildAsarSource, /stageElectronRuntimeDependencyResolution\(path\.join\(stageRoot, "dist", "deps"\)\)/);
   assert.doesNotMatch(buildAsarSource, /\["deps", "native"\]/);
-  assert.doesNotMatch(buildAsarSource, /path\.join\(runtimeUnpacked, "deps"\)/);
-  assert.match(buildAsarSource, /path\.join\(runtimeUnpacked, "native"\)/);
+  assert.doesNotMatch(buildAsarSource, /resolveRuntimeApp/);
+  assert.doesNotMatch(buildAsarSource, /runtimeUnpacked/);
+  assert.match(buildAsarSource, /await rm\(path\.join\(stageRoot, "dist", "native"\)/);
 
   assert.match(nativesSource, /better-sqlite3/);
   assert.match(nativesSource, /tree-sitter-bash/);
@@ -143,7 +144,7 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.doesNotMatch(nativesSource, /const output = await ensureElectronNativeDeps\(\)/);
 
   assert.match(cleanBuild, /rebuilt against Electron 42\.1\.0 \(ABI 146\)/);
-  assert.match(cleanBuild, /whichlang-node and @anysphere\/tree-chunk-napi are copied from the 0\.18 unpacked tree only when a production esbuild metafile mentions them/);
+  assert.match(cleanBuild, /whichlang-node and @anysphere\/tree-chunk-napi are refused when a production esbuild metafile mentions them rather than copied from 0\.18/);
   assert.doesNotMatch(cleanBuild, /ABI-matched native and packaged dependencies are copied from the checksum-pinned 0\.18 runtime/);
   assert.match(hostActivation, /packagedElectronRuntimePackages/);
   assert.doesNotMatch(hostActivation, /sourceAppDir, "dist\/deps\/runtime-deps-manifest\.json"/);

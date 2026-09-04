@@ -127,19 +127,16 @@ app's Full Disk Access entry, so the granted permission silently disappears
 and Messages reads start failing again. Replacing the contents in place keeps
 the grant, which the Developer ID signature already makes stable across builds.
 → relaunch with the CDP flag → verify live → clean relaunch. Renderer changes
-are exact-string patches in `scripts/lib/router-renderer-patch.mjs` applied to
-the pinned minified bundle at package time; pre-flight every new anchor string
-against `src/app/dist/renderer/assets/index-UbX-y3il.js` (must match exactly
-once).
+live in the Vite frontend (`frontend/src`); default packaging ships that
+clean-source UI, not a patched 0.18 minified bundle.
 
 `src/app/` is the recovered 0.18 upstream app and is **read-only material**.
-The build stages a copy and patches the copy; nothing may write back into it.
+The build stages a copy; nothing may write back into it.
 Never symlink it into another working tree either — on 2 Sep 2026 a package run
 in a worktree wrote its seams through such a symlink into the shared original,
 and since git does not track those files, nothing could restore them from
-history. They came back only because the checksum-verified asar was still in
-`.cache/runtime/`. If you package from a worktree, copy `src/app` and
-`.cache/runtime` into it, or package from the main checkout.
+history. If you package from a worktree, copy `src/app` into it, or package
+from the main checkout.
 
 ## Locked UI rules
 

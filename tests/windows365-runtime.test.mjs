@@ -121,11 +121,4 @@ test("settings expose a Computer section and box runtime includes windows365", a
   const session = await readFile(path.join(repoRoot, "source/electron-main/box/windows365/windows365-session.ts"), "utf8");
   assert.match(session, /Settings → Router → Computer/);
   assert.doesNotMatch(session, /Settings → Computer\./);
-  const patch = await readFile(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
-  assert.match(patch, /function RW365Setup/);
-  assert.match(patch, /checkoutWindows365/);
-  assert.match(patch, /Windows 365 credentials/);
-  assert.match(patch, /boxSizing:"border-box"/);
-  assert.match(patch, /maxWidth:420/);
-  assert.doesNotMatch(patch, /title:"Windows 365 credentials"/);
 });

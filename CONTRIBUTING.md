@@ -11,7 +11,7 @@ npm run check
 npm run frontend:build
 ```
 
-On macOS, after `npm run bootstrap`, package changes should also pass:
+On macOS, after restoring the stow archive (`scripts/ci-restore-recovered.sh`), package changes should also pass:
 
 ```sh
 npm run package
@@ -19,6 +19,6 @@ npm run verify
 ```
 
 Use focused commits. Explain whether a change affects reviewed runtime source,
-the editable frontend, the checksum-pinned packaged renderer, or packaging only.
+the editable frontend, the packaged Vite renderer, or packaging only.
 Do not weaken checksum, bundle identity, code-signing, or clean-export checks to
 make a build pass.

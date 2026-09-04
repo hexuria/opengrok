@@ -65,26 +65,16 @@ jobs:
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
 
-      # Recovers the checksum-pinned renderer that the icon and anchor checks
-      # read. Best-effort: it needs macOS-only hdiutil, and the vendor CDN
-      # answers 403 to hosted runners, so the handful of tests that read the
-      # renderer skip instead. Never let it fail the run.
-      - name: Recover the pinned runtime (best-effort)
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        run: npm run bootstrap
-
       - name: Typecheck frontend and source, run the test suite
         run: npm run check
       # Checks and tests never package, so a dependency that breaks the build passes here and
-      # fails on whoever packages next (2 Sep 2026: undici 8 against the pinned runtime version
-      # the Electron main bundle keeps external). Package on macOS, where the runtime is
-      # recoverable; the bootstrap step above is best-effort, so skip when it did not land.
+      # fails on whoever packages next. Packaging wraps npm Electron 42 and rebuilt natives;
+      # skip when the stow-restored app or Electron headers are missing.
       - name: Package the app
         if: runner.os == 'macOS'
         run: |
-          if [ -d ".cache/runtime/Grok Bot.app" ] && [ -d "src/app/dist" ]; then
+          if [ -d "src/app/dist" ] && [ -n "${ELECTRON_HEADERS_DIR:-}" ]; then
             npm run package
           else
-            echo "no pinned runtime or upstream app on this runner; packaging skipped"
+            echo "no upstream app or Electron headers on this runner; packaging skipped"
           fi

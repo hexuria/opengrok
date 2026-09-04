@@ -6,7 +6,6 @@
     ".build/**",
     "frontend/src/recovered/**",
     "frontend/src/production/**",
-    "scripts/lib/router-renderer-patch.mjs",
     "docs/**"
   ],
   "plugins": [

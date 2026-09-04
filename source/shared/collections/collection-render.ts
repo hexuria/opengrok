@@ -119,9 +119,9 @@ export function collectionMessageTimestampMs(entry: Readonly<Record<string, unkn
  * `html: false` means a message body can never introduce markup: a "<script>" an agent was
  * asked to write stays visible text in the window, in the HTML export and in the PDF.
  *
- * Math follows the chat's rules exactly (scripts/lib/vendor/sand-math-kit.js): `\\(…\\)` and
- * `\\[…\\]` are rewritten to `$$…$$` outside code, a single `$` is never math (so "$5 and $6"
- * stays money), and KaTeX renders MathML — no stylesheet, no font files, nothing to load.
+ * Math follows the chat's rules: `\\(…\\)` and `\\[…\\]` are rewritten to `$$…$$`
+ * outside code, a single `$` is never math (so "$5 and $6" stays money), and
+ * KaTeX renders MathML — no stylesheet, no font files, nothing to load.
  */
 const DISPLAY_TEX = /\\\[([\s\S]+?)\\\]/g;
 const INLINE_TEX = /\\\((.+?)\\\)/g;

@@ -25,14 +25,6 @@ test("default computer is the account's remote Grok VM, not Docker", async () =>
   assert.match(settings, /value: "remote", label: "Grok VM"/);
   assert.doesNotMatch(settings, /Cursor computer/);
 
-  const patch = await readFile(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
-  assert.doesNotMatch(patch, /id:"computer",label:"Computer"/);
-  assert.match(patch, /title:"Computer",children:a.jsx\(RBoxRuntime/);
-  assert.match(patch, /value:"remote",label:"Grok VM"/);
-  assert.match(patch, /n\.value!=="remote"/);
-  assert.match(patch, /setBoxRuntime\(n\)/);
-  assert.doesNotMatch(patch, /Use local Docker VM/);
-
   const connector = await readFile(path.join(repoRoot, "source/electron-main/box/local-docker-host-connector.ts"), "utf8");
   // local-docker still reaches localConnect for cursor; subscription
   // providers branch to the desktop host first.

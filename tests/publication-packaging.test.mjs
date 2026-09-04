@@ -45,7 +45,7 @@ test("publication ignore rules keep the recovered material out of this repositor
   }
   assert.equal(matcher.ignores("recovered/generated-output.txt"), true, "root recovery output must remain ignored");
   // Our own work must stay committable.
-  for (const kept of ["scripts/lib/router-renderer-patch.mjs", "source/host/gateway-server.ts"]) {
+  for (const kept of ["scripts/lib/select-messages-helper.mjs", "source/host/gateway-server.ts"]) {
     assert.equal(matcher.ignores(kept), false, `${kept} must remain addable`);
   }
 });
@@ -65,7 +65,9 @@ test("default packaging wraps npm Electron and does not require the official Mac
   const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
   const bundle = await readFile(path.join(repoRoot, "scripts", "lib", "package-app-bundle.mjs"), "utf8");
   const shell = await readFile(path.join(repoRoot, "scripts", "lib", "electron-shell.mjs"), "utf8");
-  const diagnostic = await readFile(path.join(repoRoot, "scripts", "package-fidelity-diagnostic.mjs"), "utf8");
+  const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
+  assert.equal(pkg.scripts.bootstrap, undefined);
+  assert.equal(pkg.scripts["package:diagnostic"], undefined);
   assert.match(source, /assembleReconstructedAppBundle/);
   assert.match(bundle, /stageNpmElectronShell/);
   assert.match(bundle, /signAppBundle/);
@@ -81,15 +83,16 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.match(shell, /<string>sand<\/string>/);
   assert.match(shell, /<string>opengrok<\/string>/);
   assert.match(shell, /MACOS_EXECUTABLE_NAME/);
-  assert.match(diagnostic, /verifyOfficialMacReference/);
-  assert.match(diagnostic, /buildFidelityReconstructedAsar/);
   const verify = await readFile(path.join(repoRoot, "scripts", "verify.mjs"), "utf8");
   assert.match(verify, /\["sand", "opengrok"\]/);
+  assert.doesNotMatch(verify, /checksum-pinned-artifact-runtime/);
   const cleanBuild = await readFile(path.join(repoRoot, "scripts", "lib", "clean-build.mjs"), "utf8");
   assert.match(cleanBuild, /wraps npm Electron 42\.1\.0/);
   assert.doesNotMatch(cleanBuild, /reuses the checksum-pinned, ABI-matched Electron 0\.18 application shell/);
   assert.match(cleanBuild, /rebuilt against Electron 42\.1\.0 \(ABI 146\)/);
   assert.doesNotMatch(cleanBuild, /ABI-matched native and packaged dependencies are copied from the checksum-pinned 0\.18 runtime/);
+  assert.doesNotMatch(cleanBuild, /buildFidelityDistribution/);
+  assert.doesNotMatch(cleanBuild, /checksum-pinned-artifact-runtime/);
   const natives = await readFile(path.join(repoRoot, "scripts", "build-electron-natives.mjs"), "utf8");
   const asar = await readFile(path.join(repoRoot, "scripts", "lib", "build-asar.mjs"), "utf8");
   assert.match(natives, /better-sqlite3/);
@@ -97,16 +100,21 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.match(asar, /stageElectronNativeDeps/);
   assert.doesNotMatch(asar, /stageRetainedElectronNatives/);
   assert.doesNotMatch(asar, /\["deps", "native"\]/);
+  assert.doesNotMatch(asar, /resolveRuntimeApp/);
   const cleanBuildScripts = await readFile(path.join(repoRoot, "scripts", "clean-build.mjs"), "utf8");
   assert.match(cleanBuildScripts, /overlayRetainedNativesFromActivations/);
   assert.match(cleanBuildScripts, /retainedNativePackagesFromActivations/);
+  assert.match(cleanBuildScripts, /Packaging refuses 0\.18 retained natives/);
+  assert.doesNotMatch(cleanBuildScripts, /buildFidelityReconstructedAsar/);
+  assert.doesNotMatch(cleanBuildScripts, /applyOriginalRendererRouterPatch/);
 });
 
 test("package:vite shares the Vite asar builder and writes a side-by-side app", async () => {
   const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
   assert.equal(pkg.scripts.package, "npm run check && node scripts/package-macos.mjs");
   assert.equal(pkg.scripts["package:vite"], "node scripts/package-vite.mjs");
-  assert.equal(pkg.scripts["package:diagnostic"], "npm run check && node scripts/package-fidelity-diagnostic.mjs");
+  assert.equal(pkg.scripts["package:diagnostic"], undefined);
+  assert.equal(pkg.scripts.bootstrap, undefined);
   const source = await readFile(path.join(repoRoot, "scripts", "package-vite.mjs"), "utf8");
   const macos = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
   const config = await readFile(path.join(repoRoot, "scripts", "lib", "config.mjs"), "utf8");
@@ -122,7 +130,6 @@ test("package:vite shares the Vite asar builder and writes a side-by-side app", 
 });
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {
-  const rendererPatch = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
   const selectHelper = await readFile(path.join(repoRoot, "scripts/lib/select-messages-helper.mjs"), "utf8");
   const preload = await readFile(path.join(repoRoot, "source", "electron-preload", "preload.ts"), "utf8");
   const mainEdge = await readFile(path.join(repoRoot, "source", "electron-main", "main-edge.ts"), "utf8");
@@ -136,70 +143,6 @@ test("Router settings use the trusted backend and display recorded inference usa
   const coordinatorMain = await readFile(path.join(repoRoot, "source", "node-agent-coordinator", "main.ts"), "utf8");
   const mcpBridge = await readFile(path.join(repoRoot, "source", "node-agent-coordinator", "routed-mcp-bridge.ts"), "utf8");
   const localDocker = await readFile(path.join(repoRoot, "source", "electron-main", "box", "local-docker-host-connector.ts"), "utf8");
-  assert.match(rendererPatch, /desktop\.agent\.getInferenceRouter\(\)/);
-  assert.match(rendererPatch, /desktop\.agent\.setInferenceRouter\(n\)/);
-  assert.match(rendererPatch, /desktop\.agent\.getBoxRuntime\(\)/);
-  assert.match(rendererPatch, /desktop\.agent\.setBoxRuntime\(n\)/);
-  assert.match(rendererPatch, /Grok VM/);
-  assert.match(rendererPatch, /value:"remote"/);
-  assert.match(rendererPatch, /Computer for this account/);
-  assert.match(rendererPatch, /title:"Computer",children:a.jsx\(RBoxRuntime/);
-  assert.match(rendererPatch, /n\.value!=="remote"/);
-  // The Router and Computer panels used to poll every 2s, and each refresh
-  // shells out to the provider CLIs — continuous subprocess churn for as long
-  // as Settings stayed open.
-  assert.doesNotMatch(rendererPatch, /setInterval\(load,2e3\)/);
-  assert.match(rendererPatch, /setInterval\(load,15e3\)/);
-  // Neither panel may present a default as though it were the saved choice:
-  // starting at "cursor"/"remote" made every reopen look like the setting had
-  // reverted. Both seed from the last answer instead.
-  assert.match(rendererPatch, /let RRouterLast=null;/);
-  assert.match(rendererPatch, /let RBoxLast=null;/);
-  assert.match(rendererPatch, /RRouterLast\?\?RRouterSeed\(\)\?\?\{provider:null/);
-  assert.match(rendererPatch, /sandRouterSeed\.v1/);
-  // The in-memory cache is empty until the Computer panel has run once, so
-  // opening Settings straight onto Usage rendered the wrong provider and
-  // corrected itself a moment later. Both panels seed from the mode already on
-  // disk, which costs no round-trip, and only then confirm it with the main
-  // process.
-  assert.match(rendererPatch, /RBoxLast\?\?\{mode:ROpenGrokSeeded\(\)\?"opengrok":null,provider:null/);
-  assert.match(rendererPatch, /function ROpenGrokSeeded\(\)/);
-  assert.match(rendererPatch, /function ROpenGrokActive\(\)\{const\[v,setV\]=de\.useState\(\(\)=>ROpenGrokSeeded\(\)\)/);
-  assert.doesNotMatch(rendererPatch, /id:"computer",label:"Computer"/);
-  assert.doesNotMatch(rendererPatch, /RComputerPanel/);
-  // The live runtime picker replaced the placeholder computer toggles.
-  assert.doesNotMatch(rendererPatch, /Use local Docker VM/);
-  // The ban was a proxy for the placeholder computer toggles (asserted gone
-  // just above). Boolean settings now use Ne, the bundle's own Switch, rather
-  // than any hand-rolled control: reuse is the point, so pin that.
-  assert.match(rendererPatch, /a\.jsx\(Ne,\{label:"This computer accepts bot commands",isChecked:/);
-  assert.doesNotMatch(rendererPatch, /const RSwitch=/);
-  assert.doesNotMatch(rendererPatch, /role:"switch"/);
-  assert.match(rendererPatch, /desktop\.agent\.setComputerScreen/);
-  assert.match(rendererPatch, /desktop\.agent\.startSubscriptionLogin/);
-  assert.match(rendererPatch, /Official Codex\/ChatGPT login on this Mac/);
-  assert.match(rendererPatch, /Paste an API key first/);
-  assert.match(rendererPatch, /label:"Claude Code"/);
-  assert.match(rendererPatch, /label:"Codex"/);
-  // Replaced by the login page's gear and provider sheet.
-  assert.match(rendererPatch, /sand-lp-back/);
-  assert.match(rendererPatch, /function RSendNotDelivered\(\)/);
-  assert.match(rendererPatch, /if\(we==null\)\{RSendNotDelivered\(\);return\}/);
-  assert.match(rendererPatch, /patchOriginalMainChrome/);
-  assert.match(rendererPatch, /sand-cursor-login-skip/);
-  assert.match(rendererPatch, /first-run-login-skip/);
-  assert.match(rendererPatch, /data-computer-screen-switcher/);
-  assert.match(rendererPatch, /a\.setInferenceRouter\(pick\)/);
-  assert.match(rendererPatch, /desktop\.secrets\.upsert/);
-  assert.doesNotMatch(rendererPatch, /settings\.router-provider\.v1/);
-  assert.match(rendererPatch, /id:"dictation",label:"Dictation"/);
-  assert.match(rendererPatch, /id:"usage",label:"Usage"/);
-  assert.match(rendererPatch, /RDictationPanel/);
-  assert.match(rendererPatch, /Requests/);
-  assert.match(rendererPatch, /Input tokens/);
-  assert.match(rendererPatch, /Last used/);
-  assert.match(rendererPatch, /Tracked activity/);
-  assert.match(rendererPatch, /RRouterProviders\.filter/);
   assert.match(preload, /getInferenceRouter: \(\) => edge\("getInferenceRouter"\)/);
   assert.match(preload, /setOpenRouterModel: \(model: string\) => edge\("setInferenceRouter", \{ openRouterModel:/);
   // Settings must render from what is already on disk. Measured with a stopped
@@ -227,8 +170,6 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(mainEdge, /applyInferenceProviderSwitch/);
   assert.match(mainEdge, /invoke\(deps\.settingsStore, "setInferenceProvider", value\)/);
   assert.match(mainEdge, /provider: switched\.provider/);
-  assert.match(rendererPatch, /claude \/login/);
-  assert.match(rendererPatch, /codex login/);
   assert.match(mainEdge, /invoke\(deps\.boxRecovery, "restartCoordinator"\)/);
   assert.match(mainEdge, /mode === "local-docker"\) await \(deps\.startLocalDockerBox \?\? startLocalDockerBox\)\(settingsPath\)/);
   assert.match(mainEdge, /coerceBoxRuntimeForProvider/);
@@ -246,117 +187,11 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(localDocker, /isSubscriptionInferenceProvider\(provider\)/);
   assert.match(localDocker, /return await desktopConnect\(\);/);
   assert.match(localDocker, /return await localConnect\(\);/);
-  assert.match(rendererPatch, /getWindows365Settings/);
-  assert.match(rendererPatch, /checkoutWindows365/);
-  assert.match(rendererPatch, /Tenant ID/);
-  assert.match(rendererPatch, /RW365Setup/);
-  assert.match(rendererPatch, /Windows 365 credentials/);
-  assert.doesNotMatch(rendererPatch, /title:"Windows 365 credentials"/);
-  // 0.29 parity: jump-to-newest pill and first-layout reveal gate.
-  assert.match(rendererPatch, /sand-jump-newest/);
-  assert.match(rendererPatch, /const JUMP_PILL_HELPER =/);
-  // The pill is fixed-positioned on document.body, so it lands in the root
-  // stacking context: at z-index 40 it painted over the composer and stayed up
-  // over the fullscreen computer view. It only needs to clear transcript rows,
-  // and it hides outright whenever an overlay surface is showing.
-  assert.match(rendererPatch, /\.sand-jump-newest\{position:fixed;z-index:5;/);
-  assert.match(rendererPatch, /var covered=function\(\)/);
-  assert.match(rendererPatch, /\.sand-computer-fullscreen/);
-  assert.match(rendererPatch, /if\(!el\|\|covered\(\)\|\|nativePill\(\)/);
-  assert.match(rendererPatch, /const REVEAL_GATE_HELPER =/);
-  // 0.29 parity: math rendered inside the markdown pipeline (remark-math +
-  // KaTeX MathML component), never as DOM post-processing - mutating
-  // React-owned message nodes loses text on reconciliation.
-  assert.match(rendererPatch, /sand-math-kit\.js/);
-  assert.match(rendererPatch, /patchOriginalMathPipeline/);
-  assert.match(rendererPatch, /"sand-math"/);
-  assert.doesNotMatch(rendererPatch, /renderMathInElement/);
-  assert.match(rendererPatch, /const DRAFTS_HELPER =/);
-  assert.match(rendererPatch, /const MEDIA_DEBUG_HELPER =/);
-  assert.match(rendererPatch, /const DEEPLINK_MSG_HELPER =/);
-  assert.match(rendererPatch, /Copy message ID/);
-  assert.match(rendererPatch, /Copy message URL/);
-  assert.match(rendererPatch, /data-entry-id/);
-  assert.match(rendererPatch, /KATEX_BUNDLE_PREPEND \+ MEDIA_META_HELPER \+ JUMP_PILL_HELPER \+ REVEAL_GATE_HELPER \+ DRAFTS_HELPER \+ MEDIA_DEBUG_HELPER \+ DEEPLINK_MSG_HELPER \+ SELECT_MODE_HELPER \+ LOCAL_TOOL_ASK_HELPER \+ A11Y_ANNOUNCE_HELPER \+ OPENGROK_MODE_HELPER \+ LOGIN_PROVIDER_HELPER \+ ASKPASS_CARD_HELPER \+ ACCOUNT_CARD_HELPER \+ AGENT_AUTOREVIEW_HELPER \+ patched/);
-  // A screen reader is told nothing when a reply starts or finishes. The
-  // announcer owns its own live region because the bundle has no shared
-  // announce hook, and keys off data-pending so it needs no drift-prone anchor.
-  assert.match(rendererPatch, /const A11Y_ANNOUNCE_HELPER =/);
-  // The login wall may only be bypassed when there is no backend to sign in to.
-  // An OpenGrok server is one, so every gate must consult the same rule.
-  assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
-  // The banner for a server that cannot be read rides with the main chrome, from its own module.
-  assert.match(rendererPatch, /\$\{MAIN_CHROME_SOURCE\}\\n\$\{SERVER_READS_BANNER_HELPER\}\\n\$\{DELETE_MESSAGE_HELPER\}\\n\$\{COLLECTIONS_RAIL_HELPER\}\\n\$\{AGENT_MODEL_HELPER\}\\n\$\{AGENT_USAGE_HELPER\}\\n\$\{SCREEN_PREVIEW_HELPER\}/);
-  // The login page's provider chooser replaces the old skip button.
-  assert.match(rendererPatch, /const LOGIN_PROVIDER_HELPER =/);
-  assert.match(rendererPatch, /sand-lp-back/);
-  assert.match(rendererPatch, /const MAY_SKIP_LOGIN_WALL =/);
-  assert.equal((rendererPatch.match(/\$\{MAY_SKIP_LOGIN_WALL\}/g) || []).length, 4,
-    "every login-wall bypass must go through the shared rule");
-  // The miss that blacked out the app: a helper read the skip key directly, so
-  // the gate showed the sign-in screen and our own code then hid it. Any read of
-  // the key must also consult the mode, wherever it lives.
-  for (const raw of rendererPatch.match(/localStorage\.getItem\("sand-cursor-login-skip"\)[^;]{0,80}/g) || []) {
-    assert.match(raw, /sand-opengrok-mode/, `a raw skip-key read ignores OpenGrok mode: ${raw}`);
-  }
-
-  // OpenGrok server mode: the runtime is offered for every provider, the bearer
-  // never reaches settings.json, and the Router tab stops offering a provider
-  // the server has taken over.
-  assert.match(rendererPatch, /\{value:"opengrok",label:"OpenGrok Server"\}/);
-  assert.match(rendererPatch, /function ROpenGrokServer\(\)/);
-  assert.match(rendererPatch, /function ROpenGrokActive\(\)/);
-  assert.doesNotMatch(rendererPatch, /a\.jsx\(re,\{title:"Routing"/);
-  // Every settings tab icon must name an entry in the renderer's own icon
-  // registry. "desktop" looked plausible and drew nothing, because the registry
-  // calls it "device-desktop"; asserting the literal alone could not tell the
-  // difference, so check the name the tab actually asks for really exists.
-  assert.match(rendererPatch, /label:"Computer",icon:"device-desktop"/);
-  // The pinned renderer is recovered by `npm run bootstrap`, not committed, so
-  // this icon-registry cross-check only runs where it is present.
-  const pinnedRenderer = await readFile(
-    path.join(repoRoot, "src", "app", "dist", "renderer", "assets", "index-UbX-y3il.js"),
-    "utf8",
-  ).catch(() => null);
-  for (const [, icon] of (pinnedRenderer == null ? [] : rendererPatch.matchAll(/\{id:"[a-z]+",label:"[^"]+",icon:"([a-z0-9-]+)"\}/g))) {
-    assert.ok(
-      new RegExp(`[,{]"?${icon}"?:"`).test(pinnedRenderer),
-      `settings tab icon "${icon}" is not a name in the renderer icon registry`,
-    );
-  }
-  assert.match(rendererPatch, /sand-box-runtime-changed/);
-  for (const code of ["no_org_key", "invalid_key", "quota_exceeded", "provider_unreachable", "provider_error", "not_supported", "unknown"]) {
-    assert.match(rendererPatch, new RegExp(`${code}:\\[`), `the Computer panel has no copy for the "${code}" failure`);
-  }
-  assert.ok(!/setOpenGrokServer\([^)]*token[^)]*\)[^;]*settings\.json/.test(rendererPatch), "the bearer must not be described as living in settings");
-  assert.match(rendererPatch, /sand-a11y-announcer/);
-  assert.match(rendererPatch, /"aria-live","polite"/);
-  assert.match(rendererPatch, /Assistant is replying/);
-  // Turn boundaries only: announcing per token would be unusable noise, so the
-  // finish is debounced behind a quiet period.
-  assert.match(rendererPatch, /Reply finished\./);
-  assert.match(rendererPatch, /QUIET_MS=1500/);
-  // data-pending marks a user message awaiting acknowledgement, not a reply
-  // being written - measured live, it toggles once and never during streaming.
-  assert.doesNotMatch(rendererPatch, /attributeFilter:\["data-pending"\]/);
-  // Scoped to the scroller and to text, so scrolling and the virtualizer
-  // mounting rows never read out as a reply.
-  assert.match(rendererPatch, /\.observe\(sc,\{subtree:true,childList:true,characterData:true\}\)/);
-  // The local-tool consent prompt names the action it is asking about. One
-  // hardcoded title covered every action, so a file read asked to "run
-  // commands"; an unnamed action still falls back to that original title.
-  assert.match(rendererPatch, /const LOCAL_TOOL_ASK_HELPER =/);
-  assert.match(rendererPatch, /patchOriginalLocalToolAsk/);
-  assert.match(rendererPatch, /__sandLocalToolAskTitle/);
-  assert.match(rendererPatch, /"read-file":"read files on your local computer"/);
-  assert.match(rendererPatch, /self\.__sandLocalToolAskTitle\(s\.action\)\|\|TLn/);
   // Multi-select mode (scripts/lib/select-messages-helper.mjs): JS-store selection
   // (virtualization-safe), a toolbar under the chat header with a master checkbox and
   // icon buttons, checkboxes painted on an overlay, ids from the row's entry label on
   // every route, the native menu entry point, feature-detected Collections actions, and a
   // delete confirm that says whether the server deletes or only this device hides.
-  assert.match(rendererPatch, /import \{ SELECT_MODE_HELPER \} from "\.\/select-messages-helper\.mjs"/);
-  assert.match(rendererPatch, /Select messages/);
   assert.match(selectHelper, /sand-conversation-entry-\(\.\+\?\)-\(\?:author\|timestamp\|body\)/);
   assert.match(selectHelper, /deleteTranscriptEntries\(\{agentId:ag,entryIds:ids\}\)/);
   assert.match(selectHelper, /for everyone on this server\?/);
@@ -364,77 +199,14 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(selectHelper, /Add "\+fresh\.length\+" loaded/);
   assert.match(selectHelper, /All loaded added/);
   assert.doesNotMatch(selectHelper, /Select all/, "a virtualized feed cannot promise all");
-  assert.doesNotMatch(rendererPatch, /coordinatorPort/);
   assert.doesNotMatch(selectHelper, /coordinatorPort/);
   // Remote-box agents answer through Cursor's in-box gateway (not extensible),
   // so delete falls back to device-local tombstones filtered in the row
   // builder before grouping.
   assert.match(selectHelper, /__sandTombstones/);
-  assert.match(rendererPatch, /patchOriginalRowTombstones/);
   assert.match(selectHelper, /sandTombstones\.v1/);
-  // Deep links teleport via the engine's own find-in-chat navigate instead of
-  // sweeping the virtualized transcript from the top; the hover inspector
-  // replaced the always-on overlay's boot auto-restore.
-  assert.match(rendererPatch, /__sandNavToRow/);
-  assert.match(rendererPatch, /patchOriginalRowNavigate/);
-  assert.match(rendererPatch, /INSPECT/);
-  assert.doesNotMatch(rendererPatch, /localStorage\.getItem\(K\)==="1"&&setTimeout/);
-  // Share picker (named collections instead of silently minted names) and the
-  // Cmd+Shift+A selection entry point.
   assert.match(selectHelper, /New collection\\\\u2026/);
   assert.match(selectHelper, /ev\.key==="A"\|\|ev\.key==="a"/);
-  // Width-keyed text-height cache (user-approved rule amendment): heights are
-  // keyed by transcript width + root font size, replayed only on exact
-  // condition match, and pending/streaming rows never record or replay.
-  assert.match(rendererPatch, /sandTextHeights\.v2/);
-  assert.match(rendererPatch, /__sandTextHeights/);
-  assert.match(rendererPatch, /__sandTextHeights\.est\(n\.entry\)/);
-  // Inspector: occlusion pause under viewers/dialogs/popovers, viewer stats
-  // chip, and skeleton-phase capture with skeleton-vs-final comparison.
-  assert.match(rendererPatch, /__sandSkel/);
-  assert.match(rendererPatch, /skeleton match/);
-  assert.match(rendererPatch, /sand-media-viewer/);
-  assert.match(rendererPatch, /PAUSED/);
-  // Layout lint: always-on idle watcher, persistent deduped findings,
-  // aggregated report pullable any time.
-  assert.match(rendererPatch, /sandLayoutFindings\.v1/);
-  assert.match(rendererPatch, /__sandLayoutReport/);
-  assert.match(rendererPatch, /skeleton-mismatch/);
-  assert.match(rendererPatch, /requestIdleCallback/);
-  // Lint is opt-in diagnostics: off by default, armed by first debugger use,
-  // never re-armed over an explicit disable.
-  assert.match(rendererPatch, /sandLayoutLint/);
-  // Lint-driven layout fixes: gallery rows keep the app's planned height
-  // (no forced 200 upscale), single boxes clamp instead of cropping, and
-  // sharpness is judged against the device pixel ratio.
-  assert.match(rendererPatch, /sand-fit-natural/);
-  assert.match(rendererPatch, /under-dpr-source/);
-  assert.match(rendererPatch, /under-dpr-fetch/);
-  // Variant ladder: each image asks for the pixels its box needs at this
-  // density instead of a flat 1120, and undersized sources draw at their own
-  // size (scale-down) while gallery cells keep their cover-fill rule.
-  assert.match(rendererPatch, /__sandVariantWidth/);
-  assert.match(rendererPatch, /of!=="contain"&&of!=="scale-down"/);
-  assert.match(rendererPatch, /getItem\("sandLayoutLint"\)==null&&localStorage\.setItem\("sandLayoutLint","1"\)/);
-  // Jump-loading: transcript store exposed for in-place older-page streaming
-  // (no synthetic snapshots - they desync the live replica), wider older
-  // pages, deeper reveal chase, and the geometry-hit-test inspector.
-  assert.match(rendererPatch, /__sandTranscript/);
-  assert.match(rendererPatch, /patchOriginalJumpLoad/);
-  assert.match(rendererPatch, /dVn=400/);
-  assert.match(rendererPatch, /kOn=40/);
-  // Zero-jump: exact estimator heights for cached media rows (estimate ==
-  // measured for cached tiles; text rows stay live-measured) and the pill's
-  // snap loop yields to the engine's bottom-pin instead of racing it.
-  assert.match(rendererPatch, /__sandMediaEstimate/);
-  assert.match(rendererPatch, /patchOriginalRowEstimator/);
-  assert.match(rendererPatch, /patchOriginalAgentRoleLabel/);
-  assert.match(rendererPatch, /children:"Role"\}\),e\[12\]=x\):x=e\[12\];let N;e\[13\]!==t\.description/);
-  // Gallery rows keep a content-independent height so the estimate can never
-  // disagree with the render (measured: content-planned heights cost 144
-  // scroll shoves per pass versus 4); blur is solved by letterboxing instead.
-  assert.match(rendererPatch, /case"attachment-group":return\[The\(200,!1,e\)\]/);
-  assert.match(rendererPatch, /if\(el\.scrollHeight-el\.clientHeight-el\.scrollTop<2\)return;/);
   assert.doesNotMatch(localDocker, /await stopLocalDockerBox\(\)\.catch/);
   assert.match(localDocker, /Leave grok-bot-local-vm running/);
   assert.match(localDocker, /target=account-computer/);
@@ -474,7 +246,6 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(cursorSession, /createProviderPromptSession\(routedProvider\)/);
   assert.match(cursorBackend, /routedProvider !== "cursor"/);
   assert.match(cursorBackend, /createProviderPromptSession\(routedProvider\)/);
-  assert.doesNotMatch(rendererPatch, /ANTHROPIC_API_KEY|OPENAI_API_KEY/);
   assert.match(turnShell, /inferenceProvider === "cursor"/);
   assert.match(turnShell, /createProviderPromptSession\(inferenceProvider\)/);
   assert.match(coordinator, /method !== "sendPrompt" \|\| provider === "cursor"/);
@@ -554,39 +325,4 @@ test("Collections ships its page assets and its own preload in the packaged layo
   // Snapshotting rides an existing gateway method name; a new one would be
   // rejected by Cursor's in-box gateway for remote agents.
   assert.match(coordinatorMainTable, /getAgentTranscriptWindow: \{ args: "object" \}/);
-});
-
-// Each provider's login page is its own page: its own accent, its own opening
-// line, and a sentence saying what pressing Sign in will actually do. Upstream
-// ships one line about Grok Bot, which is simply wrong over somebody else's
-// sign-in, and says nothing about a terminal being about to open.
-test("every provider's login page has its own colour and its own words", async () => {
-  const rendererPatch = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
-
-  const providers = [...rendererPatch.matchAll(/\{id:"([a-z-]+)",label:"[^"]+",title:"([^"]+)",lede:"([^"]+)",how:"([^"]+)",[^}]*?accent:"(#[0-9a-f]{6})"/g)]
-    .map(([, id, title, lede, how, accent]) => ({ id, title, lede, how, accent }));
-  assert.equal(providers.length, 4, "all four providers must carry their own page content");
-  assert.deepEqual(providers.map((p) => p.id).sort(), ["claude-code", "codex", "cursor", "opengrok"]);
-
-  // No two providers may share a colour, or the page is not theirs.
-  assert.equal(new Set(providers.map((p) => p.accent)).size, 4, "each provider needs its own accent");
-  assert.equal(new Set(providers.map((p) => p.lede)).size, 4, "each provider needs its own opening line");
-
-  for (const provider of providers) {
-    // The CLI providers open a terminal; saying so is the whole point.
-    if (provider.id === "codex" || provider.id === "claude-code") {
-      assert.match(provider.how, /terminal/i, `${provider.id} must say a terminal opens`);
-    } else {
-      assert.match(provider.how, /browser/i, `${provider.id} must say the browser opens`);
-    }
-    assert.doesNotMatch(provider.lede, /Grok Bot/, `${provider.id} must not be sold as Grok Bot`);
-  }
-
-  // And the page must actually use them, not merely carry them.
-  assert.match(rendererPatch, /root\.style\.setProperty\("--lp-accent",p\.accent\)/);
-  assert.match(rendererPatch, /lede\.textContent=p\.lede/);
-  assert.match(rendererPatch, /how\.textContent=p\.how/);
-  // The CLI state is shown so pressing Sign in is not a guess.
-  assert.match(rendererPatch, /Already signed in on this Mac/);
-  assert.match(rendererPatch, /Not installed yet/);
 });
