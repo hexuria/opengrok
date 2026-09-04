@@ -266,6 +266,18 @@ function assertSafeRelative(relative) {
   }
 }
 
+async function assertNoNativeRuntime(root, label) {
+  const nativeRoot = path.join(root, "dist", "native");
+  let files;
+  try {
+    files = await walkFiles(nativeRoot);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (files.length > 0) throw new Error(`${label} still contains dist/native: ${files.join(", ")}`);
+}
+
 async function runtimeSnapshot(root) {
   const files = [];
   for (const relativeRoot of RUNTIME_ROOTS) {
@@ -325,6 +337,8 @@ export async function verifyUnpackedRuntimeManifest({ sourceUnpackedRoot, packag
     const target = path.join("dist/deps", relative);
     if (!(await stat(path.join(packagedUnpackedRoot, target))).isFile()) throw new Error(`Manifest native file is not a regular packaged file: ${relative}`);
   }
+  await assertNoNativeRuntime(sourceUnpackedRoot, "Staged unpacked runtime");
+  await assertNoNativeRuntime(packagedUnpackedRoot, "Packaged unpacked runtime");
   if (manifest.resolutionClosure?.mode !== "byte-exact-sibling-package-copy" || !Array.isArray(manifest.resolutionClosure.packages) || manifest.resolutionClosure.packages.length === 0) {
     throw new Error("runtime-deps-manifest.json is missing the Electron package resolution closure");
   }

@@ -406,23 +406,34 @@ function externalRequires(text, artifact) {
 }
 
 async function nativeRuntimeInventory() {
-  const roots = ["src/app/dist/deps"];
   const inventory = [];
-  for (const root of roots) {
-    const absolute = path.join(repoRoot, root);
-    let relatives;
-    try {
-      relatives = await walk(absolute);
-    } catch (error) {
-      if (error?.code === "ENOENT") continue;
-      throw error;
-    }
-    for (const relative of relatives) {
-      if (!relative.endsWith(".node")) continue;
-      const target = path.join(absolute, relative);
-      const bytes = await readFile(target);
-      inventory.push({ path: `${root}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "artifact-runtime-boundary" });
-    }
+  const depsRoot = "src/app/dist/deps";
+  const absoluteDeps = path.join(repoRoot, depsRoot);
+  let relatives;
+  try {
+    relatives = await walk(absoluteDeps);
+  } catch (error) {
+    if (error?.code === "ENOENT") throw new Error("Missing src/app/dist/deps native runtime inventory");
+    throw error;
+  }
+  for (const relative of relatives) {
+    if (!relative.endsWith(".node")) continue;
+    const target = path.join(absoluteDeps, relative);
+    const bytes = await readFile(target);
+    inventory.push({ path: `${depsRoot}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "artifact-runtime-boundary" });
+  }
+  const nativeRoot = "src/app/dist/native";
+  const absoluteNative = path.join(repoRoot, nativeRoot);
+  let nativeFiles = [];
+  try {
+    nativeFiles = await walk(absoluteNative);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  for (const relative of nativeFiles) {
+    const target = path.join(absoluteNative, relative);
+    const bytes = await readFile(target);
+    inventory.push({ path: `${nativeRoot}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "forbidden-unshipped-helper" });
   }
   return inventory.sort((left, right) => left.path.localeCompare(right.path));
 }

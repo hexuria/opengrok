@@ -25,17 +25,22 @@ async function loadModule(sourcePath, name) {
   return { module, dispose: () => rm(temporary, { recursive: true, force: true }) };
 }
 
+function darwinRuntime(mod, dir, extra = {}) {
+  return new mod.SandOnePasswordCliRuntime({
+    installRoot: path.join(dir, "managed"),
+    platform: "darwin",
+    arch: "arm64",
+    systemPaths: extra.systemPaths ?? [path.join(dir, "no-such-op")],
+    runProcess: extra.runProcess,
+  });
+}
+
 test("inspect without a launcher reports missing/invalid instead of throwing", async () => {
   const loaded = await loadModule("source/electron-main/onepassword/onepassword-cli-runtime.ts", "op");
   try {
     const dir = mkdtempSync(path.join(os.tmpdir(), "grok-op-inspect-"));
     try {
-      const runtime = new loaded.module.SandOnePasswordCliRuntime({
-        installRoot: path.join(dir, "managed"),
-        launcherPath: path.join(dir, "missing-launcher"),
-        platform: "darwin",
-        arch: "arm64",
-        systemPaths: [path.join(dir, "no-such-op")],
+      const runtime = darwinRuntime(loaded.module, dir, {
         runProcess: async () => {
           throw new Error("inspect must not spawn when every candidate is missing");
         },
@@ -54,7 +59,7 @@ test("inspect without a launcher reports missing/invalid instead of throwing", a
   }
 });
 
-test("inspect without a launcher still selects a system op", async () => {
+test("inspect without a launcher still selects a codesigned system op", async () => {
   const loaded = await loadModule("source/electron-main/onepassword/onepassword-cli-runtime.ts", "op-ready");
   try {
     const dir = mkdtempSync(path.join(os.tmpdir(), "grok-op-system-"));
@@ -64,14 +69,15 @@ test("inspect without a launcher still selects a system op", async () => {
       chmodSync(opPath, 0o755);
       const resolvedOp = realpathSync(opPath);
       const spawned = [];
-      const runtime = new loaded.module.SandOnePasswordCliRuntime({
-        installRoot: path.join(dir, "managed"),
-        launcherPath: path.join(dir, "missing-launcher"),
-        platform: "darwin",
-        arch: "arm64",
+      const runtime = darwinRuntime(loaded.module, dir, {
         systemPaths: [opPath],
         runProcess: async (file, args) => {
           spawned.push({ file, args: [...args] });
+          if (file === "/usr/bin/codesign") {
+            assert.ok(args.includes(`-R=${loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT}`));
+            assert.equal(args.at(-1), resolvedOp);
+            return { stdout: "", stderr: "" };
+          }
           assert.equal(file, resolvedOp);
           assert.deepEqual([...args], ["--version"]);
           return { stdout: "2.35.0\n", stderr: "" };
@@ -82,9 +88,13 @@ test("inspect without a launcher still selects a system op", async () => {
       assert.equal(inspection.selected?.path, opPath);
       assert.equal(inspection.selected?.version, "2.35.0");
       assert.equal(inspection.selected?.state, "ready");
+      assert.equal(inspection.selected?.signature, "verified");
       assert.equal(inspection.detail, "System CLI ready");
-      assert.equal(spawned.length, 1);
-      assert.doesNotMatch(loaded.module.SAND_OP_LAUNCHER_CODESIGN_REQUIREMENT, /DCNK4UB866/);
+      assert.equal(spawned[0]?.file, "/usr/bin/codesign");
+      assert.equal(spawned[1]?.file, resolvedOp);
+      assert.match(loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT, /2BUA8C4S2C/);
+      assert.doesNotMatch(loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT, /DCNK4UB866/);
+      assert.equal(loaded.module.SAND_OP_LAUNCHER_CODESIGN_REQUIREMENT, undefined);
       assert.deepEqual([...loaded.module.ONEPASSWORD_SYSTEM_CLI_PATHS], [
         "/opt/homebrew/bin/op",
         "/usr/local/bin/op",
@@ -98,7 +108,34 @@ test("inspect without a launcher still selects a system op", async () => {
   }
 });
 
-test("inspect without a launcher marks an unreadable system op invalid", async () => {
+test("inspect without a launcher marks a codesign failure invalid", async () => {
+  const loaded = await loadModule("source/electron-main/onepassword/onepassword-cli-runtime.ts", "op-unsigned");
+  try {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "grok-op-unsigned-"));
+    try {
+      const opPath = path.join(dir, "op");
+      writeFileSync(opPath, "#!/bin/sh\n");
+      chmodSync(opPath, 0o755);
+      const runtime = darwinRuntime(loaded.module, dir, {
+        systemPaths: [opPath],
+        runProcess: async (file) => {
+          if (file === "/usr/bin/codesign") throw new Error("codesign failed");
+          throw new Error("must not read --version of an unsigned op");
+        },
+      });
+      const inspection = await runtime.inspect(new AbortController().signal);
+      assert.equal(inspection.selected, null);
+      const system = inspection.candidates.find((candidate) => candidate.source === "system");
+      assert.equal(system?.state, "invalid");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  } finally {
+    await loaded.dispose();
+  }
+});
+
+test("inspect without a launcher marks a bogus --version as invalid", async () => {
   const loaded = await loadModule("source/electron-main/onepassword/onepassword-cli-runtime.ts", "op-invalid");
   try {
     const dir = mkdtempSync(path.join(os.tmpdir(), "grok-op-invalid-"));
@@ -106,13 +143,12 @@ test("inspect without a launcher marks an unreadable system op invalid", async (
       const opPath = path.join(dir, "op");
       writeFileSync(opPath, "#!/bin/sh\n");
       chmodSync(opPath, 0o755);
-      const runtime = new loaded.module.SandOnePasswordCliRuntime({
-        installRoot: path.join(dir, "managed"),
-        launcherPath: path.join(dir, "missing-launcher"),
-        platform: "darwin",
-        arch: "arm64",
+      const runtime = darwinRuntime(loaded.module, dir, {
         systemPaths: [opPath],
-        runProcess: async () => ({ stdout: "not-a-version\n", stderr: "" }),
+        runProcess: async (file) => {
+          if (file === "/usr/bin/codesign") return { stdout: "", stderr: "" };
+          return { stdout: "not-a-version\n", stderr: "" };
+        },
       });
       const inspection = await runtime.inspect(new AbortController().signal);
       assert.equal(inspection.selected, null);
@@ -144,12 +180,21 @@ test("WebAuthn stays fail-closed when no signer binary is present", async () => 
   try {
     const dir = mkdtempSync(path.join(os.tmpdir(), "grok-webauthn-"));
     try {
+      const env = {};
       assert.equal(
-        loaded.module.resolveWebAuthnSignerPath({ isPackaged: false, repoRoot: dir }),
+        loaded.module.resolveWebAuthnSignerPath({ isPackaged: false, repoRoot: dir, env }),
         undefined,
       );
       assert.equal(
-        loaded.module.resolveWebAuthnSignerPath({ isPackaged: true, repoRoot: dir }),
+        loaded.module.resolveWebAuthnSignerPath({ isPackaged: true, resourcesPath: dir, env }),
+        undefined,
+      );
+      assert.equal(
+        loaded.module.resolveWebAuthnSignerPath({
+          isPackaged: true,
+          resourcesPath: dir,
+          env: { SAND_WEBAUTHN_SIGNER_PATH: path.join(dir, "missing-signer") },
+        }),
         undefined,
       );
     } finally {
@@ -167,16 +212,28 @@ test("packaging does not copy Anysphere Mach-Os into dist/native", async () => {
   const bridge = await readFile(path.join(repoRoot, "source/electron-main/onepassword/onepassword-provisioning-bridge.ts"), "utf8");
   const runtime = await readFile(path.join(repoRoot, "source/electron-main/onepassword/onepassword-cli-runtime.ts"), "utf8");
   const verification = await readFile(path.join(repoRoot, "scripts/lib/macos-package-verification.mjs"), "utf8");
+  const audit = await readFile(path.join(repoRoot, "scripts/audit-runtime-composition.mjs"), "utf8");
+  const packageMacos = await readFile(path.join(repoRoot, "scripts/package-macos.mjs"), "utf8");
 
+  assert.match(asar, /path\.join\(runtimeUnpacked, "deps"\)/);
+  assert.doesNotMatch(asar, /path\.join\(runtimeUnpacked, "native"\)/);
   assert.doesNotMatch(asar, /for \(const directory of \["deps", "native"\]\)/);
   assert.match(asar, /await rm\(path\.join\(stageRoot, "dist", "native"\)/);
+  assert.doesNotMatch(packageMacos, /runtimeUnpacked.*native|dist\/native\/sand-/);
   assert.match(cleanBuild, /mode: "system-runtime"/);
   assert.match(cleanBuild, /Anysphere Mach-Os from 0\.18 are not copied/);
   assert.doesNotMatch(cleanBuild, /ABI-matched native executables are copied from the checksum-pinned 0\.18 runtime/);
-  assert.doesNotMatch(verify, /requirePath\(path\.join\(builtAsarUnpacked, "dist", "native", "sand-webauthn-signer"\)\)/);
-  assert.match(verify, /Packaged unpacked runtime still contains \$\{helper\}/);
+  assert.match(verify, /ASAR still contains dist\/native/);
+  assert.match(verify, /walkFiles\(path\.join\(builtAsarUnpacked, "dist", "native"\)\)/);
+  assert.doesNotMatch(verify, /sand-op-launcher", "sand-webauthn-signer"/);
   assert.match(bridge, /this\.executor\(opPath, args,/);
-  assert.doesNotMatch(bridge, /launcherPath = await this\.options\.runtime\.resolveVerifiedLauncherPath/);
-  assert.doesNotMatch(runtime, /certificate leaf\[subject\.OU\] = "DCNK4UB866"/);
-  assert.doesNotMatch(verification, /"dist\/native"/);
+  assert.match(bridge, /this\.options\.runtime\.verify\(opPath, signal\)/);
+  assert.doesNotMatch(bridge, /resolveVerifiedLauncherPath/);
+  assert.doesNotMatch(runtime, /resolveVerifiedLauncherPath|launcherPath|sand-op-launcher|DCNK4UB866/);
+  assert.match(runtime, /await this\.verify\(path, signal\)/);
+  assert.match(verification, /still contains dist\/native/);
+  assert.doesNotMatch(verification, /RUNTIME_ROOTS = \["dist\/deps", "dist\/native"/);
+  assert.match(audit, /Missing src\/app\/dist\/deps native runtime inventory/);
+  assert.match(audit, /forbidden-unshipped-helper/);
+  assert.match(audit, /src\/app\/dist\/native/);
 });
