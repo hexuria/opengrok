@@ -7,6 +7,15 @@ export const SAND_DEFAULT_LOCAL_TOOL_PERMISSION: SandLocalToolPermission = "ask"
 // must never carry the other.
 export const SAND_LOCAL_TOOL_ACTIONS = ["run-command", "send-input", "read-file", "list-directory", "write-file", "read-messages", "send-imessage"] as const;
 export type SandLocalToolAction = (typeof SAND_LOCAL_TOOL_ACTIONS)[number];
+export const SAND_LOCAL_TOOL_ASK_TITLES: Readonly<Record<SandLocalToolAction, string>> = {
+  "run-command": "run commands on your local computer",
+  "send-input": "type into a command running on your local computer",
+  "read-file": "read files on your local computer",
+  "list-directory": "list folders on your local computer",
+  "write-file": "write files on your local computer",
+  "read-messages": "read your Messages conversations on this Mac",
+  "send-imessage": "send iMessages from your account",
+};
 
 export function isSandLocalToolAction(value: unknown): value is SandLocalToolAction {
   return typeof value === "string" && (SAND_LOCAL_TOOL_ACTIONS as readonly string[]).includes(value);

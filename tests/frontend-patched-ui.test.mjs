@@ -22,6 +22,7 @@ test("frontend patched-ui skip contract: import ports when frontend/ is present,
   assert.match(packager, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
   assert.match(packager, /await buildReconstructedAsar\(\)/);
   assert.doesNotMatch(packager, /buildFidelityReconstructedAsar/, "default packager ships the Vite UI");
+  assert.doesNotMatch(packager, /package-fidelity-diagnostic/);
   if (!present) {
     assert.equal(existsSync(path.join(FRONTEND, "src")), false, "a tree without frontend/src skips the React ports");
     return;

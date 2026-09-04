@@ -11,7 +11,6 @@ if (process.platform !== "darwin") {
   throw new Error("The reconstructed macOS application can only be packaged on macOS.");
 }
 
-// Fidelity renderer: package:diagnostic.
 const { builtAsar, builtAsarUnpacked } = await buildReconstructedAsar();
 const verification = await assembleReconstructedAppBundle({
   builtAsar,

@@ -10,7 +10,6 @@ import {
   stagedAppDir
 } from "./config.mjs";
 import { packStagedAppWithIntegrity } from "./asar-integrity.mjs";
-import { resolveRuntimeApp } from "./runtime.mjs";
 import { ensureElectronNativeDeps, stageElectronNativeDeps } from "../build-electron-natives.mjs";
 
 // The prebuilt tree-sitter runtime entries evaluate only node-gyp-build. The
@@ -68,10 +67,6 @@ export async function buildAsar({
   archivePath = builtAsar,
   unpackedRoot = builtAsarUnpacked,
 } = {}) {
-  const runtimeApp = await resolveRuntimeApp();
-  const resources = path.join(runtimeApp, "Contents", "Resources");
-  const runtimeUnpacked = path.join(resources, "app.asar.unpacked", "dist");
-
   await rm(buildRoot, { recursive: true, force: true });
   await mkdir(buildRoot, { recursive: true });
   await cp(sourceAppDir, stageRoot, { recursive: true, dereference: false, preserveTimestamps: true });
@@ -111,5 +106,5 @@ export async function buildAsar({
   } else {
     console.log(`Base ASAR staging ready: ${stageRoot}`);
   }
-  return { builtAsar: archivePath, builtAsarUnpacked: unpackedRoot, stagedAppDir: stageRoot, runtimeApp };
+  return { builtAsar: archivePath, builtAsarUnpacked: unpackedRoot, stagedAppDir: stageRoot };
 }

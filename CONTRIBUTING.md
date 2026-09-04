@@ -11,7 +11,7 @@ npm run check
 npm run frontend:build
 ```
 
-On macOS, after `npm run bootstrap`, package changes should also pass:
+On macOS, after restoring the stow archive (`scripts/ci-restore-recovered.sh`), package changes should also pass:
 
 ```sh
 npm run package

@@ -6,23 +6,14 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildCleanDistribution as buildBaseCleanDistribution,
-  buildFidelityDistribution as buildBaseFidelityDistribution,
   buildReconstructedAsar as buildBaseReconstructedAsar,
   cleanBuildDir,
-  fidelityCleanBuildDir,
-  fidelityRuntimeComposition,
-  overlayCleanDistribution,
   packStagedAppWithIntegrity,
   runtimeComposition,
 } from "./lib/clean-build.mjs";
-import { buildAsar } from "./lib/build-asar.mjs";
 import {
   builtAsar,
   builtAsarUnpacked,
-  fidelityBuildDir,
-  fidelityBuiltAsar,
-  fidelityBuiltAsarUnpacked,
-  fidelityStagedAppDir,
   repoRoot,
   stagedAppDir,
 } from "./lib/config.mjs";
@@ -35,14 +26,12 @@ import {
   buildProductionElectronMainIfSupplied,
   electronMainBindingProvenancePath,
 } from "./electron-main-production-activation.mjs";
-import { applyOriginalRendererRouterPatch } from "./lib/router-renderer-patch.mjs";
 import {
   assertProductionActivationsAreClean,
   compositionWithProductionActivations,
   fallbackSourcesReplacedByActivations as fallbackSourcesFromComposition,
   retainedNativePackagesFromActivations,
 } from "./lib/production-activation.mjs";
-import { resolveRuntimeApp } from "./lib/runtime.mjs";
 import { stageRetainedElectronNatives } from "./build-electron-natives.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -196,17 +185,13 @@ export async function overlayAuditMetadata(clean, { stageRoot = stagedAppDir } =
 
 async function overlayRetainedNativesFromActivations(clean, { stageRoot }) {
   const packages = retainedNativePackagesFromActivations(clean.hostActivation, clean.electronMainActivation);
-  const depsRoot = path.join(stageRoot, "dist", "deps");
-  if (packages.length === 0) {
-    await stageRetainedElectronNatives(depsRoot, null, { packages });
-    return;
+  if (packages.length > 0) {
+    throw new Error(`Packaging refuses 0.18 retained natives (${packages.join(", ")}); no bootstrap fallback`);
   }
-  const runtimeApp = await resolveRuntimeApp();
-  const unpackedDepsRoot = path.join(runtimeApp, "Contents", "Resources", "app.asar.unpacked", "dist", "deps");
-  await stageRetainedElectronNatives(depsRoot, unpackedDepsRoot, { packages });
+  await stageRetainedElectronNatives(path.join(stageRoot, "dist", "deps"), null, { packages });
 }
 
-export { cleanBuildDir, fidelityCleanBuildDir, fidelityRuntimeComposition, runtimeComposition };
+export { cleanBuildDir, runtimeComposition };
 
 export async function buildCleanDistribution(options = {}) {
   const {
@@ -217,17 +202,6 @@ export async function buildCleanDistribution(options = {}) {
   } = options;
   const base = await buildBaseCleanDistribution(baseOptions);
   return attachCompositionAudit(await prepareProductionActivations(base, hostBindingManifest, electronMainBindingManifest));
-}
-
-export async function buildFidelityDistribution(options = {}) {
-  const {
-    hostBindingManifest = process.env.GROK_BOT_HOST_BINDINGS_MANIFEST?.trim() || null,
-    electronMainBindingManifest = process.env.GROK_BOT_ELECTRON_MAIN_BINDINGS_MANIFEST?.trim()
-      || (existsSync(defaultElectronMainBindingManifestPath) ? defaultElectronMainBindingManifestPath : null),
-    ...baseOptions
-  } = options;
-  const base = await buildBaseFidelityDistribution(baseOptions);
-  return attachCompositionAudit(await prepareProductionActivations(base, hostBindingManifest, electronMainBindingManifest, fidelityRuntimeComposition));
 }
 
 export async function buildReconstructedAsar({
@@ -242,35 +216,6 @@ export async function buildReconstructedAsar({
   await packStagedAppWithIntegrity({ stageRoot: stagedAppDir, archivePath: builtAsar, unpackedRoot: builtAsarUnpacked });
   console.log(`Fail-closed composition audit embedded: ${compositionAuditPath} (${sha256(await readFile(clean.compositionAuditPath))})`);
   return { ...built, ...clean };
-}
-
-export async function buildFidelityReconstructedAsar({
-  hostBindingManifest = process.env.GROK_BOT_HOST_BINDINGS_MANIFEST?.trim() || null,
-  electronMainBindingManifest = process.env.GROK_BOT_ELECTRON_MAIN_BINDINGS_MANIFEST?.trim()
-    || (existsSync(defaultElectronMainBindingManifestPath) ? defaultElectronMainBindingManifestPath : null),
-  buildRoot = fidelityBuildDir,
-  stageRoot = fidelityStagedAppDir,
-  archivePath = fidelityBuiltAsar,
-  unpackedRoot = fidelityBuiltAsarUnpacked,
-  cleanOutputRoot = fidelityCleanBuildDir,
-} = {}) {
-  const fallback = await buildAsar({
-    pack: false,
-    buildRoot,
-    stageRoot,
-    archivePath,
-    unpackedRoot,
-  });
-  const base = await buildBaseFidelityDistribution({ outputRoot: cleanOutputRoot });
-  const prepared = await prepareProductionActivations(base, hostBindingManifest, electronMainBindingManifest, fidelityRuntimeComposition);
-  const clean = await attachCompositionAudit(prepared);
-  await overlayCleanDistribution(clean.outputRoot, { stageRoot, composition: clean.buildManifest.runtimeComposition });
-  await applyOriginalRendererRouterPatch({ stageRoot });
-  await overlayAuditMetadata(clean, { stageRoot });
-  await packStagedAppWithIntegrity({ stageRoot, archivePath, unpackedRoot });
-  console.log(`Fidelity hybrid ASAR ready: ${archivePath}`);
-  console.log(`Fail-closed composition audit embedded: ${compositionAuditPath} (${sha256(await readFile(clean.compositionAuditPath))})`);
-  return { ...fallback, ...clean, builtAsar: archivePath, builtAsarUnpacked: unpackedRoot };
 }
 
 if (process.argv[1] != null && path.resolve(process.argv[1]) === scriptPath) {

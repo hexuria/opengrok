@@ -14,10 +14,6 @@ install_app := "/Applications/Grok-0.27.app"
 settings_json := home_dir() / "Library/Application Support/Grok-0.27/sand-data/settings.json"
 
 # --- the gate ---
-# Cache the 0.18 runtime pieces the packager needs.
-bootstrap:
-    npm run bootstrap
-
 # Local ConnectRPC mock of GrokBotService (127.0.0.1:8787, SAND_MOCK_PORT to override).
 # Point a packaged app at it with SAND_BACKEND_URL=http://127.0.0.1:8787
 # then use the existing AuthServicePort.devLogin hook.
@@ -33,8 +29,8 @@ check:
     npm run check
 
 # --- 0.27 app ---
-# Bootstrap, then package into dist/. Asserts the app exists and prints mtime.
-package: bootstrap
+# Package into dist/. Restore the stow archive first. Asserts the app exists and prints mtime.
+package:
     npm run package
     @test -d "{{dist_app}}" || { echo "missing {{dist_app}}"; exit 1; }
     @stat -f "dist mtime: %Sm" "{{dist_app}}"

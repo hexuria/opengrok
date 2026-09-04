@@ -743,51 +743,6 @@ async function cleanRuntimeVerdicts(outputRoot, requireOutputs, runtimeNames = n
   return verdicts;
 }
 
-async function checksumPinnedRendererVerdict(outputRoot, requireOutputs, declaration) {
-  if (declaration?.mode !== "checksum-pinned-artifact-runtime") return null;
-  if (outputRoot == null) return {
-    declaration: declaration.mode,
-    verdict: "not-evaluated",
-    blockers: ["renderer-artifact-provenance-not-evaluated"],
-  };
-  const blockers = [];
-  let provenance = null;
-  try {
-    provenance = JSON.parse(await readFile(path.join(outputRoot, declaration.provenance), "utf8"));
-  } catch (error) {
-    if (requireOutputs) throw new Error("Checksum-pinned renderer provenance is missing", { cause: error });
-    blockers.push("missing-renderer-artifact-provenance");
-  }
-  const expectedRoot = "src/app/dist/renderer";
-  if (provenance != null) {
-    if (provenance.mode !== declaration.mode) blockers.push("renderer-artifact-provenance-mode-drift");
-    if (provenance.artifactRoot !== expectedRoot || declaration.artifactRoot !== expectedRoot) blockers.push("renderer-artifact-root-drift");
-    const artifactRoot = path.join(repoRoot, expectedRoot);
-    const files = [];
-    for (const relative of await walk(artifactRoot)) {
-      const bytes = await readFile(path.join(artifactRoot, relative));
-      files.push({ path: relative, bytes: bytes.byteLength, sha256: sha256(bytes) });
-    }
-    const inventorySha256 = sha256(JSON.stringify(files));
-    if (JSON.stringify(provenance.files) !== JSON.stringify(files)) blockers.push("renderer-artifact-file-inventory-drift");
-    if (provenance.fileCount !== files.length) blockers.push("renderer-artifact-file-count-drift");
-    if (provenance.inventorySha256 !== inventorySha256) blockers.push("renderer-artifact-inventory-hash-drift");
-  }
-  const verdict = blockers.length === 0 ? "verified" : "rejected";
-  if (requireOutputs && verdict === "rejected") {
-    throw new Error(`Fail-closed checksum-pinned renderer audit rejected: ${blockers.join(", ")}`);
-  }
-  return {
-    declaration: declaration.mode,
-    provenance: declaration.provenance,
-    artifactRoot: declaration.artifactRoot,
-    fileCount: provenance?.fileCount ?? 0,
-    inventorySha256: provenance?.inventorySha256 ?? null,
-    verdict,
-    blockers,
-  };
-}
-
 export async function assertCleanRuntimeClosures({ outputRoot, runtimes = null, composition = runtimeComposition }) {
   if (outputRoot == null) throw new TypeError("assertCleanRuntimeClosures requires outputRoot");
   return cleanRuntimeVerdicts(outputRoot, true, runtimes == null ? null : new Set(runtimes), composition);
@@ -889,7 +844,6 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
   const cleanRuntimeAssertions = await cleanRuntimeVerdicts(outputRoot, requireOutputs, null, composition);
   const rendererDeclaration = composition.find(runtime => runtime.runtime === "renderer") ?? null;
   const rendererAssertion = cleanRuntimeAssertions.find(runtime => runtime.runtime === "renderer") ?? null;
-  const rendererArtifactAssertion = await checksumPinnedRendererVerdict(outputRoot, requireOutputs, rendererDeclaration);
   const rendererBootstrap = JSON.parse(await readFile(path.join(repoRoot, "frontend/manifests/renderer-bootstrap.json"), "utf8"));
   const rendererClosure = JSON.parse(await readFile(path.join(repoRoot, "manifests/reconstruction/renderer-closure.json"), "utf8"));
   let rendererProvenance = null;
@@ -921,7 +875,6 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
       blockers: rendererAssertion?.blockers ?? ["renderer-clean-runtime-not-evaluated"],
       provenance: rendererDeclaration?.provenance ?? null,
     },
-    artifactRuntimeAcceptance: rendererArtifactAssertion,
   };
   return {
     schemaVersion: 1,
@@ -931,7 +884,6 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
       cleanRuntime: "A clean-source declaration is accepted only when its declared entry graph avoids immutable src/app/capsule inputs and its emitted runtime carries deterministic clean-source provenance. Renderer evidence paths may remain as inert provenance strings but never as bundle inputs.",
       fallback: "Recovered orchestration is not an executable clean runtime until every required contract member and nested factory is concretely composed.",
       renderer: "The clean renderer is accepted only when live UI provenance and renderer closure remain finding-free, the 5/5 feature and 11/11 route contracts remain composed, bootstrap anchors are byte-exact, and all five lazy boundaries are independently emitted without src/app/capsule inputs.",
-      fidelityRenderer: "A checksum-pinned artifact renderer is accepted only as non-source runtime when its complete shipped-file inventory, byte counts, and SHA-256 hashes match src/app/dist/renderer exactly. This does not satisfy or bypass clean-source renderer policy.",
     },
     runtimeComposition: composition,
     rendererComposition,

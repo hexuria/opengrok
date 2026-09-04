@@ -181,15 +181,6 @@ test("the daemon maps SAND_ASKPASS_* onto the sudo/shell env names", async () =>
   }
 });
 
-test("the renderer patch wires the askpass card into the helper chain", async () => {
-  const src = readFileSync(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
-  assert.match(src, /const ASKPASS_CARD_HELPER =/);
-  assert.match(src, /LOGIN_PROVIDER_HELPER \+ ASKPASS_CARD_HELPER \+ ACCOUNT_CARD_HELPER/);
-  // Password must go straight to respond(), never to storage or the transcript.
-  assert.match(src, /api\.respond\(id,/);
-  assert.doesNotMatch(src, /localStorage[\s\S]{0,40}sand-ap/);
-});
-
 test("the sudo master switch persists off-by-default and round-trips", async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "grok-sudo-set-"));
   const outfile = path.join(dir, "sand-settings-store.mjs");
@@ -250,11 +241,10 @@ test("the service denies while off and lets exactly one validation prompt throug
   }
 });
 
-test("the sudo enable/disable is wired through all three edge places and the toggle", async () => {
+test("the sudo enable/disable is wired through all three edge places", async () => {
   const edge = readFileSync(path.join(repoRoot, "source/electron-main/main-edge.ts"), "utf8");
   const table = readFileSync(path.join(repoRoot, "source/shared/rpc/main.ts"), "utf8");
   const preload = readFileSync(path.join(repoRoot, "source/electron-preload/preload.ts"), "utf8");
-  const patch = readFileSync(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs"), "utf8");
   // Handler + method table + preload — a missing method-table entry is the
   // "mainEdge[method] is not a function" bug, so pin all three.
   assert.match(edge, /getSudoAskpassEnabled:/);
@@ -262,9 +252,5 @@ test("the sudo enable/disable is wired through all three edge places and the tog
   assert.match(table, /getSudoAskpassEnabled: \{ args: "none" \}/);
   assert.match(table, /setSudoAskpassEnabled: \{ args: "object" \}/);
   assert.match(preload, /sudoAskpass: \{/);
-  // Enable is authenticated (not a bare setter) and disable is free.
   assert.match(edge, /authorizeSudoEnable/);
-  // The settings toggle reads/writes the new surface and is not optimistic on enable.
-  assert.match(patch, /window\.desktop\.sudoAskpass\.set\(!0\)/);
-  assert.match(patch, /Allow administrator \(sudo\) commands/);
 });

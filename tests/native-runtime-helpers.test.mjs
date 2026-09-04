@@ -215,8 +215,8 @@ test("packaging does not copy Anysphere Mach-Os into dist/native", async () => {
   const audit = await readFile(path.join(repoRoot, "scripts/audit-runtime-composition.mjs"), "utf8");
   const packageMacos = await readFile(path.join(repoRoot, "scripts/package-macos.mjs"), "utf8");
 
-  assert.match(asar, /path\.join\(runtimeUnpacked, "deps"\)/);
-  assert.doesNotMatch(asar, /path\.join\(runtimeUnpacked, "native"\)/);
+  assert.doesNotMatch(asar, /resolveRuntimeApp/);
+  assert.doesNotMatch(asar, /runtimeUnpacked/);
   assert.doesNotMatch(asar, /for \(const directory of \["deps", "native"\]\)/);
   assert.match(asar, /await rm\(path\.join\(stageRoot, "dist", "native"\)/);
   assert.doesNotMatch(packageMacos, /runtimeUnpacked.*native|dist\/native\/sand-/);
@@ -233,7 +233,7 @@ test("packaging does not copy Anysphere Mach-Os into dist/native", async () => {
   assert.match(runtime, /await this\.verify\(path, signal\)/);
   assert.match(verification, /still contains dist\/native/);
   assert.doesNotMatch(verification, /RUNTIME_ROOTS = \["dist\/deps", "dist\/native"/);
-  assert.match(audit, /Missing src\/app\/dist\/deps native runtime inventory/);
   assert.match(audit, /forbidden-unshipped-helper/);
   assert.match(audit, /src\/app\/dist\/native/);
+  assert.match(audit, /walkIfPresent\(path\.join\(repoRoot, nativeRoot\)\)/);
 });
