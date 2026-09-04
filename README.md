@@ -17,7 +17,7 @@ npm run package
 ditto dist/Open\ Grok.app /Applications/Open\ Grok.app
 ```
 
-`bootstrap` downloads the pinned 0.18.0 release, verifies its SHA-256, and extracts what the build needs. `package` typechecks, tests, compiles, patches the renderer, signs and verifies. Output is `dist/Open Grok.app`.
+`bootstrap` prefers the hash-checked 0.18.0 DMG at `research-archives/original/0.18.0/macos-arm64/Grok_Bot_0.18.0.dmg` over the Cursor CDN, then extracts what the build needs. Set `GROK_BOT_018_APP` to a 0.18.0 `Grok Bot.app` to skip the DMG. `package` typechecks, tests, compiles, patches the renderer, signs and verifies. Output is `dist/Open Grok.app`.
 
 ## How to use
 

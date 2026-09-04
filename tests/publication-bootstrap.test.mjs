@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { createPackage } from "@electron/asar";
 
-import { hydrateSourcePayloadFromAsar } from "../scripts/lib/runtime.mjs";
+import { downloadDmg, hydrateSourcePayloadFromAsar } from "../scripts/lib/runtime.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
@@ -57,6 +57,99 @@ test("bootstrap hydration verifies and extracts the minimum upstream runtime pay
       hydrateSourcePayloadFromAsar(archive, { destination, expectedSha256: "0".repeat(64) }),
       /checksum mismatch/,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bootstrap copies a hash-checked archived DMG without fetching", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "grok-publication-bootstrap-dmg-"));
+  try {
+    const archivedPath = path.join(root, "Grok_Bot_0.18.0.dmg");
+    const cachedPath = path.join(root, "cache", "Grok_Bot_0.18.0.dmg");
+    const payload = "fixture-archived-dmg\n";
+    await writeFile(archivedPath, payload);
+    const expectedSha256 = createHash("sha256").update(payload).digest("hex");
+    let fetched = 0;
+
+    const result = await downloadDmg({
+      archivedDmg: archivedPath,
+      cachedDmg: cachedPath,
+      dmgSha256: expectedSha256,
+      fetch: async () => {
+        fetched += 1;
+        throw new Error("Cursor CDN must not be contacted when the archive is present");
+      },
+    });
+
+    assert.equal(fetched, 0);
+    assert.equal(result, cachedPath);
+    assert.equal(await readFile(cachedPath, "utf8"), payload);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bootstrap treats a Git LFS pointer as an absent archive and fetches", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "grok-publication-bootstrap-lfs-"));
+  try {
+    const archivedPath = path.join(root, "Grok_Bot_0.18.0.dmg");
+    const cachedPath = path.join(root, "cache", "Grok_Bot_0.18.0.dmg");
+    await writeFile(
+      archivedPath,
+      "version https://git-lfs.github.com/spec/v1\noid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nsize 1\n",
+    );
+    const payload = "fixture-cdn-dmg\n";
+    const expectedSha256 = createHash("sha256").update(payload).digest("hex");
+    let fetched = 0;
+
+    const result = await downloadDmg({
+      archivedDmg: archivedPath,
+      cachedDmg: cachedPath,
+      dmgSha256: expectedSha256,
+      fetch: async () => {
+        fetched += 1;
+        return new Response(payload, { status: 200 });
+      },
+    });
+
+    assert.equal(fetched, 1);
+    assert.equal(result, cachedPath);
+    assert.equal(await readFile(cachedPath, "utf8"), payload);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bootstrap fails closed when the archived DMG hash does not match", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "grok-publication-bootstrap-dmg-mismatch-"));
+  try {
+    const archivedPath = path.join(root, "Grok_Bot_0.18.0.dmg");
+    const cachedPath = path.join(root, "cache", "Grok_Bot_0.18.0.dmg");
+    await mkdir(path.dirname(cachedPath), { recursive: true });
+    await writeFile(archivedPath, "fixture-bad-archive\n");
+    let fetched = 0;
+
+    await assert.rejects(
+      downloadDmg({
+        archivedDmg: archivedPath,
+        cachedDmg: cachedPath,
+        dmgSha256: "0".repeat(64),
+        fetch: async () => {
+          fetched += 1;
+          throw new Error("hash mismatch must not fall back to the CDN");
+        },
+      }),
+      (error) => {
+        assert.match(error.message, /Archived DMG checksum mismatch/);
+        assert.match(error.message, /opengrok-stow/);
+        assert.doesNotMatch(error.message, /Run git lfs pull before bootstrapping/);
+        return true;
+      },
+    );
+
+    assert.equal(fetched, 0);
+    await assert.rejects(access(cachedPath), { code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
