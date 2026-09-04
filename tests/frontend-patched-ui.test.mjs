@@ -431,3 +431,26 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   const deleteHost = await readFrontend("frontend/src/production/patched-ui/DeleteMessageHost.tsx");
   assert.match(deleteHost, /findRow\(id\)\?\.appendChild\(box\)/);
 });
+
+whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new-agent roster", async () => {
+  const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
+  assert.match(renderer, /className="sand-workspace-grid"/);
+  assert.match(renderer, /minmax\(0, 1fr\) auto/);
+  assert.match(renderer, /setAgents\(\(current\) => current\.some/);
+  assert.match(renderer, /menuPlacement=\{renderedSidebarLayout\.isCollapsed \? "right-start" : "bottom-start"\}/);
+  const production = await readFrontend("frontend/src/production/production.css");
+  assert.match(production, /\.sand-workspace-grid \{/);
+  assert.match(production, /\.sand-info-pane\[data-open\] \{/);
+  assert.match(production, /\.sand-workspace-rail\[data-sidebar-collapsed\]/);
+  const chrome = await readFrontend("frontend/src/recovered/features/window-chrome/view.css");
+  assert.match(chrome, /\.sand-cover-drag \{[^}]*z-index: 0;/);
+  assert.match(chrome, /\.sand-cover-drag \{[^}]*pointer-events: none;/);
+  const header = await readFrontend("frontend/src/recovered/features/conversation/workspace/view.css");
+  assert.match(header, /\.sand-chat-header \{[^}]*-webkit-app-region: drag;/);
+  const model = await readFrontend("frontend/src/production/model.ts");
+  assert.match(model, /isRecord\(value\) && Array\.isArray\(value\.agents\)/);
+  const computer = await readFrontend("frontend/src/recovered/features/computer/shell/view.tsx");
+  assert.doesNotMatch(computer, /if \(isInfoOpen && !active\) return null;/);
+  const menu = await readFrontend("frontend/src/recovered/features/account/session/menu.tsx");
+  assert.match(menu, /placement=\{menuPlacement\}/);
+});
