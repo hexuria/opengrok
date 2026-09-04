@@ -375,6 +375,11 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(sidebar, /data-agent-id=\{agent\.id\}/);
   const actions = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/auto-review-actions.ts");
   assert.match(actions, /alwaysAllowForCoworker/);
+  assert.match(
+    actions,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/production\/patched-ui"/,
+    "auto-review-actions is one directory deeper than workspace/ and must climb to frontend/src",
+  );
   const approval = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/views/auto-review-approval.tsx");
   assert.match(approval, /alwaysAllowSettledNote/);
   const menu = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/message-actions.tsx");
