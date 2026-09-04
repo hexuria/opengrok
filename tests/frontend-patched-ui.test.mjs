@@ -496,6 +496,11 @@ whenFrontend("dragging the rail past the expanded minimum uncollapses it", async
 
 whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new-agent roster", async () => {
   const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
+  assert.doesNotMatch(
+    renderer,
+    /WorkspaceIndicator/,
+    "agent name belongs in the chat header, not over the traffic-light band",
+  );
   assert.match(renderer, /className="sand-workspace-grid"/);
   assert.match(renderer, /minmax\(0, 1fr\) auto/);
   assert.match(renderer, /setAgents\(\(current\) => current\.some/);
