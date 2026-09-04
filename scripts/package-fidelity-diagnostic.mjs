@@ -15,6 +15,7 @@ import {
   verifyReconstructedMacPackage,
 } from "./lib/macos-package-verification.mjs";
 import { run } from "./lib/process.mjs";
+import { resolveRuntimeApp } from "./lib/runtime.mjs";
 import { SYSTEM_TOOLS } from "./lib/system-tools.mjs";
 
 if (process.platform !== "darwin") throw new Error("The fidelity diagnostic app can only be packaged on macOS");
@@ -33,7 +34,7 @@ for (const selector of [
   if (existsSync(selector)) throw new Error(`Diagnostic packaging refuses a selected release candidate: ${selector}`);
 }
 
-const built = await buildFidelityReconstructedAsar({
+await buildFidelityReconstructedAsar({
   buildRoot: diagnosticRoot,
   stageRoot,
   archivePath,
@@ -43,8 +44,9 @@ const built = await buildFidelityReconstructedAsar({
 // Official shell/asar hashes stay on this diagnostic path only. Default
 // packaging wraps npm Electron 42.1.0 and does not require Anysphere Mach-O
 // identity.
-await verifyOfficialMacReference({ runtimeApp: built.runtimeApp });
-const officialArchivePath = path.join(built.runtimeApp, "Contents", "Resources", "app.asar");
+const runtimeApp = await resolveRuntimeApp();
+await verifyOfficialMacReference({ runtimeApp });
+const officialArchivePath = path.join(runtimeApp, "Contents", "Resources", "app.asar");
 const renderer = await verifyChecksumPinnedRendererPackage({
   archivePath,
   sourceRendererRoot: path.join(sourceAppDir, "dist", "renderer"),
@@ -60,7 +62,7 @@ if (existsSync(stagedApp) || existsSync(installedApp)) {
 }
 
 await mkdir(outputDir, { recursive: true });
-await run(SYSTEM_TOOLS.ditto, [built.runtimeApp, stagedApp]);
+await run(SYSTEM_TOOLS.ditto, [runtimeApp, stagedApp]);
 await run(SYSTEM_TOOLS.xattr, ["-cr", stagedApp]);
 const resources = path.join(stagedApp, "Contents", "Resources");
 const packagedAsar = path.join(resources, "app.asar");
@@ -79,7 +81,7 @@ await rm(path.join(stagedApp, "Contents", "_CodeSignature"), { recursive: true, 
 await signAppBundle(stagedApp);
 await run(SYSTEM_TOOLS.codesign, ["--verify", "--deep", "--strict", stagedApp]);
 await verifyReconstructedMacPackage({
-  officialApp: built.runtimeApp,
+  officialApp: runtimeApp,
   reconstructedApp: stagedApp,
   sourceUnpackedRoot: unpackedRoot,
   packagedUnpackedRoot: packagedUnpacked,

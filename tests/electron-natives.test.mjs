@@ -137,6 +137,8 @@ test("buildAsar copies rebuilt electron deps, not 0.18 unpacked", async () => {
   assert.doesNotMatch(buildAsarSource, /stageRetainedElectronNatives/);
   assert.match(buildAsarSource, /stageElectronRuntimeDependencyResolution\(path\.join\(stageRoot, "dist", "deps"\)\)/);
   assert.doesNotMatch(buildAsarSource, /\["deps", "native"\]/);
+  assert.doesNotMatch(buildAsarSource, /resolveRuntimeApp/);
+  assert.doesNotMatch(buildAsarSource, /runtimeUnpacked/);
   assert.doesNotMatch(buildAsarSource, /path\.join\(runtimeUnpacked, "deps"\)/);
   assert.doesNotMatch(buildAsarSource, /path\.join\(runtimeUnpacked, "native"\)/);
   assert.match(buildAsarSource, /path\.join\(stageRoot, "dist", "native"\)/);

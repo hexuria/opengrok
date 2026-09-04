@@ -83,6 +83,8 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.match(shell, /MACOS_EXECUTABLE_NAME/);
   assert.match(diagnostic, /verifyOfficialMacReference/);
   assert.match(diagnostic, /buildFidelityReconstructedAsar/);
+  assert.match(diagnostic, /resolveRuntimeApp\(\)/);
+  assert.doesNotMatch(diagnostic, /built\.runtimeApp/);
   const verify = await readFile(path.join(repoRoot, "scripts", "verify.mjs"), "utf8");
   assert.match(verify, /\["sand", "opengrok"\]/);
   const cleanBuild = await readFile(path.join(repoRoot, "scripts", "lib", "clean-build.mjs"), "utf8");
@@ -97,6 +99,7 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.match(asar, /stageElectronNativeDeps/);
   assert.doesNotMatch(asar, /stageRetainedElectronNatives/);
   assert.doesNotMatch(asar, /\["deps", "native"\]/);
+  assert.doesNotMatch(asar, /resolveRuntimeApp/);
   const cleanBuildScripts = await readFile(path.join(repoRoot, "scripts", "clean-build.mjs"), "utf8");
   assert.match(cleanBuildScripts, /overlayRetainedNativesFromActivations/);
   assert.match(cleanBuildScripts, /retainedNativePackagesFromActivations/);
