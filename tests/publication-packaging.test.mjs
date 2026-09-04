@@ -79,6 +79,17 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.doesNotMatch(cleanBuild, /reuses the checksum-pinned, ABI-matched Electron 0\.18 application shell/);
 });
 
+test("package:vite is the opt-in clean renderer packager", async () => {
+  const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
+  assert.equal(pkg.scripts.package, "npm run check && node scripts/package-macos.mjs");
+  assert.equal(pkg.scripts["package:vite"], "node scripts/package-vite.mjs");
+  const source = await readFile(path.join(repoRoot, "scripts", "package-vite.mjs"), "utf8");
+  assert.match(source, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(source, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(source, /buildFidelityReconstructedAsar/);
+  assert.match(source, /Open Grok Vite\.app/);
+});
+
 test("Router settings use the trusted backend and display recorded inference usage", async () => {
   const rendererPatch = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
   const selectHelper = await readFile(path.join(repoRoot, "scripts/lib/select-messages-helper.mjs"), "utf8");

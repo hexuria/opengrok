@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,6 +48,69 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+const SRC_APP_ROOT = "src/app";
+const SRC_APP_PREFIX = `${SRC_APP_ROOT}/`;
+// 1x1 transparent PNG. Used only when the runtime-asset manifest still names a
+// 0.18 hashed icon; we must not copy Anysphere's bytes to satisfy that name.
+const MINIMAL_PNG = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082",
+  "hex",
+);
+
+export function isSrcAppArtifactRoot(artifactRoot) {
+  const normalized = String(artifactRoot ?? "").split(path.sep).join("/");
+  return normalized === SRC_APP_ROOT || normalized.startsWith(SRC_APP_PREFIX) || normalized.includes(`/${SRC_APP_PREFIX}`) || normalized.endsWith(`/${SRC_APP_ROOT}`);
+}
+
+export function isForbiddenRuntimeAssetSource(sourcePath) {
+  const resolved = path.resolve(sourcePath);
+  const relative = normalize(path.relative(repoRoot, resolved));
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return true;
+  return relative === SRC_APP_ROOT || relative.startsWith(SRC_APP_PREFIX);
+}
+
+function silentWavBytes() {
+  const sampleRate = 8_000;
+  const samples = 8;
+  const dataBytes = samples * 2;
+  const buffer = Buffer.alloc(44 + dataBytes);
+  buffer.write("RIFF", 0, "ascii");
+  buffer.writeUInt32LE(36 + dataBytes, 4);
+  buffer.write("WAVE", 8, "ascii");
+  buffer.write("fmt ", 12, "ascii");
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36, "ascii");
+  buffer.writeUInt32LE(dataBytes, 40);
+  return buffer;
+}
+
+export function generateRendererPlaceholderAsset(file) {
+  const ext = path.extname(file).toLowerCase();
+  if (ext === ".svg") {
+    return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" fill="#111"/></svg>\n`);
+  }
+  if (ext === ".png") return Buffer.from(MINIMAL_PNG);
+  if (ext === ".wav") return silentWavBytes();
+  return null;
+}
+
+export function planRuntimeAssetCopy(asset, artifactRoot) {
+  const file = asset?.file;
+  if (typeof file !== "string" || file.length === 0) throw new TypeError("Runtime asset copy plan requires asset.file");
+  if (isSrcAppArtifactRoot(artifactRoot)) {
+    const bytes = generateRendererPlaceholderAsset(file);
+    if (bytes != null) return { action: "generate", bytes };
+    return { action: "skip", reason: "src-app-asset" };
+  }
+  return { action: "copy" };
+}
+
 export function validateRuntimeAssetBytes(asset, bytes) {
   const digest = sha256(bytes);
   if (digest !== asset.sha256) throw new Error(`Renderer runtime asset hash drifted: ${asset.file}`);
@@ -93,7 +156,7 @@ async function validateBootstrapEvidence() {
   return catalog;
 }
 
-async function validateCleanGraph() {
+export async function validateCleanGraph() {
   const result = await esbuild({
     absWorkingDir: repoRoot,
     bundle: true,
@@ -164,9 +227,13 @@ async function validateEvidenceClosure() {
   return { closure: rendererClosureSnapshot(closure), ui };
 }
 
-export async function copyRuntimeAssets(rendererRoot) {
-  const manifest = await readJson("frontend/manifests/renderer-runtime-assets.json");
-  const frontendRoot = path.join(repoRoot, "frontend", "src");
+export async function copyRuntimeAssets(rendererRoot, {
+  manifest: manifestOverride = null,
+  frontendRoot = path.join(repoRoot, "frontend", "src"),
+} = {}) {
+  // The recovered manifest still names 0.18 hashed files. Never copy those
+  // bytes out of src/app; generate a stand-in or skip (see planRuntimeAssetCopy).
+  const manifest = manifestOverride ?? await readJson("frontend/manifests/renderer-runtime-assets.json");
   const usedAssets = new Set();
   for (const relative of await walk(frontendRoot)) {
     if (!/\.[cm]?tsx?$/.test(relative)) continue;
@@ -183,7 +250,23 @@ export async function copyRuntimeAssets(rendererRoot) {
   await mkdir(outputAssets, { recursive: true });
   const copied = [];
   for (const asset of [...manifest.assets, ...(manifest.immutableAssets ?? [])]) {
+    const plan = planRuntimeAssetCopy(asset, manifest.artifactRoot);
+    if (plan.action === "skip") continue;
+    if (plan.action === "generate") {
+      // Rights-safe stand-in: never validate against the 0.18 sha256.
+      await writeFile(path.join(outputAssets, asset.file), plan.bytes);
+      copied.push({
+        file: asset.file,
+        bytes: plan.bytes.byteLength,
+        sha256: sha256(plan.bytes),
+        source: "generated",
+      });
+      continue;
+    }
     const source = path.join(repoRoot, manifest.artifactRoot, asset.file);
+    if (isForbiddenRuntimeAssetSource(source)) {
+      throw new Error(`Renderer runtime assets must not be copied from src/app: ${asset.file}`);
+    }
     const bytes = await readFile(source);
     const record = validateRuntimeAssetBytes(asset, bytes);
     await cp(source, path.join(outputAssets, asset.file), { preserveTimestamps: true });
@@ -296,6 +379,9 @@ async function emittedRecords(rendererRoot, exemptBannerPaths = new Set()) {
 
 export async function buildProductionRenderer({ outputRoot }) {
   if (typeof outputRoot !== "string" || outputRoot.length === 0) throw new TypeError("buildProductionRenderer requires outputRoot");
+  if (!existsSync(path.join(repoRoot, rendererProductionEntrypoint))) {
+    throw new Error(`Vite renderer build requires ${rendererProductionEntrypoint} (restore frontend/ from stow)`);
+  }
   const rendererRoot = path.join(outputRoot, rendererProductionOutput);
   const [bootstrap, graph, evidence] = await Promise.all([
     validateBootstrapEvidence(),
