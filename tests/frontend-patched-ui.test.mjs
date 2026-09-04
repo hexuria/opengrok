@@ -17,7 +17,9 @@ const present = existsSync(PATCHED);
  * still runs the helper tests; CI with stow restored runs these ports so PR8
  * can flip the packager without losing coverage.
  */
-test("frontend patched-ui skip contract: import ports when frontend/ is present, skip when absent", () => {
+test("frontend patched-ui skip contract: import ports when frontend/ is present, skip when absent", async () => {
+  const packager = await readFile(path.join(repoRoot, "scripts/package-macos.mjs"), "utf8");
+  assert.doesNotMatch(packager, /package-vite/, "PR8 flips the packager; this PR does not");
   if (!present) {
     assert.equal(existsSync(path.join(FRONTEND, "src")), false, "a tree without frontend/src skips the React ports");
     return;
@@ -126,6 +128,9 @@ whenFrontend("model combobox: labels, groups, filter, stale pin, typed id", asyn
     assert.equal(stale.group, "Not in the catalogue");
     assert.deepEqual(optionsFor(CATALOGUE, null, "openai/gpt-6").map((o) => o.group), ["Use exactly what you typed"]);
     assert.deepEqual(optionsFor(CATALOGUE, null, "openai/gpt-5.5").map((o) => o.id), ["openai/gpt-5.5"]);
+    assert.deepEqual(loaded.comboboxMove(false, 0, 5, 1), { open: true, active: 0 }, "ArrowDown from closed opens on the first option");
+    assert.deepEqual(loaded.comboboxMove(true, 0, 5, 1), { open: true, active: 1 });
+    assert.deepEqual(loaded.comboboxMove(true, 0, 5, -1), { open: true, active: 4 }, "ArrowUp wraps");
   } finally {
     await cleanup();
   }
@@ -319,21 +324,19 @@ whenFrontend("math kit converts \\( \\) and \\[ \\] and never treats $5 as math"
   }
 });
 
-whenFrontend("layout estimator: height follows aspect when the width cap binds, never upscales", async () => {
+whenFrontend("layout estimator matches live y7n", async () => {
   const { loaded, cleanup } = await loadPatched();
   try {
     assert.equal(loaded.imageTileBox(null, 10, 320), null);
     const strip = loaded.imageTileBox(272, 54, 320);
     assert.deepEqual(strip, { width: 272, height: 54 });
     const banner = loaded.imageTileBox(1102, 264, 320);
-    assert.equal(banner.width, 320);
-    assert.ok(banner.height < 200, "width cap binds: height comes down to the picture's shape");
-    assert.equal(banner.height, Math.round(320 / (1102 / 264)));
+    assert.deepEqual(banner, { width: 320, height: 200 }, "y7n keeps height at min(200, naturalH) when the width cap binds");
     const tall = loaded.imageTileBox(100, 1000, 560);
     assert.equal(tall.height, 200);
     const tiny = loaded.imageTileBox(50, 50, 320);
     assert.deepEqual(tiny, { width: 50, height: 50 });
-    assert.equal(loaded.estimateMediaHeight(1102, 264, 320), banner.height);
+    assert.equal(loaded.estimateMediaHeight(1102, 264, 320), 200);
     assert.equal(loaded.shouldLetterbox(10, 10, 200, 200), true);
     assert.equal(loaded.shouldLetterbox(400, 400, 200, 200), false);
     assert.equal(loaded.variantWidth(186, 2, 1120), 384);
@@ -367,6 +370,29 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   const menu = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/message-actions.tsx");
   assert.match(menu, /Select messages/);
   assert.match(menu, /Delete message/);
-  const packager = await readFile(path.join(repoRoot, "scripts/package-macos.mjs"), "utf8");
-  assert.doesNotMatch(packager, /package-vite/, "PR8 flips the packager; this PR does not");
+  const transcript = await readFrontend("frontend/src/recovered/features/conversation/workspace/transcript.tsx");
+  assert.match(transcript, /convertLatexDelimiters/);
+  assert.match(transcript, /splitMathSegments/);
+  const math = await readFrontend("frontend/src/recovered/features/conversation/workspace/math.tsx");
+  assert.match(math, /splitMathSegments\(text\)/);
+  const attachment = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/views/attachment.tsx");
+  assert.match(attachment, /imageTileBox/);
+  const media = await readFrontend("frontend/src/recovered/features/conversation/workspace/media-viewer.tsx");
+  assert.match(media, /imageTileBox/);
+  const selectHost = await readFrontend("frontend/src/production/patched-ui/SelectMessagesHost.tsx");
+  assert.match(selectHost, /sand-sel-layer/);
+  assert.match(selectHost, /sand-sel-box/);
+  assert.match(selectHost, /SELECT_GUTTER_PX/);
+  assert.match(selectHost, /shiftKey/);
+  assert.match(selectHost, /New collection/);
+  assert.match(selectHost, /confirmDelete/);
+  assert.match(selectHost, /!delFn \|\| !n/);
+  const combobox = await readFrontend("frontend/src/production/patched-ui/AgentModelCombobox.tsx");
+  assert.match(combobox, /comboboxMove/);
+  assert.match(combobox, /inputRef\.current\?\.select/);
+  assert.match(combobox, /onFocus=\{\(\) => \{ try \{ inputRef\.current\?\.select\(\); \} catch \{\} setFilter\(""\); show\(\); \}\}/);
+  const surfaceOpenRouter = await readFrontend("frontend/src/recovered/features/settings/overlay/desktop-surface.tsx");
+  assert.match(surfaceOpenRouter, /OpenRouterModelField model=\{openRouterModel\}/);
+  const deleteHost = await readFrontend("frontend/src/production/patched-ui/DeleteMessageHost.tsx");
+  assert.match(deleteHost, /findRow\(id\)\?\.appendChild\(box\)/);
 });
