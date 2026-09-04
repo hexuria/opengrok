@@ -154,10 +154,7 @@ export async function buildAsar({
     await writeFile(stagedPackagePath, `${JSON.stringify(stagedPackage, null, 2)}\n`);
   }
 
-  const nativeSource = path.join(runtimeUnpacked, "native");
-  const nativeDestination = path.join(stageRoot, "dist", "native");
-  await rm(nativeDestination, { recursive: true, force: true });
-  await cp(nativeSource, nativeDestination, { recursive: true, dereference: false, preserveTimestamps: true });
+  await rm(path.join(stageRoot, "dist", "native"), { recursive: true, force: true });
 
   const depsRoot = await ensureElectronNativeDeps();
   await stageElectronNativeDeps(stageRoot, depsRoot);

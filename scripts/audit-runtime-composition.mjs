@@ -406,12 +406,19 @@ function externalRequires(text, artifact) {
 }
 
 async function nativeRuntimeInventory() {
-  const roots = ["src/app/dist/native", "src/app/dist/deps"];
+  const roots = ["src/app/dist/deps"];
   const inventory = [];
   for (const root of roots) {
     const absolute = path.join(repoRoot, root);
-    for (const relative of await walk(absolute)) {
-      if (!root.endsWith("/native") && !relative.endsWith(".node")) continue;
+    let relatives;
+    try {
+      relatives = await walk(absolute);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    for (const relative of relatives) {
+      if (!relative.endsWith(".node")) continue;
       const target = path.join(absolute, relative);
       const bytes = await readFile(target);
       inventory.push({ path: `${root}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "artifact-runtime-boundary" });

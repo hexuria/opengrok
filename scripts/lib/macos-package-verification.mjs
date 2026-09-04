@@ -17,7 +17,7 @@ import { SYSTEM_TOOLS } from "./system-tools.mjs";
 // Electron and daemon-native payloads are separate runtime domains. Both are
 // unpacked from the ASAR and must remain byte-identical to their staged trees;
 // collapsing them would let a package silently omit the daemon ABI payload.
-const RUNTIME_ROOTS = ["dist/deps", "dist/native", "dist/node-deps"];
+const RUNTIME_ROOTS = ["dist/deps", "dist/node-deps"];
 const MANIFEST_RELATIVE = "dist/deps/runtime-deps-manifest.json";
 const CSNAPS_RELATIVE = "dist/host/extensions/codebase-telemetry/csnaps";
 

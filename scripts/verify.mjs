@@ -56,8 +56,16 @@ if (sourceMarkers < 1_000) throw new Error(`Expected at least 1,000 surviving ev
 
 await requirePath(builtAsar);
 await requirePath(path.join(builtAsarUnpacked, "dist", "deps", "better-sqlite3", "build", "Release", "better_sqlite3.node"));
-await requirePath(path.join(builtAsarUnpacked, "dist", "native", "sand-webauthn-signer"));
 await requirePath(verifiedApp);
+for (const helper of ["sand-op-launcher", "sand-webauthn-signer"]) {
+  const target = path.join(builtAsarUnpacked, "dist", "native", helper);
+  try {
+    await access(target);
+    throw new Error(`Packaged unpacked runtime still contains ${helper}`);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
 
 const listing = new Set(listPackage(builtAsar));
 for (const required of [
