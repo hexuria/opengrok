@@ -66,7 +66,7 @@ whenFrontend("settings registry: Computer, Dictation, Usage always visible", asy
   }
 });
 
-whenFrontend("login-wall skip is refused on an OpenGrok server", async () => {
+whenFrontend("login-wall skip admits a completed OpenGrok server login", async () => {
   const { loaded, cleanup } = await loadPatched();
   try {
     const store = new Map();
@@ -76,9 +76,10 @@ whenFrontend("login-wall skip is refused on an OpenGrok server", async () => {
     assert.equal(loaded.maySkipLoginWall(storage), true);
     loaded.forgetLoginWallSkip(storage);
     assert.equal(loaded.maySkipLoginWall(storage), false);
-    loaded.rememberLoginWallSkip(storage);
     store.set(loaded.OPENGROK_MODE_KEY, "1");
-    assert.equal(loaded.maySkipLoginWall(storage), false, "an OpenGrok server is a backend: the wall stands");
+    assert.equal(loaded.maySkipLoginWall(storage), false, "OpenGrok mode alone is not a session");
+    loaded.rememberLoginWallSkip(storage);
+    assert.equal(loaded.maySkipLoginWall(storage), true, "a finished OpenGrok login must leave the provider picker");
     const throwing = { getItem: () => { throw new Error("blocked"); } };
     assert.equal(loaded.maySkipLoginWall(throwing), false);
   } finally {
@@ -449,6 +450,9 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(landing, /Choose a provider to sign in/);
   assert.match(landing, /signInToOpenGrokServer/);
   assert.match(landing, /startSubscriptionLogin/);
+  assert.match(landing, /finishWithoutCursor/);
+  assert.match(landing, /writeOpenGrokMode\(true\)/);
+  assert.match(renderer, /onReady=\{\(\) => setSubscriptionReady\(true\)\}/);
   assert.match(landing, /Back to providers/);
   assert.match(landing, /className="sand-onboarding__cta"/);
   assert.match(renderer, /title=\{BRAND_OPEN_NAME\}/);

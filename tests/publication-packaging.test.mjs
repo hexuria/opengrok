@@ -285,8 +285,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   // announcer owns its own live region because the bundle has no shared
   // announce hook, and keys off data-pending so it needs no drift-prone anchor.
   assert.match(rendererPatch, /const A11Y_ANNOUNCE_HELPER =/);
-  // The login wall may only be bypassed when there is no backend to sign in to.
-  // An OpenGrok server is one, so every gate must consult the same rule.
+  // OpenGrok mode is branding/runtime. A finished OpenGrok login writes the skip
+  // key and must enter the shell; the mode must not veto that skip.
   assert.match(rendererPatch, /const OPENGROK_MODE_HELPER =/);
   // The banner for a server that cannot be read rides with the main chrome, from its own module.
   assert.match(rendererPatch, /\$\{MAIN_CHROME_SOURCE\}\\n\$\{SERVER_READS_BANNER_HELPER\}\\n\$\{DELETE_MESSAGE_HELPER\}\\n\$\{COLLECTIONS_RAIL_HELPER\}\\n\$\{AGENT_MODEL_HELPER\}\\n\$\{AGENT_USAGE_HELPER\}\\n\$\{SCREEN_PREVIEW_HELPER\}/);
@@ -296,12 +296,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /const MAY_SKIP_LOGIN_WALL =/);
   assert.equal((rendererPatch.match(/\$\{MAY_SKIP_LOGIN_WALL\}/g) || []).length, 4,
     "every login-wall bypass must go through the shared rule");
-  // The miss that blacked out the app: a helper read the skip key directly, so
-  // the gate showed the sign-in screen and our own code then hid it. Any read of
-  // the key must also consult the mode, wherever it lives.
-  for (const raw of rendererPatch.match(/localStorage\.getItem\("sand-cursor-login-skip"\)[^;]{0,80}/g) || []) {
-    assert.match(raw, /sand-opengrok-mode/, `a raw skip-key read ignores OpenGrok mode: ${raw}`);
-  }
+  assert.doesNotMatch(rendererPatch, /sand-cursor-login-skip"\)==="1"&&localStorage\.getItem\("sand-opengrok-mode"\)!=="1"/);
+  assert.match(rendererPatch, /function RLoginWallSkipped\(\)\{try\{return localStorage\.getItem\("sand-cursor-login-skip"\)==="1"\}catch\{return!1\}\}/);
 
   // OpenGrok server mode: the runtime is offered for every provider, the bearer
   // never reaches settings.json, and the Router tab stops offering a provider

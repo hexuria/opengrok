@@ -42,13 +42,10 @@ export const OPENGROK_MODE_KEY = "sand-opengrok-mode";
 /**
  * May the login wall be bypassed?
  *
- * The skip exists because the app could run with no backend at all - that is
- * what lets Codex and OpenRouter work without a Cursor account. An OpenGrok
- * server IS a backend, with real accounts, so bypassing it there would drop a
- * signed-out person straight into someone's dashboard. In that mode the wall
- * stands and you sign in for real.
+ * Skip is session-ready after Claude, Codex, or OpenGrok server login. OpenGrok
+ * mode is branding/runtime and must not veto a finished OpenGrok sign-in.
  */
-const MAY_SKIP_LOGIN_WALL = `(()=>{try{return localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1"&&localStorage.getItem("${OPENGROK_MODE_KEY}")!=="1"}catch{return!1}})()`;
+const MAY_SKIP_LOGIN_WALL = `(()=>{try{return localStorage.getItem("${CURSOR_LOGIN_WALL_SKIP_KEY}")==="1"}catch{return!1}})()`;
 const LOGIN_WALL_REPLACEMENTS = [
   [
     'if(s!==!0)return{kind:"landed",gate:r?"sign-in":"onboarding",sessionFact:s,provisional:!1}',
@@ -627,7 +624,7 @@ function RBoxEmptyMessage(view,loading){
     return "This computer is "+state+".";
   }catch{return void 0}
 }
-function RLoginWallSkipped(){try{return localStorage.getItem("sand-cursor-login-skip")==="1"&&localStorage.getItem("sand-opengrok-mode")!=="1"}catch{return!1}}
+function RLoginWallSkipped(){try{return localStorage.getItem("sand-cursor-login-skip")==="1"}catch{return!1}}
 function RRememberLoginWallSkip(){try{localStorage.setItem("sand-cursor-login-skip","1")}catch{}}
 function ROpenRouterSettings(){const labeled=n=>(n.getAttribute("aria-label")||n.textContent||"").trim();const click=label=>{const el=[...document.querySelectorAll("button,[role=tab],[role=menuitem]")].find(n=>labeled(n)===label);if(el){el.click();return!0}return!1};const fire=()=>{if(click("Router"))return!0;window.dispatchEvent(new KeyboardEvent("keydown",{key:",",code:"Comma",keyCode:188,which:188,metaKey:!0,ctrlKey:!1,bubbles:!0,cancelable:!0}));click("Settings");return click("Router")};let n=0;const id=setInterval(()=>{if(fire()||++n>50)clearInterval(id)},200)}
 async function RSkipLoginWall(){RRememberLoginWallSkip();try{sessionStorage.setItem("sand-open-router-settings","1")}catch{}const agent=window.desktop&&window.desktop.agent;if(agent&&agent.skipCursorLoginWall)try{await agent.skipCursorLoginWall({})}catch{}window.location.reload()}
