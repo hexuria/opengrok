@@ -19,6 +19,8 @@ ditto dist/Open\ Grok.app /Applications/Open\ Grok.app
 
 `bootstrap` prefers the hash-checked 0.18.0 DMG at `research-archives/original/0.18.0/macos-arm64/Grok_Bot_0.18.0.dmg` over the Cursor CDN, then extracts what the build needs. Set `GROK_BOT_018_APP` to a 0.18.0 `Grok Bot.app` to skip the DMG. `package` typechecks, tests, compiles, patches the renderer, signs and verifies. Output is `dist/Open Grok.app`.
 
+`package` signs with a local identity and `--timestamp=none`, so it does not need Apple's timestamp server. For a zip you can give to someone else, `npm run release:macos` re-signs that same `dist/Open Grok.app` with a Developer ID, `--timestamp`, the hardened runtime, and Electron's JIT entitlements, then `ditto -c -k --keepParent` into `dist/Open Grok.zip`. Notarization and stapling stay off unless you set `SAND_NOTARIZE=1` with `SAND_NOTARY_KEYCHAIN_PROFILE` (or an App Store Connect API key file via `SAND_NOTARY_API_KEY_PATH`, `SAND_NOTARY_API_KEY_ID`, and `SAND_NOTARY_ISSUER`).
+
 ## How to use
 
 Open **Open Grok**. **Settings → Router** picks who runs new turns.
