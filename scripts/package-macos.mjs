@@ -11,8 +11,7 @@ if (process.platform !== "darwin") {
   throw new Error("The reconstructed macOS application can only be packaged on macOS.");
 }
 
-// Vite is the shipped UI. package:diagnostic still builds the checksum-pinned
-// 0.18 renderer.
+// Fidelity renderer: package:diagnostic.
 const { builtAsar, builtAsarUnpacked } = await buildReconstructedAsar();
 const verification = await assembleReconstructedAppBundle({
   builtAsar,

@@ -12,7 +12,7 @@ if (process.platform !== "darwin") {
 }
 
 // Side-by-side Vite bundle (`Open Grok Vite.app`) so it can sit next to
-// dist/Open Grok.app. Same asar builder as `npm run package`.
+// dist/Open Grok.app.
 const { builtAsar, builtAsarUnpacked } = await buildReconstructedAsar();
 const verification = await assembleReconstructedAppBundle({
   builtAsar,
