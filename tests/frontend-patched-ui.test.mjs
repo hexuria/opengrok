@@ -432,6 +432,26 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(deleteHost, /findRow\(id\)\?\.appendChild\(box\)/);
 });
 
+whenFrontend("openAgent does not bump the tail generation until it actually fetches", async () => {
+  const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
+  const start = renderer.indexOf("const openAgent = useCallback");
+  const fetch = renderer.indexOf("await client.call(\"openAgentTail\"", start);
+  const bump = renderer.indexOf("++openAgentRequestGenerationRef.current", start);
+  const guard = renderer.indexOf("if (!shouldOpen || hasLoadedEntries || client == null)", start);
+  assert.ok(start >= 0 && fetch > start && bump > start && guard > start);
+  assert.ok(guard < bump, "a second openAgent for the pending agent must not invalidate the in-flight tail");
+  assert.ok(bump < fetch);
+});
+
+whenFrontend("dragging the rail past the expanded minimum uncollapses it", async () => {
+  const layout = await readFrontend("frontend/src/recovered/features/conversation/workspace/sidebar-layout-state.ts");
+  assert.match(layout, /export function sidebarLayoutFromResize/);
+  assert.match(layout, /current\.isCollapsed && width >= SIDEBAR_LAYOUT_BOUNDS\.minExpandedWidth/);
+  assert.match(layout, /isCollapsed: false/);
+  const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
+  assert.match(renderer, /sidebarLayoutFromResize\(base, expandedWidth\)/);
+});
+
 whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new-agent roster", async () => {
   const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
   assert.match(renderer, /className="sand-workspace-grid"/);
