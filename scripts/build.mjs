@@ -1,5 +1,5 @@
-import { buildFidelityReconstructedAsar } from "./clean-build.mjs";
+import { buildReconstructedAsar } from "./clean-build.mjs";
 
-const result = await buildFidelityReconstructedAsar();
+const result = await buildReconstructedAsar();
 console.log(`Reconstructed ASAR: ${result.builtAsar}`);
-console.log("Renderer mode: checksum-pinned upstream 0.18.0 payload");
+console.log("Renderer mode: Vite clean-source frontend");

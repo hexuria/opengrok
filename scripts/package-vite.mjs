@@ -11,8 +11,8 @@ if (process.platform !== "darwin") {
   throw new Error("The reconstructed macOS application can only be packaged on macOS.");
 }
 
-// Opt-in Vite renderer. `npm run package` stays on the checksum-pinned 0.18 UI
-// so this can sit next to dist/Open Grok.app without replacing it.
+// Side-by-side Vite bundle (`Open Grok Vite.app`) so it can sit next to
+// dist/Open Grok.app. Same asar builder as `npm run package`.
 const { builtAsar, builtAsarUnpacked } = await buildReconstructedAsar();
 const verification = await assembleReconstructedAppBundle({
   builtAsar,

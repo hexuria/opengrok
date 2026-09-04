@@ -50,10 +50,15 @@ test("publication ignore rules keep the recovered material out of this repositor
   }
 });
 
-test("default packaging keeps the polished checksum-pinned renderer", async () => {
+test("default packaging ships the Vite renderer", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
-  assert.match(source, /import \{ buildFidelityReconstructedAsar \} from "\.\/clean-build\.mjs"/);
-  assert.match(source, /await buildFidelityReconstructedAsar\(\)/);
+  const build = await readFile(path.join(repoRoot, "scripts", "build.mjs"), "utf8");
+  assert.match(source, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(source, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(source, /buildFidelityReconstructedAsar/);
+  assert.match(build, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(build, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(build, /buildFidelityReconstructedAsar/);
 });
 
 test("default packaging wraps npm Electron and does not require the official Mac shell", async () => {
@@ -97,16 +102,20 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.match(cleanBuildScripts, /retainedNativePackagesFromActivations/);
 });
 
-test("package:vite is the opt-in clean renderer packager", async () => {
+test("package:vite shares the Vite asar builder and writes a side-by-side app", async () => {
   const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
   assert.equal(pkg.scripts.package, "npm run check && node scripts/package-macos.mjs");
   assert.equal(pkg.scripts["package:vite"], "node scripts/package-vite.mjs");
+  assert.equal(pkg.scripts["package:diagnostic"], "npm run check && node scripts/package-fidelity-diagnostic.mjs");
   const source = await readFile(path.join(repoRoot, "scripts", "package-vite.mjs"), "utf8");
   const macos = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
   const config = await readFile(path.join(repoRoot, "scripts", "lib", "config.mjs"), "utf8");
   assert.match(source, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
   assert.match(source, /await buildReconstructedAsar\(\)/);
   assert.doesNotMatch(source, /buildFidelityReconstructedAsar/);
+  assert.match(macos, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(macos, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(macos, /buildFidelityReconstructedAsar/);
   assert.match(source, /assembleReconstructedAppBundle/);
   assert.match(macos, /assembleReconstructedAppBundle/);
   assert.match(config, /Open Grok Vite\.app/);
