@@ -11,6 +11,7 @@ import {
 } from "./config.mjs";
 import { packStagedAppWithIntegrity } from "./asar-integrity.mjs";
 import { resolveRuntimeApp } from "./runtime.mjs";
+import { ensureElectronNativeDeps, stageElectronNativeDeps } from "../build-electron-natives.mjs";
 
 export const reconstructedUpdaterGuard = [
   "// Reconstructed-build guard: do not consume official update or telemetry services.",
@@ -153,12 +154,13 @@ export async function buildAsar({
     await writeFile(stagedPackagePath, `${JSON.stringify(stagedPackage, null, 2)}\n`);
   }
 
-  for (const directory of ["deps", "native"]) {
-    const source = path.join(runtimeUnpacked, directory);
-    const destination = path.join(stageRoot, "dist", directory);
-    await rm(destination, { recursive: true, force: true });
-    await cp(source, destination, { recursive: true, dereference: false, preserveTimestamps: true });
-  }
+  const nativeSource = path.join(runtimeUnpacked, "native");
+  const nativeDestination = path.join(stageRoot, "dist", "native");
+  await rm(nativeDestination, { recursive: true, force: true });
+  await cp(nativeSource, nativeDestination, { recursive: true, dereference: false, preserveTimestamps: true });
+
+  const depsRoot = await ensureElectronNativeDeps();
+  await stageElectronNativeDeps(stageRoot, depsRoot);
   await stageElectronRuntimeDependencyResolution(path.join(stageRoot, "dist", "deps"));
 
   const mainBundle = path.join(stageRoot, "dist", "electron-main", "main.cjs");
