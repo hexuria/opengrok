@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { extractFile, listPackage } from "@electron/asar";
@@ -9,10 +9,9 @@ import {
   reconstructedBundleId,
   reconstructedName,
   repoRoot,
-  sourceAppDir,
   upstreamAsarSha256,
 } from "./lib/config.mjs";
-import { prepareReconstructedElectronMainArtifactFallback } from "./lib/build-asar.mjs";
+import { canonicalizeRetainedElectronNativePackages } from "./build-electron-natives.mjs";
 import { isNpmVendoredRendererAsset } from "./lib/renderer-runtime-assets.mjs";
 import { resolvePackagedAppArtifacts } from "./lib/packaged-app.mjs";
 import { capture, run } from "./lib/process.mjs";
@@ -38,21 +37,6 @@ async function requirePath(target) {
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
-
-async function walkFiles(root, current = root) {
-  const files = [];
-  for (const entry of await readdir(current, { withFileTypes: true })) {
-    const target = path.join(current, entry.name);
-    if (entry.isDirectory()) files.push(...await walkFiles(root, target));
-    else if (entry.isFile()) files.push(path.relative(root, target).split(path.sep).join("/"));
-  }
-  return files.sort();
-}
-
-const electronMain = await readFile(path.join(sourceAppDir, "dist", "electron-main", "main.cjs"), "utf8");
-const hostMain = await readFile(path.join(sourceAppDir, "dist", "host", "host-main.cjs"), "utf8");
-const sourceMarkers = (electronMain.match(/^\/\/ src\//gm) ?? []).length + (hostMain.match(/^\/\/ src\//gm) ?? []).length;
-if (sourceMarkers < 1_000) throw new Error(`Expected at least 1,000 surviving evidence source markers, found ${sourceMarkers}`);
 
 await requirePath(builtAsar);
 await requirePath(path.join(builtAsarUnpacked, "dist", "deps", "better-sqlite3", "build", "Release", "better_sqlite3.node"));
@@ -113,18 +97,8 @@ for (const relative of [
 const buildManifest = JSON.parse(extractFile(builtAsar, "dist/reconstruction-build.json").toString("utf8"));
 const runtimeComposition = buildManifest.runtimeComposition;
 if (!Array.isArray(runtimeComposition)) throw new Error("Packaged build manifest has no runtime composition.");
-const fallbackPaths = new Map([
-  ["electron-main", "dist/recovered-source/electron-main/main.cjs"],
-  ["host", "dist/recovered-source/host/host-main.cjs"],
-]);
-for (const runtime of runtimeComposition.filter(({ runtime: name }) => fallbackPaths.has(name))) {
-  const fallbackPath = fallbackPaths.get(runtime.runtime);
-  if (runtime.mode === "artifact-fallback" && !listing.has(`/${fallbackPath}`)) {
-    throw new Error(`Artifact fallback has no packaged recovered-source entry: ${runtime.runtime}`);
-  }
-  if (runtime.mode === "clean-source" && listing.has(`/${fallbackPath}`)) {
-    throw new Error(`Clean runtime still packages recovered-source fallback: ${runtime.runtime}`);
-  }
+for (const relative of ["dist/recovered-source/electron-main/main.cjs", "dist/recovered-source/host/host-main.cjs"]) {
+  if (listing.has(`/${relative}`)) throw new Error(`Packaged ASAR still contains recovered-source fallback: ${relative}`);
 }
 const compositionAuditBytes = extractFile(builtAsar, "dist/runtime-composition-audit.json");
 const compositionAudit = JSON.parse(compositionAuditBytes.toString("utf8"));
@@ -143,12 +117,12 @@ for (const assertion of compositionAudit.cleanRuntimeAssertions) {
   }
 }
 const electronMainComposition = runtimeComposition.find(runtime => runtime.runtime === "electron-main");
-const expectedElectronMainVerdict = electronMainComposition?.mode === "clean-source" ? "clean-source" : "blocked-artifact-fallback";
-if (compositionAudit.replacementClosures["electron-main"]?.verdict !== expectedElectronMainVerdict) throw new Error(`Electron main composition verdict does not match packaged mode: ${electronMainComposition?.mode}`);
+if (electronMainComposition?.mode !== "clean-source") throw new Error(`Packaged electron-main must be clean-source, found ${electronMainComposition?.mode}`);
+if (compositionAudit.replacementClosures["electron-main"]?.verdict !== "clean-source") throw new Error("Electron main composition verdict is not clean-source");
 const hostComposition = runtimeComposition.find(runtime => runtime.runtime === "host");
-const expectedHostVerdict = hostComposition?.mode === "clean-source" ? "clean-source" : "blocked-artifact-fallback";
-if (compositionAudit.replacementClosures.host?.verdict !== expectedHostVerdict) {
-  throw new Error(`Host composition verdict does not match packaged mode: ${hostComposition?.mode}`);
+if (hostComposition?.mode !== "clean-source") throw new Error(`Packaged host must be clean-source, found ${hostComposition?.mode}`);
+if (compositionAudit.replacementClosures.host?.verdict !== "clean-source") {
+  throw new Error("Host composition verdict is not clean-source");
 }
 const rendererComposition = runtimeComposition.find(runtime => runtime.runtime === "renderer");
 if (rendererComposition?.mode !== "clean-source") {
@@ -204,18 +178,8 @@ if (rendererComposition?.mode === "clean-source") {
 }
 
 for (const relative of [
-  ...(electronMainComposition?.mode === "clean-source" ? [] : ["dist/electron-main/main.cjs"]),
-  ...(hostComposition?.mode === "clean-source" ? [] : ["dist/host/host-main.cjs"]),
-]) {
-  const evidence = await readFile(path.join(sourceAppDir, relative));
-  const packaged = extractFile(builtAsar, relative);
-  const expected = relative === "dist/electron-main/main.cjs"
-    ? Buffer.from(prepareReconstructedElectronMainArtifactFallback(evidence.toString("utf8")))
-    : evidence;
-  if (sha256(expected) !== sha256(packaged)) throw new Error(`Artifact fallback differs from its deterministic immutable-evidence transform: ${relative}`);
-}
-
-for (const relative of [
+  "dist/electron-main/main.cjs",
+  "dist/host/host-main.cjs",
   "dist/electron-dev-controls/main.cjs",
   "dist/electron-preload/preload.cjs",
   "dist/electron-preload/preload-dev-controls.cjs",
@@ -227,32 +191,53 @@ for (const relative of [
   "dist/host/extensions/content-search/search-index-worker.cjs",
   "dist/local-exec-daemon/main.cjs",
   "dist/node-agent-coordinator/main.cjs",
-  ...(electronMainComposition?.mode === "clean-source" ? ["dist/electron-main/main.cjs"] : []),
-  ...(hostComposition?.mode === "clean-source" ? ["dist/host/host-main.cjs"] : []),
 ]) {
   const contents = extractFile(builtAsar, relative).toString("utf8");
   if (!contents.includes("// Deterministic clean-source")) throw new Error(`Runtime did not come from clean source: ${relative}`);
 }
+if (!extractFile(builtAsar, "dist/electron-main/main.cjs").toString("utf8").includes("// Deterministic clean-source production Electron main")) {
+  throw new Error("Packaged electron-main does not carry the clean-source banner");
+}
+if (!extractFile(builtAsar, "dist/host/host-main.cjs").toString("utf8").includes("// Deterministic clean-source production host")) {
+  throw new Error("Packaged host does not carry the clean-source banner");
+}
 
-if (hostComposition?.mode === "clean-source") {
-  if (!listing.has("/dist/host-production-bindings.json")) throw new Error("Clean host has no packaged binding provenance manifest.");
-  const provenance = JSON.parse(extractFile(builtAsar, "dist/host-production-bindings.json").toString("utf8"));
-  if (provenance.status !== "validated-clean-source" || provenance.executableGraph.forbiddenInputs.length > 0 || provenance.executableGraph.forbiddenOutputReferences.length > 0) {
-    throw new Error("Clean host binding provenance is not fail-closed.");
-  }
-  for (const binding of provenance.bindings) {
-    if (binding.module.includes("src/app") || binding.module.includes("dist/deps") || binding.module.includes("recovered/source-capsules")) {
-      throw new Error(`Clean host binding smuggles first-party artifact code: ${binding.path}`);
-    }
+if (!listing.has("/dist/host-production-bindings.json")) throw new Error("Clean host has no packaged binding provenance manifest.");
+const hostProvenance = JSON.parse(extractFile(builtAsar, "dist/host-production-bindings.json").toString("utf8"));
+if (hostProvenance.status !== "validated-clean-source" || hostProvenance.executableGraph.forbiddenInputs.length > 0 || hostProvenance.executableGraph.forbiddenOutputReferences.length > 0) {
+  throw new Error("Clean host binding provenance is not fail-closed.");
+}
+for (const binding of hostProvenance.bindings) {
+  if (binding.module.includes("src/app") || binding.module.includes("dist/deps") || binding.module.includes("recovered/source-capsules")) {
+    throw new Error(`Clean host binding smuggles first-party artifact code: ${binding.path}`);
   }
 }
 
-if (electronMainComposition?.mode === "clean-source") {
-  if (!listing.has("/dist/electron-main-production-bindings.json")) throw new Error("Clean Electron main has no packaged binding provenance manifest.");
-  const provenance = JSON.parse(extractFile(builtAsar, "dist/electron-main-production-bindings.json").toString("utf8"));
-  if (provenance.status !== "validated-clean-source" || provenance.executableGraph.forbiddenInputs.length > 0 || provenance.executableGraph.forbiddenOutputReferences.length > 0) throw new Error("Clean Electron-main binding provenance is not fail-closed.");
-  for (const binding of provenance.bindings) {
-    if (binding.module.includes("src/app") || binding.module.includes("dist/deps") || binding.module.includes("recovered/source-capsules")) throw new Error(`Clean Electron-main binding smuggles first-party artifact code: ${binding.path}`);
+if (!listing.has("/dist/electron-main-production-bindings.json")) throw new Error("Clean Electron main has no packaged binding provenance manifest.");
+const electronMainProvenance = JSON.parse(extractFile(builtAsar, "dist/electron-main-production-bindings.json").toString("utf8"));
+if (electronMainProvenance.status !== "validated-clean-source" || electronMainProvenance.executableGraph.forbiddenInputs.length > 0 || electronMainProvenance.executableGraph.forbiddenOutputReferences.length > 0) throw new Error("Clean Electron-main binding provenance is not fail-closed.");
+for (const binding of electronMainProvenance.bindings) {
+  if (binding.module.includes("src/app") || binding.module.includes("dist/deps") || binding.module.includes("recovered/source-capsules")) throw new Error(`Clean Electron-main binding smuggles first-party artifact code: ${binding.path}`);
+}
+const hostRetained = hostProvenance.executableGraph.retainedNativePackages;
+const electronMainRetained = electronMainProvenance.executableGraph.retainedNativePackages;
+if (!Array.isArray(hostRetained) || !Array.isArray(electronMainRetained)) {
+  throw new Error("Clean activation provenance omitted esbuild-metafile retained natives");
+}
+const expectedRetained = canonicalizeRetainedElectronNativePackages([...hostRetained, ...electronMainRetained]);
+const depsManifest = JSON.parse(await readFile(path.join(builtAsarUnpacked, "dist", "deps", "runtime-deps-manifest.json"), "utf8"));
+if (depsManifest.retained?.source !== "esbuild-metafile" || JSON.stringify(depsManifest.retained.packages) !== JSON.stringify(expectedRetained)) {
+  throw new Error("Staged retained natives do not match the production esbuild metafile");
+}
+if (expectedRetained.length === 0) {
+  for (const name of ["whichlang-node", "whichlang-node-darwin-arm64", "@anysphere/tree-chunk-napi"]) {
+    try {
+      await access(path.join(builtAsarUnpacked, "dist", "deps", ...name.split("/"), "package.json"));
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    throw new Error(`Retained native ${name} was staged without an esbuild-metafile mention`);
   }
 }
 
@@ -282,4 +267,4 @@ const cleanCount = runtimeComposition.filter(({ mode }) => mode === "clean-sourc
 const fallbackNames = runtimeComposition.filter(({ mode }) => mode !== "clean-source").map(({ runtime }) => runtime).join(", ");
 console.log(`Verified packaged ASAR ${builtAsar}.`);
 console.log(`Verified ${cleanCount} executable clean-source runtimes, deterministic ASAR hashes, native dependencies, bundle identity, and code signature.`);
-console.log(`Documented non-clean runtime boundaries: ${fallbackNames}. Evidence markers checked: ${sourceMarkers}. Repository: ${repoRoot}`);
+console.log(`Documented non-clean runtime boundaries: ${fallbackNames}. Packaged electron-main and host carry the clean-source banner. Repository: ${repoRoot}`);

@@ -12,12 +12,9 @@ import {
 } from "../renderer-production-build.mjs";
 import {
   buildDir,
-  builtAsar,
-  builtAsarUnpacked,
   repoRoot,
   stagedAppDir,
 } from "./config.mjs";
-import { packStagedAppWithIntegrity, verifyStagedPackageIntegrity } from "./asar-integrity.mjs";
 import { officialMacReleaseAsarHash } from "./macos-shell-invariant.mjs";
 import { stageNodeTreeSitterRuntime } from "../build-tree-sitter-node.mjs";
 import { run } from "./process.mjs";
@@ -50,13 +47,8 @@ const executableReplacements = [
   "dist/renderer",
 ];
 
-const sourceLibraries = [
-  ["source/electron-main/main.ts", "dist/recovered-source/electron-main/main.cjs"],
-  ["source/host/main.ts", "dist/recovered-source/host/host-main.cjs"],
-];
-
 export const runtimeComposition = Object.freeze([
-  { runtime: "electron-main", path: "dist/electron-main/main.cjs", mode: "artifact-fallback", sourceBundle: "dist/recovered-source/electron-main/main.cjs", reason: "The recovered production compositor is structurally complete, but clean activation requires an exact validated manifest for generated/backend adapters; Electron ABI values are supplied by the packaged shell." },
+  { runtime: "electron-main", path: "dist/electron-main/main.cjs", mode: "clean-source", source: "source/electron-main/main.ts" },
   { runtime: "electron-dev-controls", path: "dist/electron-dev-controls/main.cjs", mode: "clean-source", source: "source/electron-dev-controls/main.ts" },
   { runtime: "primary-preload", path: "dist/electron-preload/preload.cjs", mode: "clean-source", source: "source/electron-preload/preload.ts", entrypoint: "source/electron-preload/runtime/primary.ts" },
   { runtime: "dev-controls-preload", path: "dist/electron-preload/preload-dev-controls.cjs", mode: "clean-source", source: "source/electron-preload/preload-dev-controls.ts", entrypoint: "source/electron-preload/runtime/dev-controls.ts" },
@@ -65,7 +57,7 @@ export const runtimeComposition = Object.freeze([
   { runtime: "collections-preload", path: "dist/electron-preload/preload-collections.cjs", mode: "clean-source", source: "source/electron-preload/preload-collections.ts", entrypoint: "source/electron-preload/runtime/collections.ts" },
   { runtime: "collections-page-renderer", path: `${collectionsPageOutputDir}/collection-render.js`, mode: "clean-source", source: "source/shared/collections/collection-render.ts", entrypoint: "source/shared/collections/collection-render.ts" },
   { runtime: "node-agent-coordinator", path: "dist/node-agent-coordinator/main.cjs", mode: "clean-source", source: "source/node-agent-coordinator/main.ts" },
-  { runtime: "host", path: "dist/host/host-main.cjs", mode: "artifact-fallback", sourceBundle: "dist/recovered-source/host/host-main.cjs", reason: "Recovered host main requires concrete host factories and process bootstrap dependencies." },
+  { runtime: "host", path: "dist/host/host-main.cjs", mode: "clean-source", source: "source/host/main.ts" },
   { runtime: "host-agent-store-worker", path: "dist/host/agent-isolation/agent-store-worker.cjs", mode: "clean-source", source: "source/host/agent-isolation/agent-store-worker.ts" },
   { runtime: "host-transcript-mirror-worker", path: "dist/host/agent-isolation/transcript-mirror-worker.cjs", mode: "clean-source", source: "source/host/agent-isolation/transcript-mirror-worker.ts" },
   { runtime: "host-box-store-vacuum-worker", path: "dist/host/extensions/box-store-sync/box-store-vacuum-worker.cjs", mode: "clean-source", source: "source/host/extensions/box-store-sync/box-store-vacuum-worker.ts" },
@@ -73,7 +65,7 @@ export const runtimeComposition = Object.freeze([
   { runtime: "box-exec-daemon", path: "dist/box-exec-daemon/main.cjs", mode: "clean-source", source: "source/box-exec-daemon/main.ts", entrypoint: "source/box-exec-daemon/cli.ts" },
   { runtime: "local-exec-daemon", path: "dist/local-exec-daemon/main.cjs", mode: "clean-source", source: "source/local-exec-daemon/main.ts" },
   { runtime: "renderer", path: "dist/renderer", mode: "clean-source", source: rendererProductionEntrypoint, entrypoint: rendererProductionEntrypoint, provenance: rendererProductionProvenance },
-  { runtime: "electron-runtime-dependencies", path: "dist/deps", mode: "generated-runtime", reason: "Public native addons (better-sqlite3, tree-sitter, tree-sitter-bash) are rebuilt against Electron 42.1.0 (ABI 146) headers and staged as dist/deps; whichlang-node and @anysphere/tree-chunk-napi are copied from the 0.18 unpacked tree until the source host ships; cursor-proclist is omitted and process scan no-ops." },
+  { runtime: "electron-runtime-dependencies", path: "dist/deps", mode: "generated-runtime", reason: "Public native addons (better-sqlite3, tree-sitter, tree-sitter-bash) are rebuilt against Electron 42.1.0 (ABI 146) headers and staged as dist/deps; whichlang-node and @anysphere/tree-chunk-napi are copied from the 0.18 unpacked tree only when a production esbuild metafile mentions them; cursor-proclist is omitted and process scan no-ops." },
   { runtime: "electron-runtime-resolution-closure", path: "dist/deps/node_modules", mode: "generated-runtime", provenance: "dist/deps/runtime-deps-manifest.json", reason: "Byte-exact copies of rebuilt sibling packages provide standard Node package resolution for Electron utility-process native dependencies." },
   { runtime: "node-runtime-dependencies", path: "dist/node-deps", mode: "generated-runtime", reason: "Native parser packages are rebuilt for the local-exec daemon Node ABI at clean-build time; binaries are never source-controlled." },
   { runtime: "native-runtime-tools", path: "dist/native", mode: "system-runtime", reason: "1Password uses the system op CLI; WebAuthn stays fail-closed without a signer we own. Anysphere Mach-Os from 0.18 are not copied." },
@@ -235,7 +227,6 @@ export function packagedArtifactFallbacks(composition = runtimeComposition) {
 async function buildRuntimeDistribution({ outputRoot, composition, rendererMode }) {
   await rm(outputRoot, { recursive: true, force: true });
   await mkdir(outputRoot, { recursive: true });
-  for (const [entry, output] of sourceLibraries) await bundleSource(entry, path.join(outputRoot, output));
   await bundleSource("source/electron-dev-controls/main.ts", path.join(outputRoot, "dist/electron-dev-controls/main.cjs"));
   await bundlePreloadSource("source/electron-preload/runtime/primary.ts", path.join(outputRoot, "dist/electron-preload/preload.cjs"));
   await bundlePreloadSource("source/electron-preload/runtime/dev-controls.ts", path.join(outputRoot, "dist/electron-preload/preload-dev-controls.cjs"));
@@ -321,14 +312,13 @@ export async function overlayCleanDistribution(outputRoot, { stageRoot = stagedA
   }
 }
 
-export async function buildReconstructedAsar({ pack = true } = {}) {
+export async function buildReconstructedAsar({ pack = false } = {}) {
+  if (pack) {
+    throw new Error("lib buildReconstructedAsar refuses pack:true; 0.18 electron-main/host would ship without production activation. Use scripts/clean-build.mjs.");
+  }
   const fallback = await buildAsar({ pack: false });
   const clean = await buildCleanDistribution();
   await overlayCleanDistribution(clean.outputRoot);
-  if (pack) {
-    await packStagedAppWithIntegrity({ stageRoot: stagedAppDir, archivePath: builtAsar, unpackedRoot: builtAsarUnpacked });
-    console.log(`Source-aware ASAR ready: ${builtAsar}`);
-  }
   console.log("Executable clean replacements: renderer, coordinator, box exec-daemon, local-exec daemon, primary/dev-controls/webview/VNC preloads, and four host workers.");
   return { ...fallback, ...clean };
 }

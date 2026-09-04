@@ -90,8 +90,11 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.match(natives, /better-sqlite3/);
   assert.match(natives, /stageRetainedElectronNatives/);
   assert.match(asar, /stageElectronNativeDeps/);
-  assert.match(asar, /stageRetainedElectronNatives/);
+  assert.doesNotMatch(asar, /stageRetainedElectronNatives/);
   assert.doesNotMatch(asar, /\["deps", "native"\]/);
+  const cleanBuildScripts = await readFile(path.join(repoRoot, "scripts", "clean-build.mjs"), "utf8");
+  assert.match(cleanBuildScripts, /overlayRetainedNativesFromActivations/);
+  assert.match(cleanBuildScripts, /retainedNativePackagesFromActivations/);
 });
 
 test("package:vite is the opt-in clean renderer packager", async () => {

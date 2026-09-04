@@ -173,6 +173,24 @@ async function walk(root, current = root) {
   return found.sort();
 }
 
+async function readOptionalUtf8(target) {
+  try {
+    return await readFile(target, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function walkIfPresent(root) {
+  try {
+    return await walk(root);
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 function lineNumberAt(text, offset) {
   return text.slice(0, offset).split("\n").length;
 }
@@ -408,30 +426,15 @@ function externalRequires(text, artifact) {
 async function nativeRuntimeInventory() {
   const inventory = [];
   const depsRoot = "src/app/dist/deps";
-  const absoluteDeps = path.join(repoRoot, depsRoot);
-  let relatives;
-  try {
-    relatives = await walk(absoluteDeps);
-  } catch (error) {
-    if (error?.code === "ENOENT") throw new Error("Missing src/app/dist/deps native runtime inventory");
-    throw error;
-  }
-  for (const relative of relatives) {
+  for (const relative of await walkIfPresent(path.join(repoRoot, depsRoot))) {
     if (!relative.endsWith(".node")) continue;
-    const target = path.join(absoluteDeps, relative);
+    const target = path.join(repoRoot, depsRoot, relative);
     const bytes = await readFile(target);
     inventory.push({ path: `${depsRoot}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "artifact-runtime-boundary" });
   }
   const nativeRoot = "src/app/dist/native";
-  const absoluteNative = path.join(repoRoot, nativeRoot);
-  let nativeFiles = [];
-  try {
-    nativeFiles = await walk(absoluteNative);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  for (const relative of nativeFiles) {
-    const target = path.join(absoluteNative, relative);
+  for (const relative of await walkIfPresent(path.join(repoRoot, nativeRoot))) {
+    const target = path.join(repoRoot, nativeRoot, relative);
     const bytes = await readFile(target);
     inventory.push({ path: `${nativeRoot}/${relative}`, bytes: bytes.byteLength, sha256: sha256(bytes), status: "forbidden-unshipped-helper" });
   }
@@ -472,7 +475,7 @@ async function runnerCompositionClosure({ hostGraph, hostProductionExtensionsGra
   }
 
   const artifact = "src/app/dist/host/host-main.cjs";
-  const artifactText = await readFile(path.join(repoRoot, artifact), "utf8");
+  const artifactText = await readOptionalUtf8(path.join(repoRoot, artifact));
   const sandHostSource = "source/host/sand-host.ts";
   const sandHostText = await readFile(path.join(repoRoot, sandHostSource), "utf8");
   const runnerCompositionSource = "source/host/host-runner-composition.ts";
@@ -517,7 +520,7 @@ async function runnerCompositionClosure({ hostGraph, hostProductionExtensionsGra
       unreachableExecutableSources: generatedEntryUnreachableExecutableSources,
       nonClosureFidelityResiduals: activeFidelityResiduals,
     },
-    immutableConstructionOrder: [
+    immutableConstructionOrder: artifactText == null ? [] : [
       { step: "start-host-extension-graph", anchor: anchorFor(artifactText, artifact, "const hostExtensions = await startHostPluginRegistry({") },
       { step: "create-roster-bookkeeping", anchor: anchorFor(artifactText, artifact, "this.rosterBookkeeping = createHostRosterBookkeeping(hostExtensions);") },
       { step: "create-runner-composition", anchor: anchorFor(artifactText, artifact, "this.runnerComposition = createHostRunnerComposition({") },
@@ -802,7 +805,7 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
   let hostEntrypointGraph = null;
   for (const [runtimeName, spec] of Object.entries(runtimeSpecs)) {
     const sourceText = await readFile(path.join(repoRoot, spec.entrypoint), "utf8");
-    const artifactText = await readFile(path.join(repoRoot, spec.artifact), "utf8");
+    const artifactText = await readOptionalUtf8(path.join(repoRoot, spec.artifact));
     const members = interfaceMembers(sourceText, spec.entrypoint, spec.contract);
     const declaredMode = composition.find(runtime => runtime.runtime === runtimeName)?.mode ?? null;
     const cleanActivated = declaredMode === "clean-source";
@@ -820,7 +823,9 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
         ...member,
         status,
         cleanProvider,
-        artifactAnchor: anchorFor(artifactText, spec.artifact, needle, artifactText.lastIndexOf(spec.artifactSourceMarker)),
+        artifactAnchor: artifactText == null
+          ? { artifact: spec.artifact, needle, status: "artifact-not-present" }
+          : anchorFor(artifactText, spec.artifact, needle, artifactText.lastIndexOf(spec.artifactSourceMarker)),
       };
     });
     const nestedContracts = [];
@@ -850,9 +855,16 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
         }),
       });
     }
-    const artifactBytes = Buffer.from(artifactText);
     const cleanEntrypointGraph = await sourceGraph(spec.entrypoint);
     if (runtimeName === "host") hostEntrypointGraph = cleanEntrypointGraph;
+    const artifactRecord = artifactText == null
+      ? { path: spec.artifact, status: "not-present" }
+      : {
+        path: spec.artifact,
+        bytes: Buffer.byteLength(artifactText),
+        sha256: sha256(artifactText),
+        compositionAnchor: anchorFor(artifactText, spec.artifact, spec.artifactSourceMarker, artifactText.lastIndexOf(spec.artifactSourceMarker)),
+      };
     runtimes[runtimeName] = {
       declaredMode,
       verdict: cleanActivated ? "clean-source" : "blocked-artifact-fallback",
@@ -862,15 +874,10 @@ export async function createRuntimeCompositionAudit({ outputRoot = null, require
       ...(runtimeName === "electron-main" ? { bindingManifest: electronMainActivation ?? { status: "not-supplied", clean: false, requiredBindings: requiredElectronMainProductionBindings } } : {}),
       ...(runtimeName === "electron-main" ? { productionAdapterGraph: electronAdapterEvidence } : {}),
       ...(runtimeName === "host" ? { bindingManifest: effectiveHostActivation } : {}),
-      constructorFactoryClosure: factoryInventory(artifactText, spec.artifact, spec.artifactSourceMarker, cleanExports),
-      generatedBindingClosure: generatedBindings(artifactText, spec.artifact),
-      externalRuntimeBoundaries: externalRequires(artifactText, spec.artifact),
-      artifact: {
-        path: spec.artifact,
-        bytes: artifactBytes.byteLength,
-        sha256: sha256(artifactBytes),
-        compositionAnchor: anchorFor(artifactText, spec.artifact, spec.artifactSourceMarker, artifactText.lastIndexOf(spec.artifactSourceMarker)),
-      },
+      constructorFactoryClosure: artifactText == null ? { status: "artifact-not-present" } : factoryInventory(artifactText, spec.artifact, spec.artifactSourceMarker, cleanExports),
+      generatedBindingClosure: artifactText == null ? { status: "artifact-not-present" } : generatedBindings(artifactText, spec.artifact),
+      externalRuntimeBoundaries: artifactText == null ? [] : externalRequires(artifactText, spec.artifact),
+      artifact: artifactRecord,
     };
   }
 
