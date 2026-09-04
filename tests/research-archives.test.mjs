@@ -18,9 +18,6 @@ async function statOrNull(file) {
   try { return await lstat(file); } catch { return null; }
 }
 
-// Manifests and binaries live in the private .stow archive. A public clone has
-// neither; when the inventory is present, check it without requiring a 0.18
-// payload or a vendor CDN URL.
 test("preserved release inventories describe their artifacts exactly", {
   skip: existsSync(originalRoot) ? false : "research-archives/ is restored from stow; skip when absent",
 }, async () => {

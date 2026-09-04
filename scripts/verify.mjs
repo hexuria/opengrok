@@ -78,7 +78,6 @@ const icon = rendererAssets.find(asset => asset.file === "app-icon-C7NKj2u7.png"
 if (icon == null || typeof icon.sha256 !== "string") throw new Error("Renderer runtime manifest has no exact app icon record");
 const iconPath = `dist/renderer/assets/${icon.file}`;
 if (!listing.has(`/${iconPath}`)) throw new Error(`ASAR is missing ${iconPath}`);
-extractFile(builtAsar, iconPath);
 
 const rendererListing = [...listing].map(entry => entry.replace(/^\/+/, ""));
 const rendererMaps = rendererListing.filter(entry => entry.startsWith("dist/renderer/") && entry.endsWith(".map"));

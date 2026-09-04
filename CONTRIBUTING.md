@@ -19,6 +19,6 @@ npm run verify
 ```
 
 Use focused commits. Explain whether a change affects reviewed runtime source,
-the editable frontend, the checksum-pinned packaged renderer, or packaging only.
+the editable frontend, the packaged Vite renderer, or packaging only.
 Do not weaken checksum, bundle identity, code-signing, or clean-export checks to
 make a build pass.
