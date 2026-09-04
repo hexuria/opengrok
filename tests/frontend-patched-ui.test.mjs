@@ -394,6 +394,11 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(transcript, /convertLatexDelimiters/);
   assert.match(transcript, /--sand-ts-progress/);
   assert.match(transcript, /event\.deltaX/);
+  assert.match(
+    transcript,
+    /data-role="assistant"[\s\S]{0,180}className="sand-row-timestamp"/,
+    "send-message (left) rows own the same pan timestamp as user rows",
+  );
   const mediaViewer = await readFrontend("frontend/src/recovered/features/conversation/workspace/media-viewer.tsx");
   assert.match(mediaViewer, /className="sand-file-card"/);
   assert.match(mediaViewer, /desktop-download/);
