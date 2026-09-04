@@ -11,6 +11,7 @@ import {
   repoRoot,
   upstreamAsarSha256,
 } from "./lib/config.mjs";
+import { canonicalizeRetainedElectronNativePackages } from "./build-electron-natives.mjs";
 import { isNpmVendoredRendererAsset } from "./lib/renderer-runtime-assets.mjs";
 import { resolvePackagedAppArtifacts } from "./lib/packaged-app.mjs";
 import { capture, run } from "./lib/process.mjs";
@@ -223,7 +224,7 @@ const electronMainRetained = electronMainProvenance.executableGraph.retainedNati
 if (!Array.isArray(hostRetained) || !Array.isArray(electronMainRetained)) {
   throw new Error("Clean activation provenance omitted esbuild-metafile retained natives");
 }
-const expectedRetained = [...new Set([...hostRetained, ...electronMainRetained])];
+const expectedRetained = canonicalizeRetainedElectronNativePackages([...hostRetained, ...electronMainRetained]);
 const depsManifest = JSON.parse(await readFile(path.join(builtAsarUnpacked, "dist", "deps", "runtime-deps-manifest.json"), "utf8"));
 if (depsManifest.retained?.source !== "esbuild-metafile" || JSON.stringify(depsManifest.retained.packages) !== JSON.stringify(expectedRetained)) {
   throw new Error("Staged retained natives do not match the production esbuild metafile");

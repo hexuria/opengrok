@@ -12,6 +12,16 @@ import {
   electronMainBindingProvenancePath,
   retainedNativePackagesFromActivations,
 } from "../scripts/lib/production-activation.mjs";
+import {
+  hostBindingProvenancePath as hostProvenanceFromActivation,
+  validateHostArtifactAnchor,
+} from "../scripts/host-production-activation.mjs";
+import {
+  electronMainBindingProvenancePath as electronMainProvenanceFromActivation,
+  electronMainProductionBindingInventorySpecs,
+  validateElectronMainArtifactAnchor,
+} from "../scripts/electron-main-production-activation.mjs";
+import { canonicalizeRetainedElectronNativePackages } from "../scripts/build-electron-natives.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -95,10 +105,14 @@ test("retained natives follow the union of production esbuild metafile greps", (
   );
   assert.deepEqual(
     retainedNativePackagesFromActivations(
-      activation("host", { clean: true, packages: ["whichlang-node"] }),
-      activation("electron-main", { clean: true, packages: ["@anysphere/tree-chunk-napi", "whichlang-node"] }),
+      activation("host", { clean: true, packages: ["whichlang-node", "whichlang-node-darwin-arm64"] }),
+      activation("electron-main", { clean: true, packages: ["@anysphere/tree-chunk-napi"] }),
     ),
-    ["whichlang-node", "@anysphere/tree-chunk-napi"],
+    ["@anysphere/tree-chunk-napi", "whichlang-node", "whichlang-node-darwin-arm64"],
+  );
+  assert.deepEqual(
+    canonicalizeRetainedElectronNativePackages(["whichlang-node", "@anysphere/tree-chunk-napi", "whichlang-node"]),
+    ["@anysphere/tree-chunk-napi", "whichlang-node"],
   );
 });
 
@@ -132,8 +146,52 @@ test("verify requires the packaged clean-source banner and rejects artifact fall
   assert.doesNotMatch(libCleanBuild, /dist\/recovered-source\/host\/host-main\.cjs/);
   const hostActivation = await readFile(path.join(repoRoot, "scripts", "host-production-activation.mjs"), "utf8");
   const electronMainActivation = await readFile(path.join(repoRoot, "scripts", "electron-main-production-activation.mjs"), "utf8");
-  assert.match(hostActivation, new RegExp(`export const hostBindingProvenancePath = "${hostBindingProvenancePath}"`));
-  assert.match(electronMainActivation, new RegExp(`export const electronMainBindingProvenancePath = "${electronMainBindingProvenancePath}"`));
+  const productionActivation = await readFile(path.join(repoRoot, "scripts", "lib", "production-activation.mjs"), "utf8");
+  assert.equal(hostBindingProvenancePath, hostProvenanceFromActivation);
+  assert.equal(electronMainBindingProvenancePath, electronMainProvenanceFromActivation);
+  assert.match(productionActivation, /export \{ hostBindingProvenancePath, electronMainBindingProvenancePath \}/);
   assert.match(hostActivation, /retainedNativePackages: retainedElectronNativePackagesFromMetafile\(result\.metafile\)/);
   assert.match(electronMainActivation, /retainedNativePackages: retainedElectronNativePackagesFromMetafile\(result\.metafile\)/);
+  assert.match(libCleanBuild, /refuses pack:true/);
+  assert.match(hostActivation, /if \(error\?\.code === "ENOENT"\) return null/);
+  assert.match(electronMainActivation, /if \(error\?\.code === "ENOENT"\) return null/);
+  const audit = await readFile(path.join(repoRoot, "scripts", "audit-runtime-composition.mjs"), "utf8");
+  assert.match(audit, /readOptionalUtf8/);
+  assert.match(audit, /artifact-not-present/);
+  const packaging = await readFile(path.join(repoRoot, "scripts", "clean-build.mjs"), "utf8");
+  assert.doesNotMatch(packaging, /hostActivation\.clean \?/);
+  assert.doesNotMatch(packaging, /electronMainActivation\.clean \?/);
+});
+
+test("0.18 artifact needles are skipped when absent and fail on drift when present", async () => {
+  const spec = electronMainProductionBindingInventorySpecs.find(item => item.path === "startup");
+  assert.ok(spec);
+  validateElectronMainArtifactAnchor(spec.path, spec.artifactAnchor, null);
+  const matching = [];
+  matching[spec.artifactAnchor.line - 1] = `prefix ${spec.artifactAnchor.needle} suffix`;
+  validateElectronMainArtifactAnchor(spec.path, spec.artifactAnchor, matching);
+  assert.throws(
+    () => validateElectronMainArtifactAnchor(spec.path, spec.artifactAnchor, ["wrong"]),
+    /drifted/,
+  );
+
+  const hostAnchor = { line: 2, needle: "executeBoxCopyInFromEnv" };
+  assert.deepEqual(await validateHostArtifactAnchor(hostAnchor, null), {
+    artifact: "src/app/dist/host/host-main.cjs",
+    line: 2,
+    needle: "executeBoxCopyInFromEnv",
+  });
+  assert.deepEqual(
+    await validateHostArtifactAnchor(hostAnchor, "// src/host/main.ts\nexecuteBoxCopyInFromEnv();\n"),
+    {
+      artifact: "src/app/dist/host/host-main.cjs",
+      line: 2,
+      sourceMarker: "src/host/main.ts",
+      needle: "executeBoxCopyInFromEnv",
+    },
+  );
+  await assert.rejects(
+    () => validateHostArtifactAnchor(hostAnchor, "// src/host/main.ts\nnot-the-needle\n"),
+    /drifted/,
+  );
 });

@@ -31,6 +31,13 @@ export const retainedElectronNativeNodeFiles = Object.freeze([
   "whichlang-node-darwin-arm64/whichlang-node.darwin-arm64.node",
 ]);
 
+export function canonicalizeRetainedElectronNativePackages(packages) {
+  if (!Array.isArray(packages)) throw new TypeError("retained native packages must be an array");
+  const unknown = packages.filter(name => !retainedElectronNativePackages.includes(name));
+  if (unknown.length > 0) throw new Error(`Unknown retained native package: ${unknown.join(", ")}`);
+  return retainedElectronNativePackages.filter(name => packages.includes(name));
+}
+
 export function retainedElectronNativePackagesFromMetafile(metafile) {
   const text = typeof metafile === "string" ? metafile : JSON.stringify(metafile ?? {});
   return retainedElectronNativePackages.filter(name => (
@@ -210,9 +217,7 @@ export async function stageElectronNativeDeps(stageRoot, depsRoot = electronNati
 
 export async function stageRetainedElectronNatives(depsRoot, unpackedDepsRoot, { packages = [] } = {}) {
   if (typeof depsRoot !== "string" || depsRoot.length === 0) throw new TypeError("An explicit Electron depsRoot is required");
-  const unknown = packages.filter(name => !retainedElectronNativePackages.includes(name));
-  if (unknown.length > 0) throw new Error(`Unknown retained native package: ${unknown.join(", ")}`);
-  const selected = retainedElectronNativePackages.filter(name => packages.includes(name));
+  const selected = canonicalizeRetainedElectronNativePackages(packages);
   const selectedNodeFiles = retainedElectronNativeNodeFilesFor(selected);
   if (selected.length > 0) {
     if (typeof unpackedDepsRoot !== "string" || unpackedDepsRoot.length === 0) {

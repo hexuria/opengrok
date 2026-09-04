@@ -75,20 +75,14 @@ async function prepareProductionActivations(clean, hostBindingManifest, electron
   assertProductionActivationsAreClean(hostActivation, electronMainActivation);
   const activatedComposition = compositionWithProductionActivations(hostActivation, electronMainActivation, composition);
   const excludedFallbacks = new Set(fallbackSourcesReplacedByActivations(hostActivation, electronMainActivation));
-  let outputs = clean.buildManifest.outputs.filter(output => !excludedFallbacks.has(output.path));
   const replacements = new Set([
-    ...(hostActivation.clean ? ["dist/host/host-main.cjs", hostBindingProvenancePath] : []),
-    ...(electronMainActivation.clean ? ["dist/electron-main/main.cjs", electronMainBindingProvenancePath] : []),
+    "dist/host/host-main.cjs", hostBindingProvenancePath,
+    "dist/electron-main/main.cjs", electronMainBindingProvenancePath,
   ]);
-  if (replacements.size > 0) {
-    outputs = outputs.filter(output => !replacements.has(output.path));
-    for (const relative of replacements) outputs.push(await outputRecord(clean.outputRoot, relative));
-    outputs.sort((left, right) => left.path.localeCompare(right.path));
-  }
-  if (electronMainActivation.clean) {
-    for (const relative of electronMainActivation.runtimePackageFiles ?? []) outputs.push(await outputRecord(clean.outputRoot, relative));
-    outputs.sort((left, right) => left.path.localeCompare(right.path));
-  }
+  let outputs = clean.buildManifest.outputs.filter(output => !excludedFallbacks.has(output.path) && !replacements.has(output.path));
+  for (const relative of replacements) outputs.push(await outputRecord(clean.outputRoot, relative));
+  for (const relative of electronMainActivation.runtimePackageFiles ?? []) outputs.push(await outputRecord(clean.outputRoot, relative));
+  outputs.sort((left, right) => left.path.localeCompare(right.path));
   return {
     ...clean,
     hostActivation,
@@ -99,7 +93,7 @@ async function prepareProductionActivations(clean, hostBindingManifest, electron
 
 async function attachCompositionAudit(clean) {
   const composition = clean.buildManifest.runtimeComposition;
-  const auditHostActivation = clean.hostActivation.clean ? {
+  const auditHostActivation = {
     status: clean.hostActivation.status,
     clean: true,
     requiredBindings: clean.hostActivation.requiredBindings,
@@ -108,17 +102,17 @@ async function attachCompositionAudit(clean) {
     inventory: clean.hostActivation.inventory ?? clean.hostActivation.provenance.inventory,
     activationEvidence: clean.hostActivation.activationEvidence ?? clean.hostActivation.provenance.activationEvidence,
     provenance: clean.hostActivation.provenance,
-  } : clean.hostActivation;
+  };
   const result = await writeRuntimeCompositionAudit({
     outputRoot: clean.outputRoot,
     requireOutputs: true,
     composition,
     hostActivation: auditHostActivation,
-    electronMainActivation: clean.electronMainActivation.clean ? {
+    electronMainActivation: {
       status: clean.electronMainActivation.status,
       clean: true,
       provenance: clean.electronMainActivation.provenance,
-    } : clean.electronMainActivation,
+    },
   });
   const auditStat = await stat(result.path);
   const outputs = clean.buildManifest.outputs
@@ -138,33 +132,20 @@ async function attachCompositionAudit(clean) {
       "package.json",
       "package-lock.json",
       "src/app/package.json",
-      ...(clean.hostActivation.clean ? [clean.hostActivation.provenance.manifestPath] : []),
-      ...(clean.electronMainActivation.clean ? [clean.electronMainActivation.provenance.manifestPath] : []),
+      ...[clean.hostActivation.provenance.manifestPath, clean.electronMainActivation.provenance.manifestPath].filter(value => typeof value === "string" && value.length > 0),
     ])],
-    hostActivation: clean.hostActivation.clean ? {
+    hostActivation: {
       status: clean.hostActivation.status,
       bindingManifest: hostBindingProvenancePath,
       manifestSha256: clean.hostActivation.provenance.manifestSha256,
       outputSha256: clean.hostActivation.provenance.output.sha256,
-    } : {
-      status: clean.hostActivation.status,
-      blocker: clean.hostActivation.blocker,
-      requiredBindings: clean.hostActivation.requiredBindings,
-      boundBindings: clean.hostActivation.boundBindings,
-      unboundBindings: clean.hostActivation.unboundBindings,
-      inventory: clean.hostActivation.inventory,
-      activationEvidence: clean.hostActivation.activationEvidence,
     },
-    electronMainActivation: clean.electronMainActivation.clean ? {
+    electronMainActivation: {
       status: clean.electronMainActivation.status,
       bindingManifest: electronMainBindingProvenancePath,
       manifestSha256: clean.electronMainActivation.provenance.manifestSha256,
       outputSha256: clean.electronMainActivation.provenance.output.sha256,
       runtimePackageFiles: clean.electronMainActivation.runtimePackageFiles ?? [],
-    } : {
-      status: clean.electronMainActivation.status,
-      blocker: clean.electronMainActivation.blocker,
-      requiredBindings: clean.electronMainActivation.requiredBindings,
     },
     compositionAudit: {
       path: compositionAuditPath,
@@ -179,9 +160,14 @@ async function attachCompositionAudit(clean) {
 }
 
 export async function overlayAuditMetadata(clean, { stageRoot = stagedAppDir } = {}) {
-  const relativePaths = [compositionAuditPath, "dist/reconstruction-build.json"];
-  if (clean.hostActivation.clean) relativePaths.push("dist/host/host-main.cjs", hostBindingProvenancePath);
-  if (clean.electronMainActivation.clean) relativePaths.push("dist/electron-main/main.cjs", electronMainBindingProvenancePath);
+  const relativePaths = [
+    compositionAuditPath,
+    "dist/reconstruction-build.json",
+    "dist/host/host-main.cjs",
+    hostBindingProvenancePath,
+    "dist/electron-main/main.cjs",
+    electronMainBindingProvenancePath,
+  ];
   for (const relative of relativePaths) {
     const destination = path.join(stageRoot, relative);
     await rm(destination, { recursive: true, force: true });

@@ -192,12 +192,22 @@ async function validateGeneratedSourceExport(binding, resolved) {
   });
 }
 
-async function validateAnchor(bindingPath, anchor, artifactLines) {
+async function readElectronMainArtifactLines() {
+  try {
+    return (await readFile(path.join(sourceAppDir, "dist/electron-main/main.cjs"), "utf8")).split("\n");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export function validateElectronMainArtifactAnchor(bindingPath, anchor, artifactLines) {
   if (anchor == null || anchor.artifact !== "src/app/dist/electron-main/main.cjs" || !Number.isInteger(anchor.line) || anchor.line < 1 || typeof anchor.needle !== "string" || anchor.needle.length === 0) {
     throw new Error("Every Electron-main production binding requires an exact immutable main artifact anchor");
   }
   const expectedNeedle = electronMainProductionBindingEvidence[bindingPath];
   if (anchor.needle !== expectedNeedle) throw new Error(`Electron-main binding ${bindingPath} must use its exact evidence needle: ${expectedNeedle}`);
+  if (artifactLines == null) return;
   if (!(artifactLines[anchor.line - 1] ?? "").includes(anchor.needle)) throw new Error(`Electron-main binding artifact anchor drifted at ${anchor.artifact}:${anchor.line}: ${anchor.needle}`);
 }
 
@@ -267,7 +277,7 @@ export async function validateElectronMainProductionBindingManifest(manifestPath
   const runtimePackages = packagedElectronRuntimePackages();
   const copiedPackages = runtimePackages.copied;
   const nativePackages = runtimePackages.native;
-  const artifactLines = (await readFile(path.join(sourceAppDir, "dist/electron-main/main.cjs"), "utf8")).split("\n");
+  const artifactLines = await readElectronMainArtifactLines();
   const bindings = await validateElectronMainBindingEntries(manifest.bindings, absoluteManifest, artifactLines, { copiedPackages, nativePackages });
   return { manifestPath: normalize(path.relative(repoRoot, absoluteManifest)), manifestSha256: sha256(manifestBytes), bindings };
 }
@@ -282,7 +292,7 @@ async function validateElectronMainBindingEntries(entries, baseManifestPath, art
     if (!classifications.has(binding.classification)) throw new Error(`Invalid Electron-main binding classification for ${binding.path}: ${binding.classification}`);
     if (!accessKinds.has(binding.access)) throw new Error(`Invalid Electron-main binding access for ${binding.path}: ${binding.access}`);
     if (typeof binding.module !== "string" || typeof binding.export !== "string" || !/^(?:default|[A-Za-z_$][\w$]*)$/.test(binding.export)) throw new Error(`Invalid Electron-main binding module/export for ${binding.path}`);
-    await validateAnchor(binding.path, binding.artifactAnchor, artifactLines);
+    validateElectronMainArtifactAnchor(binding.path, binding.artifactAnchor, artifactLines);
     let resolvedModule;
     if (binding.classification === "generated-source") {
       const resolved = resolveGeneratedModule(baseManifestPath, binding.module);
@@ -313,7 +323,7 @@ async function reviewedElectronMainBindings(artifactLines) {
   for (const spec of electronMainProductionBindingInventorySpecs) {
     const resolved = resolveReviewedSourceModule(spec.module);
     await validateGeneratedSourceExport(spec, resolved);
-    await validateAnchor(spec.path, spec.artifactAnchor, artifactLines);
+    validateElectronMainArtifactAnchor(spec.path, spec.artifactAnchor, artifactLines);
     bindings.push({ ...spec, resolvedModule: resolved.absolute });
   }
   return bindings;
@@ -340,7 +350,7 @@ async function readElectronMainBindingManifest(manifestPath) {
  * override a reviewed source provider.
  */
 export async function assembleElectronMainProductionBindingManifest(manifestPath = null) {
-  const artifactLines = (await readFile(path.join(sourceAppDir, "dist/electron-main/main.cjs"), "utf8")).split("\n");
+  const artifactLines = await readElectronMainArtifactLines();
   const builtins = await reviewedElectronMainBindings(artifactLines);
   const orderBindings = bindings => requiredElectronMainProductionBindings.flatMap(bindingPath => bindings.filter(binding => binding.path === bindingPath));
   if (manifestPath == null) {

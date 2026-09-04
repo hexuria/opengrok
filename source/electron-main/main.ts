@@ -22,7 +22,10 @@ import {
   type WindowsTitleBarOverlay,
 } from "./window-chrome.js";
 import type { SandWindowPlacement, WindowStatePersistenceWindow } from "./window-state-persistence.js";
+import { configureDesktopEnvironment } from "./desktop-environment.js";
 import { createElectronMainProductionComposition, type ElectronMainProductionBindings } from "./main-production-services.js";
+
+export { configureDesktopEnvironment } from "./desktop-environment.js";
 
 export interface PreventableEvent {
   preventDefault(): void;
@@ -209,24 +212,6 @@ export interface ElectronMainRuntime {
   readonly ensureMainWindow: () => void;
   readonly setTitleBarOverlayTone: (isOverlayTone: boolean) => void;
   readonly syncWindowsTitleBarOverlay: () => void;
-}
-
-export function configureDesktopEnvironment(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly isPackaged: boolean;
-  readonly isAttachProdBox: boolean;
-  readonly isLabBuild: boolean;
-  readonly appVersion?: string;
-}): void {
-  if (input.isAttachProdBox) input.env.SAND_ATTACH_PROD_BOX = "1";
-  else if (!input.isPackaged) input.env.SAND_ATTACH_PROD_BOX = "0";
-  input.env.SAND_PACKAGED = input.isAttachProdBox || input.isPackaged ? "1" : "0";
-  input.env.SAND_LAB = input.isLabBuild ? "1" : "0";
-  if (input.appVersion != null) input.env.SAND_CLIENT_APP_VERSION = input.appVersion;
-  // Official Cursor updater/telemetry endpoints must not run in this build.
-  input.env.SAND_DISABLE_UPDATES ??= "1";
-  input.env.SAND_DISABLE_SENTRY ??= "1";
-  input.env.SAND_DISABLE_TELEMETRY ??= "1";
 }
 
 export function isSameDocumentNavigation(target: string, current: string): boolean {

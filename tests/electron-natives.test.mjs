@@ -23,6 +23,7 @@ import {
   retainedElectronNativeNodeFiles,
   retainedElectronNativePackages,
   retainedElectronNativePackagesFromMetafile,
+  canonicalizeRetainedElectronNativePackages,
   stageElectronNativeDeps,
   stageRetainedElectronNatives,
 } from "../scripts/build-electron-natives.mjs";
@@ -244,6 +245,13 @@ test("assertElectronNativeDeps rejects a cache whose package identity drifted", 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("retained native staging order is the catalog order, not host-then-electron-main insertion", () => {
+  assert.deepEqual(
+    canonicalizeRetainedElectronNativePackages(["whichlang-node", "@anysphere/tree-chunk-napi", "whichlang-node-darwin-arm64"]),
+    [...retainedElectronNativePackages],
+  );
 });
 
 test("esbuild metafile presence decides which 0.18 natives are retained", () => {

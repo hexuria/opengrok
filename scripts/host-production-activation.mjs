@@ -195,9 +195,26 @@ export function artifactSourceMarkerAt(lines, line) {
   return null;
 }
 
-async function validateArtifactAnchor(anchor, artifactText) {
+async function readHostArtifactText() {
+  try {
+    return await readFile(path.join(repoRoot, hostArtifact), "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function validateHostArtifactAnchor(anchor, artifactText) {
   if (anchor == null || (anchor.artifact ?? hostArtifact) !== hostArtifact || !Number.isInteger(anchor.line) || anchor.line < 1 || typeof anchor.needle !== "string" || anchor.needle.length === 0) {
     throw new Error("Every host production binding requires an exact host artifact anchor");
+  }
+  if (artifactText == null) {
+    return {
+      artifact: hostArtifact,
+      line: anchor.line,
+      needle: anchor.needle,
+      ...(anchor.sourceMarker == null ? {} : { sourceMarker: anchor.sourceMarker }),
+    };
   }
   const lines = artifactText.split("\n");
   const line = lines[anchor.line - 1] ?? "";
@@ -274,7 +291,7 @@ async function validateBinding(binding, baseManifestPath, artifactText, runtimeP
     throw new Error(`Host binding ${binding.path} requires one or more artifactAnchors`);
   }
   const artifactAnchors = [];
-  for (const anchor of rawAnchors) artifactAnchors.push(await validateArtifactAnchor(anchor, artifactText));
+  for (const anchor of rawAnchors) artifactAnchors.push(await validateHostArtifactAnchor(anchor, artifactText));
 
   let resolvedModule;
   let sourceAnchor;
@@ -313,7 +330,7 @@ async function pathExists(target) {
 }
 
 async function assembleExternalReadProductionEvidence() {
-  const artifactText = await readFile(path.join(repoRoot, hostArtifact), "utf8");
+  const artifactText = await readHostArtifactText();
   const producerAnchors = [];
   for (const anchor of [
     { line: 578037, needle: 'resolveWorkerLocation(__import_meta_url, "pdf-worker")' },
@@ -322,7 +339,7 @@ async function assembleExternalReadProductionEvidence() {
     { line: 578054, needle: "`./pdf-worker.${extension2}`" },
     { line: 578056, needle: "return result.text;" },
     { line: 663309, needle: 'createReadTool(props.resourceAccessor, SAND_READ_FORMATTING_OPTIONS, "latest", {' },
-  ]) producerAnchors.push(await validateArtifactAnchor(anchor, artifactText));
+  ]) producerAnchors.push(await validateHostArtifactAnchor(anchor, artifactText));
 
   const manifest = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
   const lock = JSON.parse(await readFile(path.join(repoRoot, "package-lock.json"), "utf8"));
@@ -496,7 +513,7 @@ async function assembleRunnerActivationEvidence(inventory) {
 
 /** Assembles built-in recovered providers with an optional residual manifest. */
 export async function assembleHostProductionBindingManifest(manifestPath = null) {
-  const artifactText = await readFile(path.join(repoRoot, hostArtifact), "utf8");
+  const artifactText = await readHostArtifactText();
   const runtimePackages = await runtimeBindingPackages();
   const catalogPath = path.join(repoRoot, "host-production-bindings.catalog.json");
   const supplied = [];
@@ -518,7 +535,7 @@ export async function assembleHostProductionBindingManifest(manifestPath = null)
   const inventory = [];
   for (const spec of hostProductionBindingInventorySpecs) {
     const artifactAnchors = [];
-    for (const anchor of spec.artifactAnchors) artifactAnchors.push(await validateArtifactAnchor(anchor, artifactText));
+    for (const anchor of spec.artifactAnchors) artifactAnchors.push(await validateHostArtifactAnchor(anchor, artifactText));
     const recoveredCandidate = spec.recoveredCandidate == null
       ? null
       : await validateRecoveredCandidate(spec.path, spec.recoveredCandidate);

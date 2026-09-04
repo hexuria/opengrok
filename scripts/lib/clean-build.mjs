@@ -12,12 +12,9 @@ import {
 } from "../renderer-production-build.mjs";
 import {
   buildDir,
-  builtAsar,
-  builtAsarUnpacked,
   repoRoot,
   stagedAppDir,
 } from "./config.mjs";
-import { packStagedAppWithIntegrity, verifyStagedPackageIntegrity } from "./asar-integrity.mjs";
 import { officialMacReleaseAsarHash } from "./macos-shell-invariant.mjs";
 import { stageNodeTreeSitterRuntime } from "../build-tree-sitter-node.mjs";
 import { run } from "./process.mjs";
@@ -315,14 +312,13 @@ export async function overlayCleanDistribution(outputRoot, { stageRoot = stagedA
   }
 }
 
-export async function buildReconstructedAsar({ pack = true } = {}) {
+export async function buildReconstructedAsar({ pack = false } = {}) {
+  if (pack) {
+    throw new Error("lib buildReconstructedAsar refuses pack:true; 0.18 electron-main/host would ship without production activation. Use scripts/clean-build.mjs.");
+  }
   const fallback = await buildAsar({ pack: false });
   const clean = await buildCleanDistribution();
   await overlayCleanDistribution(clean.outputRoot);
-  if (pack) {
-    await packStagedAppWithIntegrity({ stageRoot: stagedAppDir, archivePath: builtAsar, unpackedRoot: builtAsarUnpacked });
-    console.log(`Source-aware ASAR ready: ${builtAsar}`);
-  }
   console.log("Executable clean replacements: renderer, coordinator, box exec-daemon, local-exec daemon, primary/dev-controls/webview/VNC preloads, and four host workers.");
   return { ...fallback, ...clean };
 }

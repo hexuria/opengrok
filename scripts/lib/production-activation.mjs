@@ -1,5 +1,8 @@
-export const hostBindingProvenancePath = "dist/host-production-bindings.json";
-export const electronMainBindingProvenancePath = "dist/electron-main-production-bindings.json";
+import { canonicalizeRetainedElectronNativePackages } from "../build-electron-natives.mjs";
+import { hostBindingProvenancePath } from "../host-production-activation.mjs";
+import { electronMainBindingProvenancePath } from "../electron-main-production-activation.mjs";
+
+export { hostBindingProvenancePath, electronMainBindingProvenancePath };
 
 export function assertProductionActivationsAreClean(hostActivation, electronMainActivation) {
   if (!hostActivation?.clean) {
@@ -44,5 +47,5 @@ export function retainedNativePackagesFromActivations(hostActivation, electronMa
   if (recorded.some(packages => !Array.isArray(packages))) {
     throw new Error("Clean activation did not record esbuild-metafile retained native packages");
   }
-  return [...new Set(recorded.flat())];
+  return canonicalizeRetainedElectronNativePackages(recorded.flat());
 }
