@@ -69,9 +69,14 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.match(shell, /CFBundleName/);
   assert.match(shell, /<string>sand<\/string>/);
   assert.match(shell, /<string>opengrok<\/string>/);
-  assert.match(shell, /MACOS_EXECUTABLE_NAME = "Grok Bot"/);
+  assert.match(shell, /MACOS_EXECUTABLE_NAME/);
   assert.match(diagnostic, /verifyOfficialMacReference/);
   assert.match(diagnostic, /buildFidelityReconstructedAsar/);
+  const verify = await readFile(path.join(repoRoot, "scripts", "verify.mjs"), "utf8");
+  assert.match(verify, /\["sand", "opengrok"\]/);
+  const cleanBuild = await readFile(path.join(repoRoot, "scripts", "lib", "clean-build.mjs"), "utf8");
+  assert.match(cleanBuild, /wraps npm Electron 42\.1\.0/);
+  assert.doesNotMatch(cleanBuild, /reuses the checksum-pinned, ABI-matched Electron 0\.18 application shell/);
 });
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {

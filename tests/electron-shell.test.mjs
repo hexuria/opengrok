@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { reconstructedBundleId } from "../scripts/lib/config.mjs";
+import { reconstructedBundleId, reconstructedCopyright, upstreamVersion } from "../scripts/lib/config.mjs";
 import {
   MACOS_EXECUTABLE_NAME,
   NPM_ELECTRON_VERSION,
@@ -22,7 +23,7 @@ import {
   verifyReconstructedHelperIdentities,
   verifyReconstructedMacPackage,
 } from "../scripts/lib/macos-package-verification.mjs";
-import { capture } from "../scripts/lib/process.mjs";
+import { capture, run } from "../scripts/lib/process.mjs";
 import { SYSTEM_TOOLS } from "../scripts/lib/system-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -73,6 +74,8 @@ async function createFakeElectronApp(root) {
   }
   await mkdir(path.join(electronApp, "Contents", "Resources"), { recursive: true });
   await writeFile(path.join(electronApp, "Contents", "Resources", "default_app.asar"), "default\n");
+  await mkdir(path.join(electronApp, "Contents", "Resources", "zh-Hans.lproj"), { recursive: true });
+  await writeFile(path.join(electronApp, "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings"), "CFBundleName = \"Electron\";\n");
   return electronApp;
 }
 
@@ -106,6 +109,10 @@ test("helper bundle ids sit under bot.opengrok.app, not Electron or Anysphere", 
     ["Electron Helper (Plugin)", "Grok Bot Helper (Plugin)"],
     ["Electron Helper (Renderer)", "Grok Bot Helper (Renderer)"],
   ]);
+  assert.deepEqual(
+    reconstructedHelperIdentities("bot.example.app", "Open Grok").map(helper => helper.folder),
+    electronHelperRenames("Open Grok").map(helper => `${helper.to}.app`),
+  );
   assert.match(reconstructedUrlTypesXml, /<string>sand<\/string>/);
   assert.match(reconstructedUrlTypesXml, /<string>opengrok<\/string>/);
   assert.equal(resolveNpmElectronApp(repoRoot), path.join(repoRoot, "node_modules", "electron", "dist", "Electron.app"));
@@ -138,8 +145,14 @@ test("staging npm Electron.app rewrites names, identity, and URL schemes", { ski
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleName", "raw", infoPlist]), "Grok Bot");
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleExecutable", "raw", infoPlist]), "Grok Bot");
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "GrokProductURL", "raw", infoPlist]), "https://OpenGrok.app");
+    assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleShortVersionString", "raw", infoPlist]), upstreamVersion);
+    assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleVersion", "raw", infoPlist]), upstreamVersion);
+    assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "NSHumanReadableCopyright", "raw", infoPlist]), reconstructedCopyright);
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleURLTypes.0.CFBundleURLSchemes.0", "raw", infoPlist]), "sand");
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleURLTypes.1.CFBundleURLSchemes.0", "raw", infoPlist]), "opengrok");
+    const localized = `CFBundleName = "Open Grok";\nCFBundleDisplayName = "Open Grok";\n`;
+    assert.equal(await readFile(path.join(destinationApp, "Contents", "Resources", "en.lproj", "InfoPlist.strings"), "utf8"), localized);
+    assert.equal(await readFile(path.join(destinationApp, "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings"), "utf8"), localized);
 
     await readFile(path.join(destinationApp, "Contents", "MacOS", "Grok Bot"));
     await assert.rejects(readFile(path.join(destinationApp, "Contents", "MacOS", "Electron")));
@@ -156,6 +169,28 @@ test("staging npm Electron.app rewrites names, identity, and URL schemes", { ski
       (await verifyReconstructedHelperIdentities({ reconstructedApp: destinationApp })).map(helper => helper.bundleId),
       reconstructedHelperIdentities().map(helper => helper.bundleId),
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const npmElectronApp = resolveNpmElectronApp(repoRoot);
+const npmElectronPresent = existsSync(path.join(npmElectronApp, "Contents", "MacOS", "Electron"));
+
+test("npm Electron stub still parses as a thin arm64 Mach-O after resigning", {
+  skip: !darwin || !npmElectronPresent,
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opengrok-electron-macho-"));
+  try {
+    const reconstructedApp = path.join(root, "Open Grok.app");
+    const destStub = path.join(reconstructedApp, "Contents", "MacOS", MACOS_EXECUTABLE_NAME);
+    await mkdir(path.dirname(destStub), { recursive: true });
+    await cp(path.join(npmElectronApp, "Contents", "MacOS", "Electron"), destStub);
+    await run(SYSTEM_TOOLS.codesign, ["--force", "--timestamp=none", "--sign", "-", destStub]);
+    const invariant = await verifyNpmElectronMacShell({ electronApp: npmElectronApp, reconstructedApp });
+    assert.equal(invariant.structuralMatch, true);
+    assert.equal(invariant.officialNormalizedHash, invariant.reconstructedNormalizedHash);
+    assert.notEqual(invariant.reconstructedHash, invariant.officialHash);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

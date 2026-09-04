@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { extractFile, listPackage, statFile } from "@electron/asar";
 
-import { helperInfoPlistPath, reconstructedHelperIdentities } from "./macos-helper-identity.mjs";
+import { helperInfoPlistPath, MACOS_EXECUTABLE_NAME, reconstructedHelperIdentities } from "./macos-helper-identity.mjs";
 import {
   expectedSignatureExcludedMachOHash,
   inspectReconstructedMacShell,
@@ -369,7 +369,7 @@ export async function verifyNpmElectronMacShell({ electronApp, reconstructedApp 
     throw new TypeError("Explicit electronApp and reconstructedApp paths are required");
   }
   const electronShellPath = path.join(electronApp, "Contents", "MacOS", "Electron");
-  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", "Grok Bot");
+  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", MACOS_EXECUTABLE_NAME);
   const [electronShell, reconstructedShell] = await Promise.all([
     readFile(electronShellPath),
     readFile(reconstructedShellPath),
@@ -388,7 +388,7 @@ export async function verifyReconstructedMacPackage({ officialApp, reconstructed
   if ([reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot].some(value => typeof value !== "string" || value.length === 0)) {
     throw new TypeError("Explicit reconstructedApp, sourceUnpackedRoot, and packagedUnpackedRoot paths are required");
   }
-  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", "Grok Bot");
+  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", MACOS_EXECUTABLE_NAME);
   const reconstructedAsarPath = path.join(reconstructedApp, "Contents", "Resources", "app.asar");
   const [reconstructedShell, reconstructedAsar] = await Promise.all([
     readFile(reconstructedShellPath),

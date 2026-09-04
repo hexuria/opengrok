@@ -1,4 +1,4 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import {
   outputApp,
@@ -49,13 +49,6 @@ await cp(builtAsarUnpacked, packagedUnpacked, {
 
 const infoPlist = path.join(outputApp, "Contents", "Info.plist");
 await removePlistKeyIfPresent(infoPlist, "ElectronAsarIntegrity");
-// CFBundleName must stay "Grok Bot": Electron derives nested helper bundle
-// names from it and the app CRASHES on launch if they don't match (verified
-// empirically). The menu-bar/About name instead comes from a localized
-// InfoPlist.strings, which macOS prefers over the raw plist values.
-const lprojDir = path.join(outputApp, "Contents", "Resources", "en.lproj");
-await mkdir(lprojDir, { recursive: true });
-await writeFile(path.join(lprojDir, "InfoPlist.strings"), `CFBundleName = "${reconstructedName}";\nCFBundleDisplayName = "${reconstructedName}";\n`);
 
 await rm(path.join(outputApp, "Contents", "_CodeSignature"), { recursive: true, force: true });
 try {

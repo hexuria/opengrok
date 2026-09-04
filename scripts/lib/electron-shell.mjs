@@ -1,21 +1,25 @@
-import { mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
   reconstructedBundleId,
+  reconstructedCopyright,
   reconstructedName,
   reconstructedProductUrl,
   repoRoot,
+  upstreamVersion,
 } from "./config.mjs";
-import { helperInfoPlistPath, reconstructedHelperIdentities } from "./macos-helper-identity.mjs";
+import {
+  electronHelperRenames,
+  helperInfoPlistPath,
+  MACOS_EXECUTABLE_NAME,
+  reconstructedHelperIdentities,
+} from "./macos-helper-identity.mjs";
 import { capture, run } from "./process.mjs";
 import { SYSTEM_TOOLS } from "./system-tools.mjs";
 
+export { electronHelperRenames, MACOS_EXECUTABLE_NAME };
 export const NPM_ELECTRON_VERSION = "42.1.0";
-// Electron derives nested helper folder names from CFBundleName. Mixed names
-// crash on launch, so the inner executable and helper prefix stay "Grok Bot"
-// while CFBundleDisplayName / InfoPlist.strings carry "Open Grok".
-export const MACOS_EXECUTABLE_NAME = "Grok Bot";
 
 // Two schemes on purpose: `sand` is what the Cursor auth callback redirects
 // to (renaming it breaks sign-in); `opengrok` is the brand scheme for links
@@ -24,15 +28,6 @@ export const reconstructedUrlTypesXml = "<array><dict><key>CFBundleTypeRole</key
 
 export function resolveNpmElectronApp(root = repoRoot) {
   return path.join(root, "node_modules", "electron", "dist", "Electron.app");
-}
-
-export function electronHelperRenames(executableName = MACOS_EXECUTABLE_NAME) {
-  return [
-    { from: "Electron Helper", to: `${executableName} Helper` },
-    { from: "Electron Helper (GPU)", to: `${executableName} Helper (GPU)` },
-    { from: "Electron Helper (Plugin)", to: `${executableName} Helper (Plugin)` },
-    { from: "Electron Helper (Renderer)", to: `${executableName} Helper (Renderer)` },
-  ];
 }
 
 async function plistHasKey(plist, key) {
@@ -83,6 +78,24 @@ export async function assertNpmElectronApp(sourceApp = resolveNpmElectronApp()) 
   }
 }
 
+export async function writeLocalizedDisplayNames(appPath, displayName) {
+  // npm Electron.app ships InfoPlist.strings in many locales with
+  // CFBundleName = "Electron". A non-en macOS locale prefers those over
+  // en.lproj and over the unlocalized plist, so every *.lproj must carry the
+  // display name. Unlocalized CFBundleName stays Grok Bot for helper lookup.
+  const resources = path.join(appPath, "Contents", "Resources");
+  await mkdir(resources, { recursive: true });
+  const entries = await readdir(resources, { withFileTypes: true });
+  const lprojs = new Set(entries.filter(entry => entry.isDirectory() && entry.name.endsWith(".lproj")).map(entry => entry.name));
+  lprojs.add("en.lproj");
+  const strings = `CFBundleName = "${displayName}";\nCFBundleDisplayName = "${displayName}";\n`;
+  for (const lproj of lprojs) {
+    const dir = path.join(resources, lproj);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "InfoPlist.strings"), strings);
+  }
+}
+
 export async function renameElectronShell(appPath, executableName = MACOS_EXECUTABLE_NAME) {
   if (typeof appPath !== "string" || appPath.length === 0) throw new TypeError("An explicit application bundle path is required");
   const macos = path.join(appPath, "Contents", "MacOS");
@@ -114,12 +127,16 @@ export async function applyMacBundleIdentity({
   await setPlistString(infoPlist, "CFBundleDisplayName", displayName);
   await setPlistString(infoPlist, "CFBundleName", executableName);
   await setPlistString(infoPlist, "CFBundleExecutable", executableName);
+  await setPlistString(infoPlist, "CFBundleShortVersionString", upstreamVersion);
+  await setPlistString(infoPlist, "CFBundleVersion", upstreamVersion);
+  await setPlistString(infoPlist, "NSHumanReadableCopyright", reconstructedCopyright);
   await setPlistString(infoPlist, "GrokProductURL", productUrl);
   // plutil -insert -xml replaces an XML plist wholesale; binary form inserts the key.
   await run(SYSTEM_TOOLS.plutil, ["-convert", "binary1", infoPlist]);
   await removePlistKeyIfPresent(infoPlist, "CFBundleURLTypes");
   await run(SYSTEM_TOOLS.plutil, ["-insert", "CFBundleURLTypes", "-xml", reconstructedUrlTypesXml, infoPlist]);
-  for (const { folder, bundleId: helperId } of reconstructedHelperIdentities(bundleId)) {
+  await writeLocalizedDisplayNames(appPath, displayName);
+  for (const { folder, bundleId: helperId } of reconstructedHelperIdentities(bundleId, executableName)) {
     const helperPlist = helperInfoPlistPath(appPath, folder);
     const helperName = folder.replace(/\.app$/, "");
     await setPlistString(helperPlist, "CFBundleIdentifier", helperId);
