@@ -13,6 +13,7 @@ import {
   generateRendererPlaceholderAsset,
   immutableRendererAssetAllowlist,
   isForbiddenRendererGraphInput,
+  isNpmVendoredRendererAsset,
   isForbiddenRuntimeAssetSource,
   isSrcAppArtifactRoot,
   planRuntimeAssetCopy,
@@ -121,6 +122,18 @@ test("a src/app immutable allowlist is empty so skipped 0.18 JS cannot block com
     ],
   });
   assert.equal(recovered["assets/own.js"].sha256, "aaaa");
+});
+
+test("npm-vendored renderer JS is exempt from the clean-source banner without 0.18 hashes", () => {
+  assert.equal(isNpmVendoredRendererAsset("assets/katex-DHMw6HUq.js"), true);
+  assert.equal(isNpmVendoredRendererAsset("assets/pdf-WLgSwHwh.js"), true);
+  assert.equal(isNpmVendoredRendererAsset("dist/renderer/assets/katex-DHMw6HUq.js"), true);
+  const provenance = {
+    assets: [{ file: "extra-vendor.js", source: "npm", sha256: "not-the-018-hash" }],
+  };
+  assert.equal(isNpmVendoredRendererAsset("assets/extra-vendor.js", provenance), true);
+  assert.equal(isNpmVendoredRendererAsset("assets/index.js", provenance), false);
+  assert.equal(isNpmVendoredRendererAsset("assets/xlsx-CNerDvZX.js", provenance), false);
 });
 
 test("copyRuntimeAssets does not read src/app even when the manifest points there", async () => {

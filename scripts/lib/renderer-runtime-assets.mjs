@@ -42,6 +42,15 @@ export const NPM_RUNTIME_ASSET_SOURCES = Object.freeze({
   "katex-DHMw6HUq.js": "node_modules/katex/dist/katex.min.js",
 });
 
+/** Renderer-relative path (`assets/foo.js`) of an npm-vendored runtime file. */
+export function isNpmVendoredRendererAsset(relativePath, provenance = null) {
+  const normalized = String(relativePath ?? "").split(path.sep).join("/").replace(/^dist\/renderer\//, "");
+  const file = normalized.startsWith("assets/") ? normalized.slice("assets/".length) : normalized;
+  if (Object.hasOwn(NPM_RUNTIME_ASSET_SOURCES, file)) return true;
+  if (!Array.isArray(provenance?.assets)) return false;
+  return provenance.assets.some((asset) => asset?.source === "npm" && asset.file === file);
+}
+
 const SRC_APP_ROOT = "src/app";
 const MINIMAL_PNG = Buffer.from(
   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082",

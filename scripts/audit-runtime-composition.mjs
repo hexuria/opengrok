@@ -10,7 +10,7 @@ import { build as esbuild } from "esbuild";
 
 import { runtimeComposition } from "./lib/clean-build.mjs";
 import { repoRoot } from "./lib/config.mjs";
-import { immutableRendererAssetAllowlist } from "./lib/renderer-runtime-assets.mjs";
+import { immutableRendererAssetAllowlist, isNpmVendoredRendererAsset } from "./lib/renderer-runtime-assets.mjs";
 import { requiredElectronMainProductionBindings } from "./electron-main-production-activation.mjs";
 import { assembleHostProductionBindingManifest } from "./host-production-activation.mjs";
 
@@ -642,6 +642,7 @@ async function cleanRuntimeVerdicts(outputRoot, requireOutputs, runtimeNames = n
       const missingBanners = jsChunks.filter(({ file, text }) => (
         !text.includes(`"Deterministic clean-source renderer: ${runtime.entrypoint}";`)
         && !isAllowlistedImmutableRendererAsset(file, text)
+        && !isNpmVendoredRendererAsset(file, provenance)
       )).map(({ file }) => file);
       const blockers = [
         ...graph.forbiddenEvidenceInputs.map(input => `source-graph:${input}`),
