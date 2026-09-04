@@ -510,6 +510,8 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.match(production, /\.sand-info-pane\[data-open\] \{/);
   assert.match(production, /\.sand-workspace-rail\[data-sidebar-collapsed\]/);
   assert.match(production, /padding-top: var\(--sand-titlebar-block, 52px\);/);
+  assert.match(production, /\.sand-workspace-rail \{[^}]*background: var\(--cursor-bg-chrome\);/s);
+  assert.match(production, /\.sand-workspace-rail \{[^}]*border-right: \.5px solid var\(--sand-border-weak\);/s);
   assert.match(production, /\.sand-agents-sidebar__brand \{/);
   assert.doesNotMatch(production, /\.sand-agents-sidebar__account > button > span:first-child \{[^}]*--sand-fill-accent/);
   const sidebar = await readFrontend("frontend/src/recovered/features/conversation/workspace/sidebar.tsx");
