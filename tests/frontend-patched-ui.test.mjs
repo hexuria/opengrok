@@ -423,7 +423,8 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(view, /\.sand-message-block \{/);
   assert.match(view, /\.sand-virtual-transcript \{[^}]*overflow-x: hidden;/);
   assert.match(view, /\.sand-virtual-transcript \{[^}]*padding: 16px 16px 8px;/);
-  assert.match(view, /\.sand-transcript-row \{[^}]*padding: 8px 0;/);
+  assert.match(view, /\.sand-transcript-row \{[^}]*margin: 0 0 8px;/);
+  assert.match(view, /\.sand-virtual-transcript > \.sand-message-action-anchor \{[^}]*margin: 0 0 8px;/);
   assert.match(view, /\.sand-transcript-row\[data-role="user"\] \{[^}]*align-items: flex-end;/);
   assert.match(view, /\.sand-transcript-row\[data-role="assistant"\] \{[^}]*align-items: flex-start;/);
   assert.match(view, /\.sand-message-hover-actions__button \{[^}]*background: var\(--cursor-bg-elevated\);/);
