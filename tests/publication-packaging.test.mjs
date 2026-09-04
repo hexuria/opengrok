@@ -58,12 +58,15 @@ test("default packaging keeps the polished checksum-pinned renderer", async () =
 
 test("default packaging wraps npm Electron and does not require the official Mac shell", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
+  const bundle = await readFile(path.join(repoRoot, "scripts", "lib", "package-app-bundle.mjs"), "utf8");
   const shell = await readFile(path.join(repoRoot, "scripts", "lib", "electron-shell.mjs"), "utf8");
   const diagnostic = await readFile(path.join(repoRoot, "scripts", "package-fidelity-diagnostic.mjs"), "utf8");
-  assert.match(source, /from "\.\/lib\/electron-shell\.mjs"/);
-  assert.match(source, /stageNpmElectronShell/);
+  assert.match(source, /assembleReconstructedAppBundle/);
+  assert.match(bundle, /stageNpmElectronShell/);
   assert.doesNotMatch(source, /verifyOfficialMacReference/);
+  assert.doesNotMatch(bundle, /verifyOfficialMacReference/);
   assert.doesNotMatch(source, /ditto, \[runtimeApp, outputApp\]/);
+  assert.doesNotMatch(bundle, /ditto, \[runtimeApp, outputApp\]/);
   assert.doesNotMatch(source, /officialMacReleaseShellHash/);
   assert.doesNotMatch(source, /expectedSignatureExcludedMachOHash/);
   assert.match(shell, /CFBundleName/);
@@ -84,10 +87,14 @@ test("package:vite is the opt-in clean renderer packager", async () => {
   assert.equal(pkg.scripts.package, "npm run check && node scripts/package-macos.mjs");
   assert.equal(pkg.scripts["package:vite"], "node scripts/package-vite.mjs");
   const source = await readFile(path.join(repoRoot, "scripts", "package-vite.mjs"), "utf8");
+  const macos = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
+  const config = await readFile(path.join(repoRoot, "scripts", "lib", "config.mjs"), "utf8");
   assert.match(source, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
   assert.match(source, /await buildReconstructedAsar\(\)/);
   assert.doesNotMatch(source, /buildFidelityReconstructedAsar/);
-  assert.match(source, /Open Grok Vite\.app/);
+  assert.match(source, /assembleReconstructedAppBundle/);
+  assert.match(macos, /assembleReconstructedAppBundle/);
+  assert.match(config, /Open Grok Vite\.app/);
 });
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {

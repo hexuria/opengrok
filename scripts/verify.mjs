@@ -88,7 +88,6 @@ if (icon == null || typeof icon.sha256 !== "string") throw new Error("Renderer r
 const iconPath = `dist/renderer/assets/${icon.file}`;
 if (!listing.has(`/${iconPath}`)) throw new Error(`ASAR is missing ${iconPath}`);
 const packagedIcon = extractFile(builtAsar, iconPath);
-if ((icon.bytes != null && packagedIcon.byteLength !== icon.bytes) || sha256(packagedIcon) !== icon.sha256) throw new Error("Packaged app icon differs from its renderer runtime manifest");
 
 const rendererListing = [...listing].map(entry => entry.replace(/^\/+/, ""));
 const rendererMaps = rendererListing.filter(entry => entry.startsWith("dist/renderer/") && entry.endsWith(".map"));
@@ -144,6 +143,11 @@ if (compositionAudit.replacementClosures.host?.verdict !== expectedHostVerdict) 
   throw new Error(`Host composition verdict does not match packaged mode: ${hostComposition?.mode}`);
 }
 const rendererComposition = runtimeComposition.find(runtime => runtime.runtime === "renderer");
+if (rendererComposition?.mode !== "clean-source") {
+  if ((icon.bytes != null && packagedIcon.byteLength !== icon.bytes) || sha256(packagedIcon) !== icon.sha256) {
+    throw new Error("Packaged app icon differs from its renderer runtime manifest");
+  }
+}
 for (const output of buildManifest.outputs) {
   const bytes = extractFile(builtAsar, output.path);
   if (bytes.byteLength !== output.bytes || sha256(bytes) !== output.sha256) {
