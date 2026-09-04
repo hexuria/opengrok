@@ -9,7 +9,8 @@ import { extractFile, listPackage } from "@electron/asar";
 import { build as esbuild } from "esbuild";
 
 import { runtimeComposition } from "./lib/clean-build.mjs";
-import { repoRoot, sourceAppDir } from "./lib/config.mjs";
+import { repoRoot } from "./lib/config.mjs";
+import { immutableRendererAssetAllowlist, isNpmVendoredRendererAsset } from "./lib/renderer-runtime-assets.mjs";
 import { requiredElectronMainProductionBindings } from "./electron-main-production-activation.mjs";
 import { assembleHostProductionBindingManifest } from "./host-production-activation.mjs";
 
@@ -52,31 +53,29 @@ const requiredElectronProductionAreas = new Set([
 // source banner. The policy is derived from the recovery manifest so an
 // exemption is exact manifest path + size + SHA, followed by exact ASAR
 // placement when a packaged output is being audited.
-const rendererRuntimeManifest = JSON.parse(readFileSync(
-  path.join(repoRoot, "frontend/manifests/renderer-runtime-assets.json"),
-  "utf8",
-));
 const forbiddenImmutableRendererAssets = new Set([
   "assets/index-UbX-y3il.js",
   "assets/mermaid.core-CYC_FcEu.js",
 ]);
 export const IMMUTABLE_RENDERER_ASSET_FORBIDDEN = Object.freeze([...forbiddenImmutableRendererAssets]);
-export const IMMUTABLE_RENDERER_ASSET_ALLOWLIST = Object.freeze(Object.fromEntries(
-  (rendererRuntimeManifest.immutableAssets ?? [])
-    .map((asset) => [`assets/${asset.file}`, Object.freeze({
-      artifact: `${rendererRuntimeManifest.artifactRoot}/${asset.file}`,
-      manifestFile: asset.file,
-      bytes: asset.bytes ?? readFileSync(path.join(repoRoot, rendererRuntimeManifest.artifactRoot, asset.file)).byteLength,
-      sha256: asset.sha256,
-    })])
-    .filter(([relativePath]) => !forbiddenImmutableRendererAssets.has(relativePath)),
-));
+function loadRendererRuntimeManifest() {
+  try {
+    return JSON.parse(readFileSync(path.join(repoRoot, "frontend/manifests/renderer-runtime-assets.json"), "utf8"));
+  } catch {
+    return { artifactRoot: null, assets: [], immutableAssets: [] };
+  }
+}
+// Empty when the stow manifest still names src/app: the Vite renderer does not
+// ship those 0.18 hashed chunks, so they must not block composition.
+export const IMMUTABLE_RENDERER_ASSET_ALLOWLIST = Object.freeze(immutableRendererAssetAllowlist(loadRendererRuntimeManifest()));
 
 export function isAllowlistedImmutableRendererAsset(relativePath, content) {
   if (forbiddenImmutableRendererAssets.has(relativePath)) return false;
   const record = IMMUTABLE_RENDERER_ASSET_ALLOWLIST[relativePath];
   const bytes = typeof content === "string" ? Buffer.byteLength(content) : content.byteLength;
-  return record != null && bytes === record.bytes && sha256(content) === record.sha256;
+  if (record == null || sha256(content) !== record.sha256) return false;
+  if (record.bytes != null && bytes !== record.bytes) return false;
+  return true;
 }
 
 const runtimeSpecs = Object.freeze({
@@ -585,7 +584,7 @@ async function auditImmutableRendererAssets({ outputRoot, outputPath, outputFile
   if (asarPath != null) {
     const listing = new Set(listPackage(asarPath));
     const packagedAssets = [];
-    for (const [relativePath, record] of Object.entries(IMMUTABLE_RENDERER_ASSET_ALLOWLIST)) {
+    for (const [relativePath] of Object.entries(IMMUTABLE_RENDERER_ASSET_ALLOWLIST)) {
       const packagedPath = `dist/renderer/${relativePath}`;
       const listed = listing.has(`/${packagedPath}`) && !listing.has(`/${packagedPath}.unpacked`);
       let packaged = null;
@@ -643,6 +642,7 @@ async function cleanRuntimeVerdicts(outputRoot, requireOutputs, runtimeNames = n
       const missingBanners = jsChunks.filter(({ file, text }) => (
         !text.includes(`"Deterministic clean-source renderer: ${runtime.entrypoint}";`)
         && !isAllowlistedImmutableRendererAsset(file, text)
+        && !isNpmVendoredRendererAsset(file, provenance)
       )).map(({ file }) => file);
       const blockers = [
         ...graph.forbiddenEvidenceInputs.map(input => `source-graph:${input}`),

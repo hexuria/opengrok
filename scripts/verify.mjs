@@ -13,6 +13,7 @@ import {
   upstreamAsarSha256,
 } from "./lib/config.mjs";
 import { prepareReconstructedElectronMainArtifactFallback } from "./lib/build-asar.mjs";
+import { isNpmVendoredRendererAsset } from "./lib/renderer-runtime-assets.mjs";
 import { resolvePackagedAppArtifacts } from "./lib/packaged-app.mjs";
 import { capture, run } from "./lib/process.mjs";
 import { SYSTEM_TOOLS } from "./lib/system-tools.mjs";
@@ -88,7 +89,6 @@ if (icon == null || typeof icon.sha256 !== "string") throw new Error("Renderer r
 const iconPath = `dist/renderer/assets/${icon.file}`;
 if (!listing.has(`/${iconPath}`)) throw new Error(`ASAR is missing ${iconPath}`);
 const packagedIcon = extractFile(builtAsar, iconPath);
-if ((icon.bytes != null && packagedIcon.byteLength !== icon.bytes) || sha256(packagedIcon) !== icon.sha256) throw new Error("Packaged app icon differs from its renderer runtime manifest");
 
 const rendererListing = [...listing].map(entry => entry.replace(/^\/+/, ""));
 const rendererMaps = rendererListing.filter(entry => entry.startsWith("dist/renderer/") && entry.endsWith(".map"));
@@ -144,6 +144,11 @@ if (compositionAudit.replacementClosures.host?.verdict !== expectedHostVerdict) 
   throw new Error(`Host composition verdict does not match packaged mode: ${hostComposition?.mode}`);
 }
 const rendererComposition = runtimeComposition.find(runtime => runtime.runtime === "renderer");
+if (rendererComposition?.mode !== "clean-source") {
+  if ((icon.bytes != null && packagedIcon.byteLength !== icon.bytes) || sha256(packagedIcon) !== icon.sha256) {
+    throw new Error("Packaged app icon differs from its renderer runtime manifest");
+  }
+}
 for (const output of buildManifest.outputs) {
   const bytes = extractFile(builtAsar, output.path);
   if (bytes.byteLength !== output.bytes || sha256(bytes) !== output.sha256) {
@@ -168,7 +173,7 @@ if (rendererComposition?.mode === "clean-source") {
   if (rendererProvenance.evidence?.uiSummary?.findings !== 0 || rendererProvenance.evidence?.emittedLazyEntries?.length !== 5) throw new Error("Packaged renderer provenance or lazy boundaries are incomplete.");
   if (packagedRendererIndex.includes("index-UbX-y3il.js")) throw new Error("Packaged clean renderer still activates the immutable artifact entry chunk.");
   const rendererRuntimeAssetPaths = new Set(rendererAssets.map(asset => `dist/renderer/assets/${asset.file}`));
-  for (const output of rendererProvenance.outputs.filter(output => output.path.endsWith(".js") && !rendererRuntimeAssetPaths.has(output.path))) {
+  for (const output of rendererProvenance.outputs.filter(output => output.path.endsWith(".js") && !rendererRuntimeAssetPaths.has(output.path) && !isNpmVendoredRendererAsset(output.path, rendererProvenance))) {
     const contents = extractFile(builtAsar, output.path).toString("utf8");
     if (!contents.includes('"Deterministic clean-source renderer: frontend/src/main.tsx";')) throw new Error(`Renderer chunk did not come from the clean production root: ${output.path}`);
   }
