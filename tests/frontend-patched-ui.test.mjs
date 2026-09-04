@@ -224,6 +224,12 @@ whenFrontend("select/delete/collections rail contracts", async () => {
     assert.deepEqual(loaded.idsOf(el({ "data-row-key": "t12u" })), []);
     assert.deepEqual(loaded.idsOf(el({ "data-row-key": "e_7", "data-entry-id": "e_7" })), []);
     assert.deepEqual(loaded.idsOf(el({ "data-row-key": "e_7", "data-entry-ids": "e_7 e_8" })), ["e_7", "e_8"]);
+    const recovered = el({ "aria-labelledby": labelled("e_1"), "data-entry-id": "e_1", "data-index": "0" });
+    assert.deepEqual(loaded.idsOf(recovered), ["e_1"], "a recovered row is labelled, not keyed");
+    assert.equal(loaded.selectableRowsIn({ querySelectorAll: () => [recovered] }).length, 1);
+    assert.equal(loaded.selectableRowsIn({ querySelectorAll: () => [el({ "data-entry-id": "e_7" })] }).length, 0, "a borrowed data-entry-id without a label is not a bubble");
+    assert.deepEqual(loaded.filterTombstonedEntries([{ id: "e_1" }, { id: "e_2" }], "cw_1", { cw_1: ["e_1"] }).map((e) => e.id), ["e_2"]);
+    assert.deepEqual(loaded.filterTombstonedEntries([{ id: "e_1" }], "cw_1", {}).map((e) => e.id), ["e_1"]);
     assert.equal(loaded.SELECT_COUNT_TEXT(1), "1 selected");
     assert.equal(loaded.SELECT_ADD_LOADED_LABEL(2), "Add the 2 loaded messages to the selection");
     assert.equal(loaded.SELECT_ADD_LOADED_TEXT(0), "All loaded added");
@@ -361,8 +367,10 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(renderer, /SelectMessagesHost/);
   assert.match(renderer, /maySkipLoginWall/);
   assert.match(renderer, /shouldShowCursorLoginWall\(account, \{ skipped: subscriptionReady \}\)/);
+  assert.match(renderer, /filterTombstonedEntries/);
   const sidebar = await readFrontend("frontend/src/recovered/features/conversation/workspace/sidebar.tsx");
   assert.match(sidebar, /CollectionsRailButton/);
+  assert.match(sidebar, /data-agent-id=\{agent\.id\}/);
   const actions = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/auto-review-actions.ts");
   assert.match(actions, /alwaysAllowForCoworker/);
   const approval = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/views/auto-review-approval.tsx");
@@ -373,6 +381,7 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   const transcript = await readFrontend("frontend/src/recovered/features/conversation/workspace/transcript.tsx");
   assert.match(transcript, /convertLatexDelimiters/);
   assert.match(transcript, /splitMathSegments/);
+  assert.match(transcript, /<p>\{renderAssistantInlineText\(visible\.text\)\}<\/p>/);
   const math = await readFrontend("frontend/src/recovered/features/conversation/workspace/math.tsx");
   assert.match(math, /splitMathSegments\(text\)/);
   const attachment = await readFrontend("frontend/src/recovered/features/conversation/cards/transcript-card/views/attachment.tsx");
@@ -383,6 +392,9 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(selectHost, /sand-sel-layer/);
   assert.match(selectHost, /sand-sel-box/);
   assert.match(selectHost, /SELECT_GUTTER_PX/);
+  assert.match(selectHost, /SELECTABLE_ROW_SELECTOR/);
+  assert.match(selectHost, /selectableRowsIn/);
+  assert.match(selectHost, /sand-tombstones-changed/);
   assert.match(selectHost, /shiftKey/);
   assert.match(selectHost, /New collection/);
   assert.match(selectHost, /confirmDelete/);
