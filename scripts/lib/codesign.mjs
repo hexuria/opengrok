@@ -1,7 +1,11 @@
+import path from "node:path";
+
+import { repoRoot } from "./config.mjs";
 import { run } from "./process.mjs";
 
 export const AD_HOC_CODESIGN_IDENTITY = "-";
 export const CODESIGN_IDENTITY_ENV = "SAND_CODESIGN_IDENTITY";
+export const ELECTRON_ENTITLEMENTS_PATH = path.join(repoRoot, "scripts", "macos-entitlements.plist");
 export const NONINTERACTIVE_CODESIGN_STDIO = Object.freeze([
   "ignore",
   "inherit",
@@ -56,20 +60,41 @@ async function defaultListIdentities() {
   return stdout;
 }
 
-export function codesignArguments(target, identity = AD_HOC_CODESIGN_IDENTITY) {
+export function codesignArguments(target, identity = AD_HOC_CODESIGN_IDENTITY, options = {}) {
   if (typeof target !== "string" || target.length === 0) {
     throw new TypeError("An explicit application bundle path is required for signing.");
   }
-  return [
-    "--force",
-    "--deep",
+  const args = ["--force", "--deep"];
+  if (options.timestamp === true) {
+    args.push("--timestamp");
+  } else {
     // No timestamp: the signature is for local identity, not distribution, and
     // a timestamp would make packaging depend on Apple's server being reachable.
-    "--timestamp=none",
-    "--sign",
-    identity,
-    target,
-  ];
+    args.push("--timestamp=none");
+  }
+  if (options.hardenedRuntime) {
+    args.push("--options", "runtime");
+  }
+  if (options.entitlements != null) {
+    if (typeof options.entitlements !== "string" || options.entitlements.length === 0) {
+      throw new TypeError("An entitlements path is required when signing with entitlements.");
+    }
+    args.push("--entitlements", options.entitlements);
+  }
+  args.push("--sign", identity, target);
+  return args;
+}
+
+export function distributionCodesignArguments(target, identity, options = {}) {
+  if (typeof identity !== "string" || identity.length === 0 || identity === AD_HOC_CODESIGN_IDENTITY) {
+    throw new Error("Distribution signing requires a Developer ID identity; ad-hoc signatures cannot be timestamped or notarized.");
+  }
+  const entitlements = options.entitlements ?? ELECTRON_ENTITLEMENTS_PATH;
+  return codesignArguments(target, identity, {
+    timestamp: true,
+    hardenedRuntime: true,
+    entitlements,
+  });
 }
 
 export function adHocCodesignArguments(target) {
@@ -86,4 +111,12 @@ export async function signAppBundle(target, runCommand = run, options = {}) {
 
 export async function signAppBundleAdHoc(target, runCommand = run) {
   return await signAppBundle(target, runCommand, { identity: AD_HOC_CODESIGN_IDENTITY });
+}
+
+export async function signAppBundleForDistribution(target, runCommand = run, options = {}) {
+  const identity = options.identity ?? await resolveCodesignIdentity(options);
+  await runCommand("/usr/bin/codesign", distributionCodesignArguments(target, identity, options), {
+    stdio: NONINTERACTIVE_CODESIGN_STDIO,
+  });
+  return identity;
 }

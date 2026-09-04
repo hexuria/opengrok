@@ -17,6 +17,7 @@
     "native:build:electron": "node scripts/build-electron-natives.mjs",
     "package": "npm run check && node scripts/package-macos.mjs",
     "package:vite": "node scripts/package-vite.mjs",
+    "release:macos": "node scripts/release-macos.mjs",
     "package:diagnostic": "npm run check && node scripts/package-fidelity-diagnostic.mjs",
     "publication:check": "node scripts/verify-publication-tree.mjs",
     "postinstall": "node scripts/apply-third-party-patches.mjs",

@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   AD_HOC_CODESIGN_IDENTITY,
   CODESIGN_IDENTITY_ENV,
+  ELECTRON_ENTITLEMENTS_PATH,
   codesignArguments,
+  distributionCodesignArguments,
   parseSigningIdentities,
   pickCodesignIdentity,
   resolveCodesignIdentity,
   signAppBundle,
+  signAppBundleForDistribution,
 } from "../scripts/lib/codesign.mjs";
 
 const SECURITY_OUTPUT = `
@@ -77,4 +81,49 @@ test("signing passes the resolved identity through to codesign", async () => {
   // Packaging must never sign an unspecified target.
   assert.throws(() => codesignArguments(""), /application bundle path/);
   assert.throws(() => codesignArguments(undefined), /application bundle path/);
+});
+
+test("distribution signing uses a timestamp, hardened runtime, and Electron entitlements", async () => {
+  const identityName = "Developer ID Application: Example Dev (TEAMID1234)";
+  assert.deepEqual(
+    distributionCodesignArguments("/Applications/Example.app", identityName),
+    [
+      "--force",
+      "--deep",
+      "--timestamp",
+      "--options",
+      "runtime",
+      "--entitlements",
+      ELECTRON_ENTITLEMENTS_PATH,
+      "--sign",
+      identityName,
+      "/Applications/Example.app",
+    ],
+  );
+  assert.throws(
+    () => distributionCodesignArguments("/Applications/Example.app", AD_HOC_CODESIGN_IDENTITY),
+    /Developer ID/,
+  );
+  assert.throws(
+    () => distributionCodesignArguments("/Applications/Example.app", ""),
+    /Developer ID/,
+  );
+
+  const calls = [];
+  const identity = await signAppBundleForDistribution(
+    "/Applications/Example.app",
+    async (command, args) => { calls.push({ command, args }); },
+    { env: {}, listIdentities: async () => SECURITY_OUTPUT },
+  );
+  assert.equal(identity, identityName);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, "/usr/bin/codesign");
+  assert.deepEqual(calls[0].args, distributionCodesignArguments("/Applications/Example.app", identityName));
+  assert.equal(calls[0].args.includes("--timestamp=none"), false);
+
+  const entitlements = await readFile(ELECTRON_ENTITLEMENTS_PATH, "utf8");
+  assert.match(entitlements, /com\.apple\.security\.cs\.allow-jit/);
+  assert.match(entitlements, /com\.apple\.security\.cs\.allow-unsigned-executable-memory/);
+  assert.match(entitlements, /com\.apple\.security\.cs\.disable-library-validation/);
+  assert.doesNotMatch(entitlements, /com\.apple\.security\.app-sandbox/);
 });

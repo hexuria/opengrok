@@ -63,6 +63,9 @@ test("default packaging wraps npm Electron and does not require the official Mac
   const diagnostic = await readFile(path.join(repoRoot, "scripts", "package-fidelity-diagnostic.mjs"), "utf8");
   assert.match(source, /assembleReconstructedAppBundle/);
   assert.match(bundle, /stageNpmElectronShell/);
+  assert.match(bundle, /signAppBundle/);
+  assert.doesNotMatch(source, /signAppBundleForDistribution/);
+  assert.doesNotMatch(bundle, /signAppBundleForDistribution/);
   assert.doesNotMatch(source, /verifyOfficialMacReference/);
   assert.doesNotMatch(bundle, /verifyOfficialMacReference/);
   assert.doesNotMatch(source, /ditto, \[runtimeApp, outputApp\]/);
