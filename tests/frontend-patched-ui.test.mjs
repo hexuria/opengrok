@@ -14,12 +14,14 @@ const present = existsSync(PATCHED);
 
 /**
  * frontend/ is gitignored and restored from stow. A public clone without it
- * still runs the helper tests; CI with stow restored runs these ports so PR8
- * can flip the packager without losing coverage.
+ * still runs the helper tests; CI with stow restored runs these ports so the
+ * default Vite packager keeps coverage of the React ports.
  */
 test("frontend patched-ui skip contract: import ports when frontend/ is present, skip when absent", async () => {
   const packager = await readFile(path.join(repoRoot, "scripts/package-macos.mjs"), "utf8");
-  assert.doesNotMatch(packager, /package-vite/, "PR8 flips the packager; this PR does not");
+  assert.match(packager, /import \{ buildReconstructedAsar \} from "\.\/clean-build\.mjs"/);
+  assert.match(packager, /await buildReconstructedAsar\(\)/);
+  assert.doesNotMatch(packager, /buildFidelityReconstructedAsar/, "default packager ships the Vite UI");
   if (!present) {
     assert.equal(existsSync(path.join(FRONTEND, "src")), false, "a tree without frontend/src skips the React ports");
     return;
