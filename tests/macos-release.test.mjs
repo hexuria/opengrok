@@ -226,6 +226,23 @@ test("release-macos refuses a missing app and incomplete notary credentials with
       }),
       /Developer ID Application/,
     );
+    await assert.rejects(
+      () => releaseMacosApp({
+        appPath,
+        env: { SAND_CODESIGN_IDENTITY: "2".repeat(40) },
+        listIdentities: async () => SECURITY_OUTPUT,
+        runCommand,
+      }),
+      /Developer ID Application/,
+    );
+    const hashResult = await releaseMacosApp({
+      appPath,
+      env: { SAND_CODESIGN_IDENTITY: "1".repeat(40) },
+      listIdentities: async () => SECURITY_OUTPUT,
+      runCommand,
+    });
+    assert.equal(hashResult.identity, "1".repeat(40));
+    assert.equal(calls.at(-3)?.args.at(-2), "1".repeat(40));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

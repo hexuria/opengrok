@@ -8,10 +8,13 @@ import {
   AD_HOC_CODESIGN_IDENTITY,
   CODESIGN_IDENTITY_ENV,
   ELECTRON_ENTITLEMENTS_PATH,
+  ELECTRON_HELPER_ENTITLEMENTS_PATH,
   LOCAL_CODESIGN_OPTIONS,
   codesignArguments,
   compareSignTargetDepth,
   distributionCodesignArguments,
+  entitlementsPathForDistributionTarget,
+  isDeveloperIdApplicationIdentity,
   listNestedDistributionSignTargets,
   parseSigningIdentities,
   pickCodesignIdentity,
@@ -134,6 +137,41 @@ test("distribution signing uses a timestamp, hardened runtime, and Electron enti
     () => distributionCodesignArguments("/Applications/Example.app", "Apple Development: Example Dev (TEAMID5678)"),
     /Developer ID Application/,
   );
+  const developerIdHash = "1".repeat(40);
+  const developmentHash = "2".repeat(40);
+  const identities = parseSigningIdentities(SECURITY_OUTPUT);
+  assert.equal(isDeveloperIdApplicationIdentity(developerIdHash, identities), true);
+  assert.equal(isDeveloperIdApplicationIdentity(developmentHash, identities), false);
+  assert.equal(isDeveloperIdApplicationIdentity(developerIdHash, []), false);
+  assert.deepEqual(
+    distributionCodesignArguments("/Applications/Example.app", developerIdHash, { identities }),
+    [
+      "--force",
+      "--timestamp",
+      "--options",
+      "runtime",
+      "--entitlements",
+      ELECTRON_ENTITLEMENTS_PATH,
+      "--sign",
+      developerIdHash,
+      "/Applications/Example.app",
+    ],
+  );
+  assert.throws(
+    () => distributionCodesignArguments("/Applications/Example.app", developmentHash, { identities }),
+    /Developer ID Application/,
+  );
+
+  const hashCalls = [];
+  assert.equal(
+    await signAppBundleForDistribution(
+      "/Applications/Example.app",
+      async (_command, args) => { hashCalls.push(args); },
+      { identity: developerIdHash, listIdentities: async () => SECURITY_OUTPUT, listNestedTargets: async () => [] },
+    ),
+    developerIdHash,
+  );
+  assert.equal(hashCalls[0].at(-2), developerIdHash);
 
   const calls = [];
   const identity = await signAppBundleForDistribution(
@@ -167,6 +205,9 @@ test("distribution signing uses a timestamp, hardened runtime, and Electron enti
   assert.match(entitlements, /com\.apple\.security\.automation\.apple-events/);
   assert.doesNotMatch(entitlements, /com\.apple\.security\.app-sandbox/);
   assert.doesNotMatch(entitlements, /allow-dyld-environment-variables/);
+  const helperEntitlements = await readFile(ELECTRON_HELPER_ENTITLEMENTS_PATH, "utf8");
+  assert.match(helperEntitlements, /com\.apple\.security\.cs\.allow-jit/);
+  assert.doesNotMatch(helperEntitlements, /com\.apple\.security\.automation\.apple-events/);
 });
 
 test("distribution signing signs nested helpers inside-out without --deep", async () => {
@@ -176,31 +217,47 @@ test("distribution signing signs nested helpers inside-out without --deep", asyn
   const framework = path.join(appPath, "Contents", "Frameworks", "Electron Framework.framework");
   const dylib = path.join(framework, "Versions", "A", "Libraries", "libffmpeg.dylib");
   const crashpad = path.join(appPath, "Contents", "Frameworks", "chrome_crashpad_handler");
+  const native = path.join(appPath, "Contents", "Resources", "app.asar.unpacked", "tree-sitter.node");
   await mkdir(helper, { recursive: true });
   await mkdir(path.dirname(dylib), { recursive: true });
+  await mkdir(path.dirname(native), { recursive: true });
   await writeFile(dylib, "");
+  await writeFile(native, "");
   await writeFile(crashpad, Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]));
   try {
     const nested = await listNestedDistributionSignTargets(appPath);
-    assert.deepEqual(nested, [dylib, framework, crashpad, helper].sort(compareSignTargetDepth));
+    assert.deepEqual(nested, [dylib, framework, crashpad, helper, native].sort(compareSignTargetDepth));
     assert.ok(nested.indexOf(dylib) < nested.indexOf(framework));
     assert.equal(nested.includes(appPath), false);
+    assert.equal(entitlementsPathForDistributionTarget(appPath, appPath), ELECTRON_ENTITLEMENTS_PATH);
+    assert.equal(entitlementsPathForDistributionTarget(helper, appPath), ELECTRON_HELPER_ENTITLEMENTS_PATH);
+    assert.equal(entitlementsPathForDistributionTarget(dylib, appPath), null);
+    assert.equal(entitlementsPathForDistributionTarget(crashpad, appPath), null);
+    assert.equal(entitlementsPathForDistributionTarget(native, appPath), null);
+    assert.equal(entitlementsPathForDistributionTarget(framework, appPath), null);
 
     const calls = [];
     const identityName = "Developer ID Application: Example Dev (TEAMID1234)";
     await signAppBundleForDistribution(
       appPath,
       async (_command, args) => { calls.push(args); },
-      { identity: identityName },
+      { identity: identityName, listIdentities: async () => SECURITY_OUTPUT },
     );
     const targets = calls.map((args) => args.at(-1));
     assert.deepEqual(targets.slice(0, -1), nested);
     assert.equal(targets.at(-1), appPath);
+    const argsByTarget = new Map(calls.map((args) => [args.at(-1), args]));
     for (const args of calls) {
       assert.equal(args.includes("--deep"), false);
       assert.ok(args.includes("--timestamp"));
       assert.ok(args.includes("runtime"));
     }
+    for (const library of [dylib, crashpad, native, framework]) {
+      assert.equal(argsByTarget.get(library).includes("--entitlements"), false);
+    }
+    assert.ok(argsByTarget.get(helper).includes(ELECTRON_HELPER_ENTITLEMENTS_PATH));
+    assert.equal(argsByTarget.get(helper).includes(ELECTRON_ENTITLEMENTS_PATH), false);
+    assert.ok(argsByTarget.get(appPath).includes(ELECTRON_ENTITLEMENTS_PATH));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

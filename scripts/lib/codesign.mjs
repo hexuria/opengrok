@@ -7,7 +7,9 @@ import { run } from "./process.mjs";
 export const AD_HOC_CODESIGN_IDENTITY = "-";
 export const CODESIGN_IDENTITY_ENV = "SAND_CODESIGN_IDENTITY";
 export const DEVELOPER_ID_APPLICATION_PREFIX = "Developer ID Application:";
+export const IDENTITY_HASH_PATTERN = /^[0-9A-Fa-f]{40}$/;
 export const ELECTRON_ENTITLEMENTS_PATH = path.join(repoRoot, "scripts", "macos-entitlements.plist");
+export const ELECTRON_HELPER_ENTITLEMENTS_PATH = path.join(repoRoot, "scripts", "macos-helper-entitlements.plist");
 export const NONINTERACTIVE_CODESIGN_STDIO = Object.freeze([
   "ignore",
   "inherit",
@@ -60,8 +62,39 @@ export function pickCodesignIdentity(identities) {
   return named(DEVELOPER_ID_APPLICATION_PREFIX) ?? named("Apple Development:");
 }
 
-export function isDeveloperIdApplicationIdentity(identity) {
-  return typeof identity === "string" && identity.startsWith(DEVELOPER_ID_APPLICATION_PREFIX);
+export function isIdentityHash(identity) {
+  return typeof identity === "string" && IDENTITY_HASH_PATTERN.test(identity);
+}
+
+export function isDeveloperIdApplicationIdentity(identity, identities = []) {
+  if (typeof identity !== "string" || identity.length === 0) return false;
+  if (identity.startsWith(DEVELOPER_ID_APPLICATION_PREFIX)) return true;
+  if (!isIdentityHash(identity)) return false;
+  const match = identities.find((item) => item.hash.toLowerCase() === identity.toLowerCase());
+  return Boolean(match?.name.startsWith(DEVELOPER_ID_APPLICATION_PREFIX));
+}
+
+export async function loadSigningIdentities(options = {}) {
+  if (Array.isArray(options.identities)) return options.identities;
+  const list = options.listIdentities ?? defaultListIdentities;
+  try {
+    return parseSigningIdentities(await list());
+  } catch {
+    return [];
+  }
+}
+
+export function entitlementsPathForDistributionTarget(target, rootAppPath, options = {}) {
+  if (typeof target !== "string" || target.length === 0) {
+    throw new TypeError("An explicit application bundle path is required for signing.");
+  }
+  if (path.resolve(target) === path.resolve(rootAppPath)) {
+    return options.entitlements ?? ELECTRON_ENTITLEMENTS_PATH;
+  }
+  if (path.extname(target) === ".app") {
+    return options.helperEntitlements ?? ELECTRON_HELPER_ENTITLEMENTS_PATH;
+  }
+  return null;
 }
 
 export async function resolveCodesignIdentity(options = {}) {
@@ -112,10 +145,12 @@ export function codesignArguments(target, identity = AD_HOC_CODESIGN_IDENTITY, o
 }
 
 export function distributionCodesignArguments(target, identity, options = {}) {
-  if (!isDeveloperIdApplicationIdentity(identity)) {
+  if (!isDeveloperIdApplicationIdentity(identity, options.identities ?? [])) {
     throw new Error("Distribution signing requires a Developer ID Application identity; ad-hoc and Apple Development signatures cannot be notarized.");
   }
-  const entitlements = options.entitlements ?? ELECTRON_ENTITLEMENTS_PATH;
+  const entitlements = Object.hasOwn(options, "entitlements")
+    ? options.entitlements
+    : ELECTRON_ENTITLEMENTS_PATH;
   return codesignArguments(target, identity, {
     timestamp: true,
     hardenedRuntime: true,
@@ -205,14 +240,25 @@ export async function signAppBundleAdHoc(target, runCommand = run) {
 
 export async function signAppBundleForDistribution(target, runCommand = run, options = {}) {
   const identity = options.identity ?? await resolveCodesignIdentity(options);
+  const identities = await loadSigningIdentities(options);
+  const signOptions = { ...options, identities };
+  if (!isDeveloperIdApplicationIdentity(identity, identities)) {
+    throw new Error("Distribution signing requires a Developer ID Application identity; ad-hoc and Apple Development signatures cannot be notarized.");
+  }
   const listNested = options.listNestedTargets ?? listNestedDistributionSignTargets;
   const nested = await listNested(target);
   for (const nestedTarget of nested) {
-    await runCommand("/usr/bin/codesign", distributionCodesignArguments(nestedTarget, identity, options), {
+    await runCommand("/usr/bin/codesign", distributionCodesignArguments(nestedTarget, identity, {
+      ...signOptions,
+      entitlements: entitlementsPathForDistributionTarget(nestedTarget, target, options),
+    }), {
       stdio: NONINTERACTIVE_CODESIGN_STDIO,
     });
   }
-  await runCommand("/usr/bin/codesign", distributionCodesignArguments(target, identity, options), {
+  await runCommand("/usr/bin/codesign", distributionCodesignArguments(target, identity, {
+    ...signOptions,
+    entitlements: entitlementsPathForDistributionTarget(target, target, options),
+  }), {
     stdio: NONINTERACTIVE_CODESIGN_STDIO,
   });
   return identity;

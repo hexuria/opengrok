@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   NONINTERACTIVE_CODESIGN_STDIO,
   distributionCodesignArguments,
+  loadSigningIdentities,
   resolveCodesignIdentity,
   signAppBundleForDistribution,
 } from "./codesign.mjs";
@@ -117,11 +118,17 @@ export async function releaseMacosApp(options = {}) {
     env,
     listIdentities: options.listIdentities,
   });
+  const identities = await loadSigningIdentities({
+    identities: options.identities,
+    listIdentities: options.listIdentities,
+  });
   const signOptions = {
     env,
     identity,
     entitlements: options.entitlements,
+    helperEntitlements: options.helperEntitlements,
     listIdentities: options.listIdentities,
+    identities,
   };
   // Refuse ad-hoc / Apple Development before the codesign retry; only a
   // Developer ID Application identity can be timestamped and notarized.
