@@ -91,6 +91,7 @@ whenFrontend("brand strings swap only in OpenGrok mode", async () => {
     const text = "Grok Bot can run commands on your computer.";
     assert.equal(loaded.brandText(text, storage), text);
     store.set(loaded.OPENGROK_MODE_STORAGE_KEY, "1");
+    assert.equal(loaded.BRAND_OPEN_NAME, "Open Grok");
     assert.equal(loaded.brandText(text, storage), "Open Grok can run commands on your computer.");
     assert.equal(loaded.brandedDocumentTitle("Grok Bot", storage), "Open Grok");
     assert.equal(loaded.brandedDocumentTitle("Settings", storage), "Settings");
@@ -446,8 +447,24 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(landing, /signInToOpenGrokServer/);
   assert.match(landing, /startSubscriptionLogin/);
   assert.match(landing, /Back to providers/);
+  assert.match(landing, /className="sand-onboarding__cta"/);
+  assert.match(renderer, /title=\{BRAND_OPEN_NAME\}/);
+  assert.match(renderer, /BRAND_OPEN_NAME/);
   const status = await readFrontend("frontend/src/recovered/features/account/session/sign-in-status.tsx");
   assert.match(status, /onSkip == null \? null/);
+  assert.match(status, /className="sand-onboarding__cta"/);
+  const css = await readFrontend("frontend/src/production/production.css");
+  const providerRule = css.match(/button\.sand-onboarding__provider \{[^}]+\}/)?.[0] ?? "";
+  const ctaRule = css.match(/button\.sand-onboarding__cta \{[^}]+\}/)?.[0] ?? "";
+  assert.match(providerRule, /background: var\(--sand-fill-secondary-solid\);/);
+  assert.match(providerRule, /border-radius: 16px;/);
+  assert.match(css, /button\.sand-onboarding__provider:hover \{[^}]*background: var\(--sand-fill-secondary-solid-hover\);/);
+  assert.match(ctaRule, /background: var\(--sand-fill-primary\);/);
+  assert.match(ctaRule, /color: var\(--sand-text-on-primary\);/);
+  assert.doesNotMatch(css, /\.sand-onboarding__landing button \{[^}]*--cursor-bg-accent/);
+  assert.doesNotMatch(css, /\.sand-onboarding__landing button \{[^}]*--cursor-accent/);
+  assert.doesNotMatch(providerRule, /--cursor-bg-accent|--cursor-accent|#4f8cff|#1084fe/);
+  assert.doesNotMatch(ctaRule, /--cursor-bg-accent|--cursor-accent|#4f8cff|#1084fe/);
 });
 
 whenFrontend("openAgent does not bump the tail generation until it actually fetches", async () => {
