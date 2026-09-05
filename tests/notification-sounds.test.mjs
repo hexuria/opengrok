@@ -20,8 +20,8 @@ async function loadModule(entry, outfileName, options = {}) {
     format: "esm",
     platform: "node",
     target: "node22",
-    // Only our sources are bundled; dependencies such as undici (CommonJS require("assert")) resolve from node_modules at runtime.
-    packages: "external",
+    // undici (pulled in through main-edge) carries a CommonJS require("assert"); give the ESM bundle a real require.
+    banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
     ...options,
   });
   const module = await import(`${pathToFileURL(output).href}?${Date.now()}`);
