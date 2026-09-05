@@ -6,7 +6,7 @@ import {
   isDevAuthBackend,
   parseJwtPayload,
   shouldRefreshAccessToken,
-} from "../../shared/node/cursor-token.js";
+  getAccessTokenExpiryMs,} from "../../shared/node/cursor-token.js";
 import { findSystemErrno } from "../../shared/system-errno.js";
 import { createLocalCliModeHeaders } from "../../packages/cursor-config/request.js";
 import { LoginManager } from "../../packages/cursor-config/auth/login.js";
@@ -16,6 +16,12 @@ import { deleteSecret, isEncryptedStorageAvailable, readSecret, shouldPersistSec
 import { reportSessionEvent, type SessionRefreshFailure, type SessionSignoutCause } from "./session-funnel-telemetry.js";
 import { reportSigninLogin, reportSigninSignout, signinSignoutCause } from "./signin-funnel-telemetry.js";
 import { resolveAuthRedirectTarget } from "../auth/auth-callback-registration.js";
+
+/** True when the token carries an exp that has already passed; a token with no exp is not judged here. */
+function isExpiredAccessToken(token: string, now = Date.now()): boolean {
+  const expiresAtMs = getAccessTokenExpiryMs(token);
+  return expiresAtMs != null && expiresAtMs <= now;
+}
 
 export const ACCESS_TOKEN_SECRET_KEY = "cursor-access-token";
 export const REFRESH_TOKEN_SECRET_KEY = "cursor-refresh-token";
@@ -330,6 +336,10 @@ export class SandCursorAuthService {
     if (this.credentialsRevoked) return this.reportedLoggedOutStatus;
     const sessionToken = accessToken != null && refreshToken != null ? accessToken : await this.readOpenGrokAccessToken();
     if (sessionToken == null) return LOGGED_OUT_STATUS;
+    // A stored copy with no refresh token behind it is logged in only until it
+    // expires; after that nothing can renew it, and saying "logged in" hides the
+    // one thing the person has to do.
+    if (refreshToken == null && isExpiredAccessToken(sessionToken)) return LOGGED_OUT_STATUS;
     const status = createLoggedInStatus(sessionToken);
     if (status.kind === "logged-in" && status.authId != null) await this.ensureProfile(status.authId, operationEpoch);
     if (this.credentialUseRevoked || !this.isCurrentAuthOperation(operationEpoch)) return await this.getStatus();
@@ -367,12 +377,21 @@ export class SandCursorAuthService {
     const backendUrl = options?.backendUrl ?? DEFAULT_CURSOR_BACKEND_URL;
     const [accessToken, refreshToken] = await Promise.all([this.secrets.readSecret(ACCESS_TOKEN_SECRET_KEY), this.secrets.readSecret(REFRESH_TOKEN_SECRET_KEY)]);
     if (!this.isCurrentAuthOperation(operationEpoch) || this.credentialUseRevoked) throw new SandAuthSignInRequiredError();
-    if (accessToken == null || refreshToken == null) {
-      const opengrok = await this.readOpenGrokAccessToken();
-      if (opengrok == null) throw new SandAuthSignInRequiredError();
-      return opengrok;
+    // The refresh token is the credential; the access token is its disposable
+    // derivative. A missing or stale access token with the refresh token in hand
+    // is a reason to mint, not to stop trying.
+    if (refreshToken != null) {
+      return accessToken == null || shouldRefreshAccessToken(backendUrl, accessToken)
+        ? await this.refreshAccessToken({ backendUrl, operationEpoch, refreshToken })
+        : accessToken;
     }
-    return shouldRefreshAccessToken(backendUrl, accessToken) ? await this.refreshAccessToken({ backendUrl, operationEpoch, refreshToken }) : accessToken;
+    // No refresh token: an OpenGrok sign-in's stored copy is all there is, and it
+    // cannot be renewed. Once it has expired, the honest answer is "sign in",
+    // not a dead token that every server refuses and that used to be answered
+    // as somebody else.
+    const opengrok = await this.readOpenGrokAccessToken();
+    if (opengrok == null || isExpiredAccessToken(opengrok)) throw new SandAuthSignInRequiredError();
+    return opengrok;
   }
   async peekAccessToken(): Promise<string | null> {
     if (this.credentialUseRevoked) return null;

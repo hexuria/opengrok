@@ -1,4 +1,5 @@
 import { OPENGROK_ACCESS_TOKEN_SECRET } from "../../shared/box-runtime.js";
+import { getAccessTokenExpiryMs } from "../../shared/node/cursor-token.js";
 
 /*
  * The identity a gateway connection carries.
@@ -24,6 +25,8 @@ export interface OpenGrokAccountTokenDeps {
   readSecret(key: string): Promise<string | null>;
   writeSecret(key: string, value: string): Promise<void>;
   getValidAccessToken(options: { readonly backendUrl: string }): Promise<string>;
+  /** Injectable clock, for tests. */
+  now?(): number;
 }
 
 export async function readValidOpenGrokAccountToken(deps: OpenGrokAccountTokenDeps, backendUrl: string): Promise<string | null> {
@@ -40,5 +43,12 @@ export async function readValidOpenGrokAccountToken(deps: OpenGrokAccountTokenDe
   if (access !== stored && access.length > 0) {
     try { await deps.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, access); } catch { /* best-effort: the connection still carries the fresh one */ }
   }
-  return access.length === 0 ? null : access;
+  if (access.length === 0) return null;
+  // A copy we can see has already expired is not an identity either. Handing it
+  // over anyway only moves the refusal to the server and hides, behind a
+  // generic failure, the one fact the person needs: this session cannot be
+  // renewed and they have to sign in again.
+  const expiresAtMs = getAccessTokenExpiryMs(access);
+  if (expiresAtMs != null && expiresAtMs <= (deps.now ?? Date.now)()) return null;
+  return access;
 }

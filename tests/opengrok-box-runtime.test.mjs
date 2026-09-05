@@ -1010,6 +1010,17 @@ test("the connector's identity read renews, writes back, and names the server it
     assert.equal(fallback, "stale-jwt");
     assert.deepEqual(written, [], "nothing to write back");
 
+    // A stored copy that has ALREADY expired is no identity either, when renewal
+    // cannot replace it: better a refused connect that says "sign in" than a
+    // dead token handed to the server. (Header/payload are unsigned test JWTs;
+    // only the exp claim is read.)
+    const jwt = (exp) => "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "acct", exp })).toString("base64url") + ".sig";
+    const nowSec = 1_800_000_000;
+    const dead = await readValidOpenGrokAccountToken({ ...store(jwt(nowSec - 60)), getValidAccessToken: async () => { throw new Error("no refresh token"); }, now: () => nowSec * 1000 }, "https://server.test:1447");
+    assert.equal(dead, null, "an expired, unrenewable copy is refused locally");
+    const alive = await readValidOpenGrokAccountToken({ ...store(jwt(nowSec + 600)), getValidAccessToken: async () => { throw new Error("offline"); }, now: () => nowSec * 1000 }, "https://server.test:1447");
+    assert.equal(alive, jwt(nowSec + 600), "a still-valid copy is kept when renewal is merely unavailable");
+
     // Nothing stored and nothing renewable is no identity at all.
     assert.equal(await readValidOpenGrokAccountToken({ ...store(""), getValidAccessToken: async () => "" }, "https://server.test:1447"), null);
     assert.equal(await readValidOpenGrokAccountToken({ ...store(null), getValidAccessToken: async () => { throw new Error("no session"); } }, "https://server.test:1447"), null);
