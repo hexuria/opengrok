@@ -446,7 +446,7 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.doesNotMatch(computerPane, /ComputerRuntimeDock/);
   assert.match(computerPane, /sand-info-pane__computer/);
   assert.match(computerPane, /const onHostKey = useCallback/);
-  assert.match(computerPane, /sand-computer-stage__cover/);
+  assert.match(computerPane, /data-open=\{isOpen \|\| undefined\}/);
   assert.match(computerPane, /aspectRatio: "16 \/ 9"/);
   assert.match(computerPane, /Math.max\(bounds.width \/ framebuffer.width, bounds.height \/ framebuffer.height\)/);
   const teachTopBar = await readFrontend("frontend/src/recovered/features/computer/teach-recording/view.tsx");
@@ -456,8 +456,8 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.doesNotMatch(teachComposition, /openTrigger === "preview"/);
   const productionCss = await readFrontend("frontend/src/production/production.css");
   assert.match(productionCss, /overflow: hidden/);
-  assert.match(productionCss, /sand-computer-stage__cover/);
-  assert.match(productionCss, /aspect-ratio: 16 \/ 9/);
+  assert.match(productionCss, /100cqh \* 16 \/ 9/);
+  assert.match(productionCss, /display: none !important/);
   assert.match(productionCss, /-webkit-app-region: no-drag;/);
   const vncWebview = await readFrontend("frontend/src/recovered/features/computer/shell/vnc-webview.tsx");
   assert.match(vncWebview, /callbacksRef/);
