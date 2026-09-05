@@ -646,8 +646,9 @@ whenFrontend("settings General tab matches the 0.43 Settings dialog: shell, card
     assert.doesNotMatch(source, /sand-settings-copy|sand-provider-usage-card/, `${file} dropped legacy row copy`);
   }
   assert.doesNotMatch(panels, /sand-settings-row"|sand-settings-copy|sand-provider-usage-card|sand-usage-state|#ef8585/);
-  assert.match(panels, /<SettingsGroup title="Grok Bot Updates">/);
-  assert.match(panels, /label=\{<>Version <bdi>\{status\.currentVersion\}<\/bdi>/);
+  assert.match(panels, /<SettingsGroup title="Updates">/);
+  assert.match(panels, /label=\{<>Grok Bot <bdi>\{status\.currentVersion\}<\/bdi>/);
+  assert.match(panels, /label="Auto-update when idle"/);
   assert.doesNotMatch(view, /\.sand-settings-row \{|\.sand-settings-copy \{|\.sand-provider-usage-card|\.sand-settings-uptodate-banner|\.sand-settings-dialog button:not/);
   assert.match(view, /\.sand-settings-status \{[^}]*border-radius: 10px/);
   const kitCss = await readFrontend("frontend/src/recovered/ui/sand-kit-primitives.css");
@@ -655,6 +656,7 @@ whenFrontend("settings General tab matches the 0.43 Settings dialog: shell, card
   assert.match(kitCss, /\.sand-kit-button\.sand-18he5m:not\(#\\#\):not\(#\\#\):not\(#\\#\),\n\.sand-kit-button\.sand-6y9aml:not\(#\\#\):not\(#\\#\):not\(#\\#\) \{\n  background-color: var\(--sand-fill-danger\);/, "danger primary fill beats the stylex background reset");
   const computerView = await readFrontend("frontend/src/recovered/features/settings/overlay/computer-view.tsx");
   assert.match(computerView, /<SettingsStatusPill icon="check-circle">\{UP_TO_DATE_COPY\}<\/SettingsStatusPill>/);
+  assert.match(computerView, /onClick=\{controller\.requestUpdate\}[^\n]*\{controller\.updateLabel\}<\/SandButton>\n\s+\{upToDate && state\.isDevBuild/, "the Update button stays visible when the computer is current");
 });
 
 whenFrontend("first-run is loader then provider picker, not the shell", async () => {
