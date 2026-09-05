@@ -114,6 +114,10 @@ whenFrontend("the shell waits for the roster instead of rendering an empty one",
     // And a fetch that finishes without succeeding still lands on the error.
     assert.equal(phase({ hasLoadedAgents: false, rosterLoadFailed: true, isRosterFetching: false }), "error");
 
+    // The error surface waits before taking the screen, so a failure recorded
+    // between attempts at startup never flashes over a shell that loads fine.
+    assert.ok(loaded.ROOT_SHELL_ERROR_GRACE_MS >= 500, "a failure has to persist to be shown");
+
     // Surfaces that own the screen are never painted over.
     assert.equal(phase({ isSignedIn: false, hasLoadedAgents: false }), "ready");
     assert.equal(phase({ isOnboardingOpen: true, hasLoadedAgents: false }), "ready");
@@ -176,6 +180,12 @@ whenFrontend("the waiting loop spins, pauses, bounces, spins faster and jumps hi
   const mascot = await readFile(path.join(repoRoot, "frontend/src/production/patched-ui/Mascot3D.tsx"), "utf8");
   assert.match(mascot, /mascotLoadingPose\(now - st\.loadStart\)/, "the loop is driven by the clock");
   assert.match(mascot, /modeRef\.current/, "the mode is read through a ref so the loop is not torn down");
+
+  const renderer = await readFile(path.join(repoRoot, "frontend/src/production/ProductionRenderer.tsx"), "utf8");
+  // While the failure is still inside its grace period the wait continues,
+  // rather than the screen going blank between the two surfaces.
+  assert.match(renderer, /rootShellPhase === "error" && !isRootErrorSettled/, "the loader covers the grace period");
+  assert.match(renderer, /rootShellPhase === "error" && isRootErrorSettled/, "and the error waits for it");
 
   const shell = await readFile(path.join(repoRoot, "frontend/src/recovered/features/window-chrome/root-shell-state.tsx"), "utf8");
   assert.match(shell, /<Mascot3D className="sand-loading__mascot" mode="loading" size=\{96\} \/>/);
