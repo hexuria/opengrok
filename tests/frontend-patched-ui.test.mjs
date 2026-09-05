@@ -700,6 +700,12 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   const eyeTransform = eyes.shapes[0].it.find((item) => item.ty === "tr");
   assert.equal(eyeTransform.p.a, 1, "eyes glance around");
   assert.equal(eyeTransform.s.a, 1, "eyes blink");
+  // Shy like a ghost that is being watched: hands layer covers the eyes in the cover segment, then uncovers.
+  const hands = mascot.layers.find((layer) => layer.nm === "hands");
+  assert.ok(hands, "hands layer");
+  assert.deepEqual(mascot.markers.map((marker) => marker.cm), ["idle", "cover", "covered", "uncover"]);
+  assert.match(mascotComponent, /playSegments\(\[SEGMENTS\[phase\]\[0\], SEGMENTS\[phase\]\[1\]\], true\)/);
+  assert.match(mascotComponent, /Math\.hypot\(dx, dy\) < rect\.width \* shyRadius/, "shyness is pointer proximity");
   const character = await readFrontend("frontend/src/recovered/features/onboarding/signed-in/character.tsx");
   assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
   assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
