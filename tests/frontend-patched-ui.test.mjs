@@ -367,7 +367,15 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(surface, /RouterUsagePanel/);
   assert.match(surface, /showUsage=\{true\}/);
   // The Computer tab carries the machine-consent rows from the patched build (this computer, remote control, performance).
-  assert.match(surface, /<LocalComputerGroup \/>\s+<RemoteControlGroup \/>\s+<HardwareAccelerationGroup \/>\s+<RouterSettingsPanel/);
+  assert.match(surface, /<ComputerRuntimeSettingsPanel bridge=\{bridge\.agent\} computer=\{computer\} \/>\s+<LocalComputerGroup \/>\s+<RemoteControlGroup \/>\s+<HardwareAccelerationGroup \/>/);
+  assert.doesNotMatch(surface, /<RouterSettingsPanel/, "the Computer tab has no Provider/Account/Usage groups, as in the patched build");
+  const runtime = await readFrontend("frontend/src/recovered/features/settings/overlay/computer-runtime.tsx");
+  assert.match(runtime, /\{ value: "opengrok", label: "OpenGrok Server"/);
+  assert.match(runtime, /if \(mode === "opengrok"\) return \(\s+<div className="sand-computer-runtime-section">\s+<OpenGrokComputersGroup \/>/);
+  const openGrok = await readFrontend("frontend/src/production/patched-ui/OpenGrokComputers.tsx");
+  assert.match(openGrok, /listOpenGrokComputers\?\.\(\)/);
+  assert.match(openGrok, /"Your computer" : ready \? "Available to your org" : "Set up by your org admin"/);
+  assert.match(openGrok, /sand-opengrok-changed/);
   const localComputer = await readFrontend("frontend/src/production/patched-ui/LocalComputerPanel.tsx");
   for (const label of ["This computer accepts bot commands", "Allow administrator (sudo) commands", "Bots using this computer", "Standing rules", "Turn off", "Forget this computer", "Hardware acceleration"]) assert.ok(localComputer.includes(`label="${label}"`), label);
   assert.match(localComputer, /setLocalComputerName\?\.\(next\)/);
