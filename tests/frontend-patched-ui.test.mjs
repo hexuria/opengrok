@@ -703,7 +703,7 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(mascotComponent, /project\(st\.yaw \+ Math\.PI, st\.pitch \* 0\.4\)/, "the 8 sits on the back of the sphere");
   assert.match(mascotComponent, />8<\/text>/);
   assert.match(mascotComponent, /const BLINK_MS = 460;/, "a blink you can see, closing into two dashes");
-  const character = await readFrontend("frontend/src/recovered/features/onboarding/signed-in/character.tsx");
+  const character = await readFrontend("frontend/src/recovered/features/agent-character/character.tsx");
   assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
   assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
   const landingCss = await readFrontend("frontend/src/production/production.css");
