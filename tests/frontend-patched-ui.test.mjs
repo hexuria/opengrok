@@ -652,6 +652,7 @@ whenFrontend("settings General tab matches the 0.43 Settings dialog: shell, card
   assert.match(view, /\.sand-settings-status \{[^}]*border-radius: 10px/);
   const kitCss = await readFrontend("frontend/src/recovered/ui/sand-kit-primitives.css");
   assert.doesNotMatch(kitCss, /background: var\(--cursor-accent\);\n  color: var\(--cursor-base\);/);
+  assert.match(kitCss, /\.sand-kit-button\.sand-18he5m:not\(#\\#\):not\(#\\#\):not\(#\\#\),\n\.sand-kit-button\.sand-6y9aml:not\(#\\#\):not\(#\\#\):not\(#\\#\) \{\n  background-color: var\(--sand-fill-danger\);/, "danger primary fill beats the stylex background reset");
   const computerView = await readFrontend("frontend/src/recovered/features/settings/overlay/computer-view.tsx");
   assert.match(computerView, /<SettingsStatusPill icon="check-circle">\{UP_TO_DATE_COPY\}<\/SettingsStatusPill>/);
 });
