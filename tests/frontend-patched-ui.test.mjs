@@ -445,6 +445,13 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(routinesView, /export function InfoPaneRoutines/);
   assert.match(routinesView, /Add routine/);
   assert.match(renderer, /InfoPaneRoutines/);
+  assert.match(renderer, /startCreate: routinesCreate/);
+  assert.match(renderer, /setRoutinesInfoPaneOpen\(true\)/);
+  assert.doesNotMatch(
+    routinesView.slice(routinesView.indexOf("export function InfoPaneRoutines")),
+    /RoutineEditor/,
+    "the screen-sidebar list must not inline the create/edit form",
+  );
   assert.match(mediaViewer, /maxWidth: imageTileContextWidth\(\)/);
   assert.doesNotMatch(mediaViewer, /maxWidth: 320/);
   assert.match(view, /\.sand-transcript-row \{[^}]*margin: 0 0 8px;/);
