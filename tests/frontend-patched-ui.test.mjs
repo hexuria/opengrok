@@ -429,6 +429,9 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(view, /\.sand-virtual-transcript \{[^}]*overflow-x: hidden;/);
   assert.match(view, /\.sand-virtual-transcript \{[^}]*padding: 16px 16px 72px;/);
   assert.match(view, /\.sand-prompt-shell \{[^}]*border-radius: 999px;/);
+  assert.match(view, /\.sand-message-typing \{[^}]*background: transparent;/);
+  assert.doesNotMatch(view, /\.sand-message-typing \{[^}]*background: var\(--cursor-bg-secondary\)/);
+  assert.match(transcript, /hasStreamingDots/);
   assert.match(view, /\.sand-prompt-shell \{[^}]*box-shadow: none;/);
   assert.match(view, /\.sand-chat-input-dock \{[^}]*margin-top: -56px;/);
   assert.match(view, /\.sand-attachment__image \{[^}]*max-height: 480px;/);
