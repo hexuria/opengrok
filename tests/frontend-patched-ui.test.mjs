@@ -722,7 +722,9 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(services, /opengrokServerUrl/);
   const asar = await readFrontend("scripts/lib/build-asar.mjs");
   assert.match(asar, /stagedPackage\.opengrokServerUrl = serverUrl/);
-  assert.match(renderer, /onReady=\{\(\) => setSubscriptionReady\(true\)\}/);
+  // onReady both opens the shell and re-reads who the sign-in finished as.
+  assert.match(renderer, /onReady=\{\(\) => \{\n\s*setSubscriptionReady\(true\);/);
+  assert.match(renderer, /bridge\.cursorAccount\.getStatus\(\)\.then\(\(status\) => observeAccountRef\.current\(status\)\)/);
   // The sign-in page has one provider now; there is no picker to go back to.
   assert.match(landing, /className="sand-onboarding__signin"/);
   assert.match(renderer, /title=\{BRAND_OPEN_NAME\}/);
