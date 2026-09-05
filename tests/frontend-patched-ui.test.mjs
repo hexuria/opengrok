@@ -436,6 +436,13 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(view, /\.sand-prompt-shell \{[^}]*backdrop-filter: none;/);
   assert.match(view, /\.sand-chat-input-dock \{[^}]*margin-top: 0;/);
   assert.match(view, /\.sand-jump-bottom \{/);
+  assert.match(view, /\.sand-code-block \{[^}]*background: var\(--cursor-bg-editor/);
+  assert.match(view, /\.sand-code-block \{[^}]*color: var\(--cursor-syntax-foreground/);
+  assert.match(view, /\.sand-code-block \{[^}]*border: 1px solid var\(--cursor-stroke-tertiary/);
+  assert.doesNotMatch(view, /\.sand-code-block \{[^}]*background: #1a1d19/);
+  assert.doesNotMatch(view, /\.sand-code-block \{[^}]*color: #d9ded4/);
+  assert.match(view, /\.sand-message-prose a \{[^}]*color: var\(--cursor-text-link/);
+  assert.doesNotMatch(view, /\.sand-message-prose a \{[^}]*color: #bfe86b/);
   assert.match(view, /\.sand-message\[data-role="user"\] \{[^}]*color: var\(--sand-text-on-color/);
   assert.match(view, /\.sand-message \{[^}]*padding: 7px 16px;/);
   assert.match(transcript, /sand-jump-bottom/);
