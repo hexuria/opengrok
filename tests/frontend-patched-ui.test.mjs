@@ -845,3 +845,19 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   const signOut = await readFrontend("frontend/src/recovered/features/account/session/sign-out.tsx");
   assert.match(signOut, /onSessionCleared\?\.\(\)/);
 });
+
+/**
+ * Transcript images are served over sand-media://. The recovered renderer only
+ * trusted that scheme for media-src, and V1 added it to img-src with a patch
+ * (router-renderer-patch.mjs, "img-src media scheme"). The Vite shell carries
+ * its own CSP, so the same allowance has to live there: without it every
+ * transcript <img> gets a 200 from the protocol handler and still decodes to
+ * 0x0 while video plays — found by the mock-cards fixture catalogue.
+ */
+test("frontend CSP lets <img> load sand-media:// like media-src already does", { skip: !present }, async () => {
+  const html = await readFile(path.join(FRONTEND, "index.html"), "utf8");
+  const csp = /content="([^"]*)"/.exec(html.match(/<meta[^>]*Content-Security-Policy[^>]*>/)?.[0] ?? "")?.[1] ?? "";
+  const directive = (name) => csp.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name} `)) ?? "";
+  assert.match(directive("media-src"), /\bsand-media:/);
+  assert.match(directive("img-src"), /\bsand-media:/, "img-src must trust the scheme the transcript serves images from");
+});
