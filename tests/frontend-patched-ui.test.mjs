@@ -645,7 +645,8 @@ whenFrontend("settings General tab matches the 0.43 Settings dialog: shell, card
   assert.match(installer, /--sand-font-weight-regular: 420/);
   assert.match(installer, /--cursor-font-weight-normal: 420/);
   assert.match(installer, /"--sand-text-disabled","light":"#14141474"/);
-  assert.match(installer, /"--sand-border-focus","light":"#0c64c1"/);
+  assert.match(installer, /"--sand-border-focus","light":"#141414","dark":"#fcfcfc"/, "focus ring is black on light, white on dark; never blue");
+  assert.doesNotMatch(view, /--cursor-text-blue-primary|--cursor-bg-blue-primary/, "no blue in the settings furniture");
   // The other tabs share the same card rows; the legacy boxed-row CSS is gone.
   for (const file of ["frontend/src/recovered/features/settings/overlay/computer-runtime.tsx", "frontend/src/recovered/features/settings/overlay/computer-view.tsx", "frontend/src/recovered/features/settings/overlay/provider-computers.tsx", "frontend/src/production/patched-ui/RouterUsagePanel.tsx", "frontend/src/production/patched-ui/DictationPanel.tsx", "frontend/src/production/patched-ui/OpenRouterModelField.tsx"]) {
     const source = await readFrontend(file);
