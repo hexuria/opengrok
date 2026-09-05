@@ -209,9 +209,9 @@ whenFrontend("the first-run flow is gone and the empty state offers the first bo
   // frames are built for its configured account and reach every open stream, so
   // adopting one paints another account's bots; the RPC is the path that knows
   // who is asking.
-  assert.match(renderer, /client\.subscribe\("agents", \(\) => \{[\s\S]*?void refreshRoster\(\)/, "an agents push re-asks listAgents");
+  assert.match(renderer, /client\.subscribe\("agents", \(\) => \{[\s\S]*?scheduleRosterRefresh\(\)/, "an agents push re-asks listAgents, coalesced");
   assert.doesNotMatch(renderer, /subscribe\("agents", \(value\) => \{[\s\S]{0,400}setAgents\(projected\)/, "a pushed roster is never adopted wholesale");
-  assert.match(renderer, /if \(!completeRosterAgentIdsRef\.current\.includes\(projected\.id\)\) \{ void refreshRoster\(\)/, "an unknown upserted agent is verified over RPC, not adopted");
+  assert.match(renderer, /if \(!completeRosterAgentIdsRef\.current\.includes\(projected\.id\)\) \{ scheduleRosterRefresh\(\)/, "an unknown upserted agent is verified over RPC, not adopted");
 
   // A fresh sign-in has to re-read who signed in. The landing dismisses the
   // login wall on its own, but the account status only changes in the main
