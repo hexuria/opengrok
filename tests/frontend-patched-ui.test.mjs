@@ -696,6 +696,10 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(mascotComponent, /st\.targetYaw = st\.pointerYaw >= 0 \? -Math\.PI : Math\.PI/, "turns its back away from the pointer when it comes close");
   assert.match(mascotComponent, /light-dark\(#0b0b0b, #f2f2f2\)/, "black on light, white on dark");
   assert.doesNotMatch(landing, /MascotLottie|lottie/);
+  assert.match(mascotComponent, /const EYE_RX = 9; const EYE_RY = 15;/, "tall oval eyes");
+  assert.match(mascotComponent, /window\.addEventListener\("pointerdown", onDown/, "a click blinks");
+  assert.match(mascotComponent, /eye\.setAttribute\("cy", String\(C \+ R \* 0\.82 \* p\.y\)\)/, "screen y is down: pointer up looks up");
+  assert.match(mascotComponent, /if \(near\) st\.bounceAt = performance\.now\(\);/, "turning away hops");
   const character = await readFrontend("frontend/src/recovered/features/onboarding/signed-in/character.tsx");
   assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
   assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
