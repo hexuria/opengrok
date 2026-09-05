@@ -700,11 +700,14 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(mascotComponent, /window\.addEventListener\("pointerdown", onDown/, "a click blinks");
   assert.match(mascotComponent, /eye\.setAttribute\("cy", String\(C \+ R \* 0\.82 \* p\.y\)\)/, "screen y is down: pointer up looks up");
   assert.match(mascotComponent, /if \(near\) st\.bounceAt = performance\.now\(\);/, "turning away hops");
+  assert.match(mascotComponent, /project\(st\.yaw \+ Math\.PI, st\.pitch \* 0\.4\)/, "the 8 sits on the back of the sphere");
+  assert.match(mascotComponent, />8<\/text>/);
+  assert.match(mascotComponent, /const BLINK_MS = 460;/, "a blink you can see, closing into two dashes");
   const character = await readFrontend("frontend/src/recovered/features/onboarding/signed-in/character.tsx");
   assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
   assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
   const landingCss = await readFrontend("frontend/src/production/production.css");
-  assert.match(landingCss, /\.sand-onboarding__brand h1 \{ font-size: 52px;/);
+  assert.match(landingCss, /\.sand-onboarding__brand h1 \{ font-size: 88px;/, "the O matches the 64px mascot");
   assert.match(landingCss, /p\.sand-onboarding__lede \{ max-width: 336px;/);
   assert.match(landing, /cancelOpenGrokSignIn/, "a stuck browser step can be cancelled or restarted");
   assert.doesNotMatch(landing, /Opening your browser/, "the button never goes dead while the browser step is pending");
