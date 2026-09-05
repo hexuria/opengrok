@@ -60,6 +60,23 @@ export async function stageElectronRuntimeDependencyResolution(depsRoot) {
   return manifest.resolutionClosure;
 }
 
+export async function resolveOpenGrokServerUrl(env = process.env, envFile = path.join(repoRoot, ".env")) {
+  const fromEnv = env.OPENGROK_SERVER_URL?.trim();
+  if (fromEnv) return validateServerUrl(fromEnv);
+  let text;
+  try { text = await readFile(envFile, "utf8"); } catch { return null; }
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*(?:export\s+)?OPENGROK_SERVER_URL\s*=\s*(.+?)\s*$/.exec(line);
+    if (match) return validateServerUrl(match[1].replace(/^["']|["']$/g, ""));
+  }
+  return null;
+}
+
+function validateServerUrl(value) {
+  try { new URL(value); } catch { throw new Error(`OPENGROK_SERVER_URL is not a valid URL: ${JSON.stringify(value)}. Include the scheme, for example http://192.168.1.10:1447`); }
+  return value.replace(/\/+$/, "");
+}
+
 export async function buildAsar({
   pack = true,
   buildRoot = buildDir,
@@ -71,12 +88,27 @@ export async function buildAsar({
   await mkdir(buildRoot, { recursive: true });
   await cp(sourceAppDir, stageRoot, { recursive: true, dereference: false, preserveTimestamps: true });
 
-  if (process.env.GROK_BOT_BUILD_DEV_APP === "1") {
+  {
     const stagedPackagePath = path.join(stageRoot, "package.json");
     const stagedPackage = JSON.parse(await readFile(stagedPackagePath, "utf8"));
-    stagedPackage.sandLab = true;
-    stagedPackage.productName = "Grok Bot 0.18 Dev";
-    await writeFile(stagedPackagePath, `${JSON.stringify(stagedPackage, null, 2)}\n`);
+    let changed = false;
+    if (process.env.GROK_BOT_BUILD_DEV_APP === "1") {
+      stagedPackage.sandLab = true;
+      stagedPackage.productName = "Grok Bot 0.18 Dev";
+      changed = true;
+    }
+    // The OpenGrok server this build signs in to. Configuration, not a field on
+    // the sign-in page: OPENGROK_SERVER_URL from the environment, else from a
+    // repo-root .env. Production points this at an IP or domain.
+    const serverUrl = await resolveOpenGrokServerUrl();
+    if (serverUrl != null) {
+      stagedPackage.opengrokServerUrl = serverUrl;
+      changed = true;
+      console.log(`OpenGrok server baked into the build: ${serverUrl}`);
+    } else {
+      console.log("No OPENGROK_SERVER_URL set; the sign-in page will report the build as unconfigured unless the app is launched with it.");
+    }
+    if (changed) await writeFile(stagedPackagePath, `${JSON.stringify(stagedPackage, null, 2)}\n`);
   }
 
   await rm(path.join(stageRoot, "dist", "native"), { recursive: true, force: true });

@@ -14,6 +14,19 @@ import { transcriptDeletionFor } from "../shared/transcript-deletion.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
 import { coerceBoxRuntimeForProvider, isSandBoxRuntime, OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_DAEMON_MACHINE_SECRET, OPENGROK_DAEMON_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
 import { getOpenGrokServerStatus, noteOpenGrokServerStatus } from "./box/opengrok-server-status.js";
+
+/** OPENGROK_SERVER_URL at package time is written into the app's package.json and copied into the environment at startup; a dev launch can export it directly. */
+export const OPENGROK_SERVER_URL_ENV = "OPENGROK_SERVER_URL";
+export function defaultOpenGrokServerUrl(env: NodeJS.ProcessEnv = process.env): string | null {
+  const value = env[OPENGROK_SERVER_URL_ENV]?.trim();
+  return value != null && value.length > 0 ? value : null;
+}
+function configuredOpenGrokServerUrl(deps: { readonly settingsStore: object }): string | null {
+  const fromEnv = defaultOpenGrokServerUrl();
+  if (fromEnv != null) return fromEnv;
+  const saved = (deps.settingsStore as { getOpenGrokGatewayUrl?: () => string | undefined }).getOpenGrokGatewayUrl?.();
+  return typeof saved === "string" && saved.trim().length > 0 ? saved : null;
+}
 import { getLocalDockerStatus, startLocalDockerBox } from "./box/local-docker-host-connector.js";
 import { transcribeWithLocalWhisper } from "./account/local-whisper-transcribe.js";
 import { GEMINI_TRANSCRIBE_MODEL, resolveGeminiApiKey, transcribeWithGemini } from "./account/gemini-transcribe.js";
@@ -1014,7 +1027,11 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     signInToOpenGrokServer: async (raw) => {
       const body = req(raw);
       const signin = await import("./box/opengrok-signin.js");
-      const base = signin.assertUsableServerUrl(typeof body.gatewayUrl === "string" ? body.gatewayUrl : "");
+      // The page never asks for a URL: an empty one means the configured server.
+      const requested = typeof body.gatewayUrl === "string" ? body.gatewayUrl.trim() : "";
+      const configured = requested.length > 0 ? requested : configuredOpenGrokServerUrl(deps) ?? "";
+      if (configured.length === 0) throw new Error("No OpenGrok server is configured. Set OPENGROK_SERVER_URL when packaging, or export it before launching.");
+      const base = signin.assertUsableServerUrl(configured);
       const params = signin.createLoginParams(base);
       // The browser step is what proves a person is here: the server binds the
       // uuid to the account only when this page is opened, and only then will
@@ -1061,7 +1078,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         signedIn = access.length > 0;
         if (signedIn) email = (await import("./box/opengrok-signin.js")).readIdentityClaims(access).email ?? null;
       } catch { hasToken = false; signedIn = false; }
-      return { gatewayUrl: typeof gatewayUrl === "string" ? gatewayUrl : null, hasToken, signedIn, email, status: getOpenGrokServerStatus() };
+      return { gatewayUrl: typeof gatewayUrl === "string" ? gatewayUrl : null, configuredUrl: configuredOpenGrokServerUrl(deps), hasToken, signedIn, email, status: getOpenGrokServerStatus() };
     },
     setOpenGrokServer: async (raw) => {
       const body = req(raw);

@@ -76,6 +76,13 @@ permission) again for `Open Grok V2.app`; the FDA check relaunches the app
 without its argv, so add `--remote-debugging-port` again after that first run.
 Secrets and sign-ins are per profile: V2 starts signed out.
 
+**Sign-in is the OpenGrok server only, and the server URL is configuration.**
+Set `OPENGROK_SERVER_URL` (environment, or a repo-root `.env` line) when
+packaging; the packager bakes it into the app's `package.json` and the main
+process copies it into the environment at startup. A dev launch can export
+`OPENGROK_SERVER_URL` to point at another server. The sign-in page has no URL
+field and shows an unconfigured notice when neither is set.
+
 Still shared, by design or not yet split: the Local VM Docker container
 `grok-bot-local-vm` and its published ports (1337, 1339, 1340, 6080, 6081,
 8790) plus the desktop host port 1350, so run Local VM in only one of the two

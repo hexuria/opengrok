@@ -74,6 +74,8 @@ export interface ElectronPackageMetadata {
   readonly version: string;
   readonly sandLab: boolean;
   readonly sandTrack?: string;
+  /** Baked by the packager from OPENGROK_SERVER_URL; the sign-in page never asks for it. */
+  readonly opengrokServerUrl?: string;
 }
 
 export interface ElectronProductionApp extends ElectronMainApp {
@@ -147,7 +149,8 @@ export function readElectronPackageMetadata(moduleDir: string, readText: (path: 
   if (typeof record.version !== "string" || record.version.trim().length === 0) throw new Error("Electron production metadata requires a version.");
   if (record.sandLab !== undefined && typeof record.sandLab !== "boolean") throw new Error("Electron production metadata sandLab must be boolean when present.");
   if (record.sandTrack !== undefined && typeof record.sandTrack !== "string") throw new Error("Electron production metadata sandTrack must be a string when present.");
-  return { version: record.version, sandLab: record.sandLab === true, ...(typeof record.sandTrack === "string" ? { sandTrack: record.sandTrack } : {}) };
+  if (record.opengrokServerUrl !== undefined && typeof record.opengrokServerUrl !== "string") throw new Error("Electron production metadata opengrokServerUrl must be a string when present.");
+  return { version: record.version, sandLab: record.sandLab === true, ...(typeof record.sandTrack === "string" ? { sandTrack: record.sandTrack } : {}), ...(typeof record.opengrokServerUrl === "string" && record.opengrokServerUrl.trim().length > 0 ? { opengrokServerUrl: record.opengrokServerUrl.trim() } : {}) };
 }
 
 export function resolveElectronProductionResources(args: {
@@ -486,6 +489,8 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
   const resources = resolveElectronProductionResources({ moduleDir: bindings.moduleDir, app: bindings.native.app, env, metadata, ...(bindings.attachProdBoxPreferencePath == null ? {} : { attachProdBoxPreferencePath: bindings.attachProdBoxPreferencePath }) });
   const startupTracker = createDesktopStartupTracker({ monotonicNow: bindings.startup.monotonicNow ?? (() => performance.now()), translated: platform === "darwin" ? bindings.native.app.runningUnderARM64Translation === true ? "true" : "false" : "unknown", report: bindings.startup.report, scheduleStuck: bindings.startup.scheduleStuck, captureFailure: bindings.startup.captureFailure });
   bindings.services.registerMediaScheme();
+  // The environment wins so a dev launch can point at another server; otherwise the packaged default applies.
+  if (metadata.opengrokServerUrl != null && !(env.OPENGROK_SERVER_URL?.trim())) { env.OPENGROK_SERVER_URL = metadata.opengrokServerUrl; if (env !== process.env) process.env.OPENGROK_SERVER_URL = metadata.opengrokServerUrl; }
   const appVariant = resolveOpenGrokAppVariant(process.execPath, env);
   const authCallbackRegistration = registerAuthCallbackProtocol({ app: bindings.native.app, isPackaged: bindings.native.app.isPackaged, isLabBuild: metadata.sandLab, env, skip: appVariant === "v2" });
   if (appVariant === "v2" && bindings.native.app.isPackaged && !metadata.sandLab && typeof bindings.native.app.setAsDefaultProtocolClient === "function") {

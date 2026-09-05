@@ -683,18 +683,27 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(renderer, /if \(showSignIn && bridge != null && account != null\)/);
   assert.match(renderer, /from "\.\.\/recovered\/features\/account\/session\/provider-landing"/);
   const landing = await readFrontend("frontend/src/recovered/features/account/session/provider-landing.tsx");
-  assert.match(landing, /id: "cursor"/);
-  assert.match(landing, /id: "claude-code"/);
-  assert.match(landing, /id: "codex"/);
-  assert.match(landing, /id: "opengrok"/);
-  assert.match(landing, /Choose a provider to sign in/);
-  assert.match(landing, /signInToOpenGrokServer/);
-  assert.match(landing, /startSubscriptionLogin/);
+  // One provider: the OpenGrok server. No picker, no server-URL field; the URL is configuration.
+  assert.match(landing, /export type FirstRunProvider = "opengrok";/);
+  assert.doesNotMatch(landing, /id: "cursor"|id: "claude-code"|id: "codex"|Choose a provider|Server URL|<input/);
+  assert.match(landing, /signInToOpenGrokServer\(""\)/, "an empty URL means the configured server");
+  assert.match(landing, /server\?\.configuredUrl/);
+  assert.match(landing, /OPENGROK_SERVER_UNCONFIGURED/);
+  assert.match(landing, /<AgentAvatar agentId="open-grok" color="black" shape="blob" size="xl"/, "V1's black mark, animated");
+  assert.match(landing, /Your bots live on your own server, and the work runs there\./);
+  assert.match(landing, /Signing in opens your browser to your server\./);
   assert.match(landing, /finishWithoutCursor/);
   assert.match(landing, /writeOpenGrokMode\(true\)/);
+  const mainEdge = await readFrontend("source/electron-main/main-edge.ts");
+  assert.match(mainEdge, /configuredOpenGrokServerUrl\(deps\)/);
+  assert.match(mainEdge, /OPENGROK_SERVER_URL_ENV = "OPENGROK_SERVER_URL"/);
+  const services = await readFrontend("source/electron-main/main-production-services.ts");
+  assert.match(services, /opengrokServerUrl/);
+  const asar = await readFrontend("scripts/lib/build-asar.mjs");
+  assert.match(asar, /stagedPackage\.opengrokServerUrl = serverUrl/);
   assert.match(renderer, /onReady=\{\(\) => setSubscriptionReady\(true\)\}/);
-  assert.match(landing, /Back to providers/);
-  assert.match(landing, /className="sand-onboarding__cta"/);
+  // The sign-in page has one provider now; there is no picker to go back to.
+  assert.match(landing, /className="sand-onboarding__signin"/);
   assert.match(renderer, /title=\{BRAND_OPEN_NAME\}/);
   assert.match(renderer, /BRAND_OPEN_NAME/);
   const status = await readFrontend("frontend/src/recovered/features/account/session/sign-in-status.tsx");
