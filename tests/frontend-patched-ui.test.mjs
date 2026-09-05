@@ -470,6 +470,9 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(productionCss, /color-scheme: dark/);
   assert.match(productionCss, /fill: #ff263c/);
   assert.match(productionCss, /-webkit-app-region: no-drag;/);
+  assert.match(productionCss, /html:has\(\.sand-computer-fullscreen\[data-open\]\) \.sand-workspace-rail/);
+  assert.match(productionCss, /html:has\(\.sand-computer-fullscreen\[data-open\]\) \.sand-cover-drag/);
+  assert.match(productionCss, /\.sand-computer-fullscreen\[data-open\]:not\(#\\#\)/);
   const vncWebview = await readFrontend("frontend/src/recovered/features/computer/shell/vnc-webview.tsx");
   assert.match(vncWebview, /callbacksRef/);
   assert.match(vncWebview, /\[bridge, forwardedRef, isInteractive, isViewerVisible, openedAtMs, src\]/);
