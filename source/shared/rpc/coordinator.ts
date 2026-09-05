@@ -100,6 +100,7 @@ export const COORDINATOR_METHOD_TABLE = {
   resolveAutoReviewApproval: { args: "object", reply: "void" },
   resolveLocalToolPermission: { args: "object", reply: "void" },
   dismissWidget: { args: "object", reply: "record" },
+  discardDraft: { args: "object", reply: "record-or-null" },
   submitSecret: { args: "object", reply: "void" },
   reactToMessage: { args: "object", reply: "void" },
   deleteTranscriptEntries: { args: "object", reply: "record" },

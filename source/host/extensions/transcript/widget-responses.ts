@@ -352,6 +352,44 @@ export class WidgetResponses {
     return { accepted: didStamp };
   }
 
+  /**
+   * `discardDraft {entryId, agentId}`: the Discard button on an email or Slack
+   * draft card. The recovered 0.18 chunk shipped the composer with an empty
+   * onDiscard; the current official app collapses the card to its header with
+   * a "Discarded" pill, which is what `draftSendState: "discarded"` draws. Same
+   * shape as dismissWidget: stamp the entry, emit `updated`, persist, and answer
+   * the stamped entry (null when nothing was stamped) so the renderer's
+   * optimistic collapse either settles or rolls back.
+   */
+  async discardDraft(args: {
+    entryId: string;
+    agentId: string;
+  }): Promise<TranscriptEntry | null> {
+    await this.tm.sessions.ensureActionTarget(args.agentId);
+    const existing = getTranscript().find((entry) => entry.id === args.entryId);
+    const type = existing?.kind === "send-message" ? (existing.message as any)?.type : null;
+    if (
+      existing == null ||
+      existing.kind !== "send-message" ||
+      (type !== "email-draft" && type !== "slack-draft") ||
+      (existing as any).draftSendState === "sent" ||
+      (existing as any).draftSendState === "sending" ||
+      (existing as any).draftSendState === "discarded"
+    )
+      return null;
+    let didStamp = false;
+    const markDiscarded = (entry: TranscriptEntry): TranscriptEntry => {
+      if (entry.kind !== "send-message" || (entry as any).draftSendState === "discarded") return entry;
+      didStamp = true;
+      return { ...entry, draftSendState: "discarded" } as TranscriptEntry;
+    };
+    const updated = updateEntry(args.entryId, markDiscarded);
+    if (!didStamp || updated == null) return null;
+    this.tm.roster.emit({ type: "updated", entry: updated });
+    this.tm.sessions.activeSession?.db.updateTranscriptEntry(args.entryId, markDiscarded);
+    return updated;
+  }
+
   async submitSecret(
     entryId: string,
     value: string,

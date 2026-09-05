@@ -259,6 +259,10 @@ export function createHostGatewayApi(
       });
       return method(manager, "dismissWidget")(args);
     },
+    discardDraft: (args: any) => {
+      markActive("user_action");
+      return method(manager, "discardDraft")(args);
+    },
     submitSecret: (args: any) =>
       method(manager, "submitSecret")(
         args.entryId,

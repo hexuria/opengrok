@@ -604,6 +604,7 @@ const delegations: ReadonlyArray<[string, keyof TranscriptManager]> = [
   ["settleStaleAutoReviewCard", "widgetResponses"],
   ["expireAllPendingAutoReviewApprovalCards", "widgetResponses"],
   ["dismissWidget", "widgetResponses"],
+  ["discardDraft", "widgetResponses"],
   ["submitSecret", "widgetResponses"],
   ["reactToMessage", "widgetResponses"],
   ["deleteTranscriptEntries", "entryDeletion"],

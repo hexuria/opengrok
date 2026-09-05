@@ -16,6 +16,7 @@ export const SAND_GATEWAY_COMMANDS = {
   resolveAutoReviewApproval: (api: GatewayApi, body: string) => api.resolveAutoReviewApproval(parseCommandArgs(body)),
   resolveLocalToolPermission: (api: GatewayApi, body: string) => api.resolveLocalToolPermission(parseCommandArgs(body)),
   dismissWidget: (api: GatewayApi, body: string) => api.dismissWidget(parseCommandArgs(body)),
+  discardDraft: (api: GatewayApi, body: string) => api.discardDraft(parseCommandArgs(body)),
   submitSecret: (api: GatewayApi, body: string) => api.submitSecret(parseCommandArgs(body)),
   reactToMessage: (api: GatewayApi, body: string) => api.reactToMessage(parseCommandArgs(body)),
   deleteTranscriptEntries: (api: GatewayApi, body: string) => api.deleteTranscriptEntries(parseCommandArgs(body)),
