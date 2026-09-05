@@ -1,4 +1,6 @@
 export const RECONSTRUCTED_USER_DATA_DIRNAME = "OpenGrok";
+/** The V2 (migration) build's profile. Contains "OpenGrok", so the reconstructed-path checks still match it. */
+export const V2_USER_DATA_DIRNAME = "OpenGrok V2";
 /**
  * Every dirname the profile has lived under, newest first. Startup adopts the
  * first one that exists, so a rename never orphans someone's chats, and the

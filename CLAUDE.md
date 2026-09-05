@@ -45,6 +45,43 @@ ported code under `source/packages`, and the documentation describing how the
 app was rebuilt. The vendor bytes are gone; the technique is not. Weigh that
 before adding a document that walks through recovering someone else's binary.
 
+## V1 and V2 side by side
+
+Two apps, two worktrees, two branches. Nothing in the running apps is shared.
+
+| | V1 (shipping) | V2 (migration, this branch) |
+|---|---|---|
+| Worktree / branch | `/Volumes/goldcoders/OSS/.wt/v1` on `v1` (cut from `main`) | `/Volumes/goldcoders/OSS/.wt/v2` on `v2` |
+| Bundle | `/Applications/Open Grok.app`, `bot.opengrok.app` | `/Applications/Open Grok V2.app`, `bot.opengrok.app.v2` |
+| Renderer | fidelity build (patched 0.18 artifact) | Vite frontend from stow |
+| URL schemes | `sand://` (Cursor sign-in) + `opengrok://` | `opengrokv2://` only; never claims `sand://` |
+| User data | `~/Library/Application Support/OpenGrok` | `~/Library/Application Support/OpenGrok V2` |
+| Data root | `~/.grokbot` | `~/.grokbot-v2` |
+| CDP port (by convention) | 9223 | 9225 (official Grok Bot stays 9224) |
+
+The variant is decided by `app-variant.json` at the repo root (`{"variant":"v2"}`
+here; absent on `main`/`v1`) or `OPENGROK_APP_VARIANT`, and at runtime by the
+bundle name in the executable path (`scripts/lib/config.mjs`,
+`source/electron-main/startup/desktop-user-data-bootstrap.ts`). Inner
+executable and `CFBundleName` stay `Grok Bot` in both. Deep links minted by
+V2 still use `opengrok://` and therefore open V1; change the minting scheme
+only when V2 becomes the product.
+
+Build V2 from `.wt/v2` with the normal package loop; install to
+`/Applications/Open Grok V2.app` (rsync in place). Build V1 from `.wt/v1`
+(`main`'s fidelity packager): it needs `src/app`, `.cache/runtime`,
+`node_modules`, `frontend/manifests/` and `manifests/` copied in, never
+symlinked. macOS treats V2 as a new app: grant Full Disk Access (and any other
+permission) again for `Open Grok V2.app`; the FDA check relaunches the app
+without its argv, so add `--remote-debugging-port` again after that first run.
+Secrets and sign-ins are per profile: V2 starts signed out.
+
+Still shared, by design or not yet split: the Local VM Docker container
+`grok-bot-local-vm` and its published ports (1337, 1339, 1340, 6080, 6081,
+8790) plus the desktop host port 1350, so run Local VM in only one of the two
+at a time; `~/.cursor` and `~/.codex`/`~/.claude` mounts; the stow frontend
+repository (V1 does not consume it beyond `frontend/manifests`).
+
 ## Driving and verifying the app: use CDP, not computer-use or browser-use
 
 This is an Electron app. To interact with it, inspect its DOM, or verify UI

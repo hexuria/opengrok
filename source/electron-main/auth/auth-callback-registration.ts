@@ -42,7 +42,13 @@ export function resolveAuthProtocolScheme(env: NodeJS.ProcessEnv = process.env):
  * registration and asks LaunchServices to select this signed bundle on macOS.
  * The original application bundle is never edited or removed.
  */
+/**
+ * A build that must not claim the auth scheme (the V2 side-by-side variant
+ * leaves `sand://` to V1 so Cursor sign-in keeps landing there) passes
+ * `skip: true`; the scheme itself is never removed.
+ */
 export function registerAuthCallbackProtocol(options: {
+  readonly skip?: boolean;
   readonly app: AuthProtocolApp;
   readonly isPackaged: boolean;
   readonly isLabBuild: boolean;
@@ -51,7 +57,7 @@ export function registerAuthCallbackProtocol(options: {
   const env = options.env ?? process.env;
   const redirectTarget = resolveAuthRedirectTarget(env);
   const protocolScheme = resolveAuthProtocolScheme(env);
-  if (!options.isPackaged || options.isLabBuild) return { redirectTarget, protocolScheme, registered: false, skipped: true };
+  if (!options.isPackaged || options.isLabBuild || options.skip === true) return { redirectTarget, protocolScheme, registered: false, skipped: true };
   if (typeof options.app.setAsDefaultProtocolClient !== "function") return { redirectTarget, protocolScheme, registered: false, skipped: true };
   return { redirectTarget, protocolScheme, registered: options.app.setAsDefaultProtocolClient(protocolScheme), skipped: false };
 }

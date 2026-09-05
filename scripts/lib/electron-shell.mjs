@@ -5,6 +5,7 @@ import {
   reconstructedBundleId,
   reconstructedCopyright,
   reconstructedName,
+  reconstructedUrlSchemes,
   reconstructedProductUrl,
   repoRoot,
   upstreamVersion,
@@ -24,7 +25,11 @@ export const NPM_ELECTRON_VERSION = "42.1.0";
 // Two schemes on purpose: `sand` is what the Cursor auth callback redirects
 // to (renaming it breaks sign-in); `opengrok` is the brand scheme for links
 // we mint (shareable message URLs). See source/shared/deep-link.ts.
-export const reconstructedUrlTypesXml = "<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>Grok Bot reconstructed auth callback</string><key>CFBundleURLSchemes</key><array><string>sand</string></array></dict><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>OpenGrok deep links</string><key>CFBundleURLSchemes</key><array><string>opengrok</string></array></dict></array>";
+const URL_TYPE_NAMES = { sand: "Grok Bot reconstructed auth callback", opengrok: "OpenGrok deep links", opengrokv2: "OpenGrok V2 deep links" };
+export function urlTypesXmlFor(schemes) {
+  return `<array>${schemes.map(scheme => `<dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>${URL_TYPE_NAMES[scheme] ?? scheme}</string><key>CFBundleURLSchemes</key><array><string>${scheme}</string></array></dict>`).join("")}</array>`;
+}
+export const reconstructedUrlTypesXml = urlTypesXmlFor(reconstructedUrlSchemes);
 
 export function resolveNpmElectronApp(root = repoRoot) {
   return path.join(root, "node_modules", "electron", "dist", "Electron.app");

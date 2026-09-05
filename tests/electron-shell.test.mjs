@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { reconstructedBundleId, reconstructedCopyright, upstreamVersion } from "../scripts/lib/config.mjs";
+import { reconstructedBundleId, reconstructedCopyright, reconstructedUrlSchemes, upstreamVersion } from "../scripts/lib/config.mjs";
 import {
   MACOS_EXECUTABLE_NAME,
   NPM_ELECTRON_VERSION,
@@ -89,12 +89,12 @@ test("helper bundle ids sit under bot.opengrok.app, not Electron or Anysphere", 
     "Grok Bot Helper (Renderer).app",
   ]);
   assert.deepEqual(helpers.map(helper => helper.bundleId), [
-    "bot.opengrok.app.helper",
-    "bot.opengrok.app.helper.GPU",
-    "bot.opengrok.app.helper.Plugin",
-    "bot.opengrok.app.helper.Renderer",
+    `${reconstructedBundleId}.helper`,
+    `${reconstructedBundleId}.helper.GPU`,
+    `${reconstructedBundleId}.helper.Plugin`,
+    `${reconstructedBundleId}.helper.Renderer`,
   ]);
-  assert.equal(reconstructedBundleId, "bot.opengrok.app");
+  assert.match(reconstructedBundleId, /^bot\.opengrok\.app(\.v2)?$/);
   assert.deepEqual(
     reconstructedHelperIdentities("bot.example.app").map(helper => helper.bundleId),
     ["bot.example.app.helper", "bot.example.app.helper.GPU", "bot.example.app.helper.Plugin", "bot.example.app.helper.Renderer"],
@@ -113,8 +113,7 @@ test("helper bundle ids sit under bot.opengrok.app, not Electron or Anysphere", 
     reconstructedHelperIdentities("bot.example.app", "Open Grok").map(helper => helper.folder),
     electronHelperRenames("Open Grok").map(helper => `${helper.to}.app`),
   );
-  assert.match(reconstructedUrlTypesXml, /<string>sand<\/string>/);
-  assert.match(reconstructedUrlTypesXml, /<string>opengrok<\/string>/);
+  for (const scheme of reconstructedUrlSchemes) assert.match(reconstructedUrlTypesXml, new RegExp(`<string>${scheme}</string>`));
   assert.equal(resolveNpmElectronApp(repoRoot), path.join(repoRoot, "node_modules", "electron", "dist", "Electron.app"));
 });
 
@@ -140,7 +139,7 @@ test("staging npm Electron.app rewrites names, identity, and URL schemes", { ski
     assert.equal(staged.sourceApp, sourceApp);
 
     const infoPlist = path.join(destinationApp, "Contents", "Info.plist");
-    assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleIdentifier", "raw", infoPlist]), "bot.opengrok.app");
+    assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleIdentifier", "raw", infoPlist]), reconstructedBundleId);
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleDisplayName", "raw", infoPlist]), "Open Grok");
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleName", "raw", infoPlist]), "Grok Bot");
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleExecutable", "raw", infoPlist]), "Grok Bot");
@@ -148,8 +147,9 @@ test("staging npm Electron.app rewrites names, identity, and URL schemes", { ski
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleShortVersionString", "raw", infoPlist]), upstreamVersion);
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleVersion", "raw", infoPlist]), upstreamVersion);
     assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "NSHumanReadableCopyright", "raw", infoPlist]), reconstructedCopyright);
-    assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleURLTypes.0.CFBundleURLSchemes.0", "raw", infoPlist]), "sand");
-    assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", "CFBundleURLTypes.1.CFBundleURLSchemes.0", "raw", infoPlist]), "opengrok");
+    for (const [index, scheme] of reconstructedUrlSchemes.entries()) {
+      assert.equal(await capture(SYSTEM_TOOLS.plutil, ["-extract", `CFBundleURLTypes.${index}.CFBundleURLSchemes.0`, "raw", infoPlist]), scheme);
+    }
     const localized = `CFBundleName = "Open Grok";\nCFBundleDisplayName = "Open Grok";\n`;
     assert.equal(await readFile(path.join(destinationApp, "Contents", "Resources", "en.lproj", "InfoPlist.strings"), "utf8"), localized);
     assert.equal(await readFile(path.join(destinationApp, "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings"), "utf8"), localized);

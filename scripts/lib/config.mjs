@@ -1,9 +1,30 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 
 export const repoRoot = path.resolve(thisDir, "../..");
+
+/**
+ * App variant. `v1` is the shipping app (`Open Grok.app`, `bot.opengrok.app`,
+ * `sand://` + `opengrok://`). `v2` is the migration build that runs side by
+ * side with it: `Open Grok V2.app`, `bot.opengrok.app.v2`, `opengrokv2://`
+ * only, its own user-data dir and data root. Chosen by `app-variant.json` at
+ * the repo root (absent on main => v1) or `OPENGROK_APP_VARIANT`.
+ */
+function readAppVariant() {
+  const fromEnv = process.env.OPENGROK_APP_VARIANT?.trim().toLowerCase();
+  if (fromEnv === "v1" || fromEnv === "v2") return fromEnv;
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(repoRoot, "app-variant.json"), "utf8"));
+    return parsed?.variant === "v2" ? "v2" : "v1";
+  } catch {
+    return "v1";
+  }
+}
+export const appVariant = readAppVariant();
+export const isV2Variant = appVariant === "v2";
 export const sourceAppDir = path.join(repoRoot, "src", "app");
 export const cacheDir = path.join(repoRoot, ".cache");
 export const cachedRuntimeApp = path.join(cacheDir, "runtime", "Grok Bot.app");
@@ -24,7 +45,7 @@ export const outputDir = path.join(repoRoot, "dist");
 const configuredOutputName = process.env.GROK_BOT_OUTPUT_APP_NAME?.trim();
 export const outputApp = path.join(
   outputDir,
-  configuredOutputName ? path.basename(configuredOutputName) : "Open Grok.app"
+  configuredOutputName ? path.basename(configuredOutputName) : isV2Variant ? "Open Grok V2.app" : "Open Grok.app"
 );
 export const fidelityOutputApp = path.join(outputDir, "Grok Bot 0.18 Fidelity.app");
 export const fidelityOutputAppForAsarHash = asarHash => {
@@ -39,8 +60,10 @@ export const devOutputApp = path.join(outputDir, "Grok Bot 0.18 Dev.app");
 export const devProfileDir = path.join(cacheDir, "dev-profile");
 
 export const upstreamVersion = "0.18.0";
-export const reconstructedBundleId = "bot.opengrok.app";
-export const reconstructedName = "Open Grok";
+export const reconstructedBundleId = isV2Variant ? "bot.opengrok.app.v2" : "bot.opengrok.app";
+export const reconstructedName = isV2Variant ? "Open Grok V2" : "Open Grok";
+/** URL schemes the bundle declares. V2 leaves `sand` and `opengrok` to V1 so Cursor sign-in and shared links keep landing there. */
+export const reconstructedUrlSchemes = isV2Variant ? ["opengrokv2"] : ["sand", "opengrok"];
 export const reconstructedProductUrl = "https://OpenGrok.app";
 export const reconstructedCopyright = "Copyright © 2026 Open Grok";
 export const viteOutputApp = path.join(outputDir, "Open Grok Vite.app");

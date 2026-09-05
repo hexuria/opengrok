@@ -1,6 +1,6 @@
-import { parseSandDeepLink, OPENGROK_DEEP_LINK_SCHEME, SAND_DEEP_LINK_SCHEME, SAND_HTTPS_DEEP_LINK_ORIGIN, SAND_HTTPS_DEEP_LINK_PATH_PREFIX, type ParsedSandDeepLink } from "../../shared/deep-link.js";
+import { parseSandDeepLink, OPENGROK_DEEP_LINK_SCHEME, OPENGROK_V2_DEEP_LINK_SCHEME, SAND_DEEP_LINK_SCHEME, SAND_HTTPS_DEEP_LINK_ORIGIN, SAND_HTTPS_DEEP_LINK_PATH_PREFIX, type ParsedSandDeepLink } from "../../shared/deep-link.js";
 export const SAND_DEEP_LINK_PENDING_MAX = 16; export const SAND_DEEP_LINK_DEDUPE_WINDOW_MS = 2_000; const HTTPS_CANDIDATE_PREFIX = `${SAND_HTTPS_DEEP_LINK_ORIGIN}${SAND_HTTPS_DEEP_LINK_PATH_PREFIX}`.toLowerCase();
-export function extractDeepLinkCandidatesFromArgv(argv: readonly string[]): string[] { return argv.filter((arg) => { const lower = arg.toLowerCase(); return lower.startsWith(`${SAND_DEEP_LINK_SCHEME}:`) || lower.startsWith(`${OPENGROK_DEEP_LINK_SCHEME}:`) || lower.startsWith(HTTPS_CANDIDATE_PREFIX); }); }
+export function extractDeepLinkCandidatesFromArgv(argv: readonly string[]): string[] { return argv.filter((arg) => { const lower = arg.toLowerCase(); return lower.startsWith(`${SAND_DEEP_LINK_SCHEME}:`) || lower.startsWith(`${OPENGROK_DEEP_LINK_SCHEME}:`) || lower.startsWith(`${OPENGROK_V2_DEEP_LINK_SCHEME}:`) || lower.startsWith(HTTPS_CANDIDATE_PREFIX); }); }
 export function describeRejectedCandidate(raw: unknown): string { if (typeof raw !== "string") return `<non-string:${typeof raw}>`; const colon = raw.indexOf(":"); return `<scheme=${colon > 0 && colon <= 16 ? raw.slice(0, colon) : "<none>"} length=${raw.length}>`; }
 export class SandDeepLinkController {
   #rendererReady = false; readonly #pending: ParsedSandDeepLink[] = []; readonly #recentlyAccepted = new Map<string, number>();

@@ -1,4 +1,5 @@
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -9,7 +10,7 @@ import {
 } from "../../host/host-paths.js";
 
 import { applyStartupDataRootMigration, resolveExistingSandProductionRootDir, type DataRootSettlement } from "./startup-data-root-migration.js";
-import { LEGACY_RECONSTRUCTED_USER_DATA_DIRNAME, LEGACY_RECONSTRUCTED_USER_DATA_DIRNAMES, RECONSTRUCTED_USER_DATA_DIRNAME, isReconstructedUserDataPath } from "../../shared/cursor-session-policy.js";
+import { LEGACY_RECONSTRUCTED_USER_DATA_DIRNAME, LEGACY_RECONSTRUCTED_USER_DATA_DIRNAMES, RECONSTRUCTED_USER_DATA_DIRNAME, V2_USER_DATA_DIRNAME, isReconstructedUserDataPath } from "../../shared/cursor-session-policy.js";
 import { applyWindowsUserDataMigration, isWindowsUpdatedLaunch } from "./windows-user-data-migration.js";
 
 export { RECONSTRUCTED_USER_DATA_DIRNAME, LEGACY_RECONSTRUCTED_USER_DATA_DIRNAME, LEGACY_RECONSTRUCTED_USER_DATA_DIRNAMES };
@@ -20,7 +21,30 @@ export { RECONSTRUCTED_USER_DATA_DIRNAME, LEGACY_RECONSTRUCTED_USER_DATA_DIRNAME
  * existing install to a fresh profile and read as though its chats and
  * settings had been wiped. Names are only ever added here, never removed.
  */
-export const RECONSTRUCTED_APP_BUNDLE_NAMES = ["Grok-0.27.app", "OpenGrok.app", "Open Grok.app"] as const;
+export const RECONSTRUCTED_APP_BUNDLE_NAMES = ["Grok-0.27.app", "OpenGrok.app", "Open Grok.app", "Open Grok V2.app"] as const;
+
+export type OpenGrokAppVariant = "v1" | "v2";
+export const V2_APP_BUNDLE_NAME = "Open Grok V2.app";
+export const V2_DATA_ROOT_DIRNAME = ".grokbot-v2";
+
+/**
+ * V2 is the migration build that runs beside the shipping app. It is told
+ * apart by its bundle name (or `OPENGROK_APP_VARIANT` for unpackaged runs) and
+ * keeps its own profile, data root and URL scheme so the two never collide.
+ */
+export function resolveOpenGrokAppVariant(exePath = process.execPath, env: NodeJS.ProcessEnv = process.env): OpenGrokAppVariant {
+  const forced = env.OPENGROK_APP_VARIANT?.trim().toLowerCase();
+  if (forced === "v1" || forced === "v2") return forced;
+  return exePath.includes(V2_APP_BUNDLE_NAME) ? "v2" : "v1";
+}
+
+export function userDataDirNameForVariant(variant: OpenGrokAppVariant): string {
+  return variant === "v2" ? V2_USER_DATA_DIRNAME : RECONSTRUCTED_USER_DATA_DIRNAME;
+}
+
+export function dataRootForVariant(variant: OpenGrokAppVariant, homeDir = homedir()): string | null {
+  return variant === "v2" ? join(homeDir, V2_DATA_ROOT_DIRNAME) : null;
+}
 
 export function isReconstructedDesktopApp(exePath = process.execPath, env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.SAND_RECONSTRUCTED_PROFILE === "1") return true;
@@ -76,11 +100,13 @@ export function bootstrapDesktopUserData(options: DesktopUserDataBootstrapOption
     return isolatedUserDataDir;
   }
   if (options.app.isPackaged && isReconstructedDesktopApp(process.execPath, env)) {
-    const reconstructedDir = join(options.app.getPath("appData"), RECONSTRUCTED_USER_DATA_DIRNAME);
+    const variant = resolveOpenGrokAppVariant(process.execPath, env);
+    const reconstructedDir = join(options.app.getPath("appData"), userDataDirNameForVariant(variant));
     // One-time OpenGrok rebrand migration: adopt the pre-rebrand profile so
-    // existing chats, attachments, and settings are never orphaned.
+    // existing chats, attachments, and settings are never orphaned. V2 starts
+    // its own profile and never adopts V1's.
     try {
-      if (!existsSync(reconstructedDir)) {
+      if (variant === "v1" && !existsSync(reconstructedDir)) {
         for (const legacyName of LEGACY_RECONSTRUCTED_USER_DATA_DIRNAMES) {
           const legacyDir = join(options.app.getPath("appData"), legacyName);
           if (!existsSync(legacyDir)) continue;
@@ -128,6 +154,15 @@ export interface DesktopDataRootBootstrapOptions {
 export function bootstrapDesktopDataRoot(options: DesktopDataRootBootstrapOptions): DataRootSettlement | null {
   if (!options.isPrimaryInstance) return null;
   const env = options.env ?? process.env;
+  // V2 keeps its host data (agents, settings, host lock) in its own root so a
+  // V1 running at the same time never shares or fights over ~/.grokbot.
+  if (options.app.isPackaged && resolveSandDataRootOverride(env) == null) {
+    const variantRoot = dataRootForVariant(resolveOpenGrokAppVariant(process.execPath, env), options.homeDir);
+    if (variantRoot != null) {
+      try { mkdirSync(variantRoot, { recursive: true }); } catch { /* the host reports a root it cannot use */ }
+      env[SAND_DATA_ROOT_ENV] = variantRoot;
+    }
+  }
   if (!options.app.isPackaged && env.SAND_ATTACH_PROD_BOX === "1"
     && !options.hasIsolatedUserData && resolveSandDataRootOverride(env) == null) {
     env[SAND_DATA_ROOT_ENV] = resolveExistingSandProductionRootDir(options.homeDir);

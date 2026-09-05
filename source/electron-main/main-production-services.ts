@@ -17,6 +17,8 @@ import type { EgressTunnelController } from "../shared/node/egress-tunnel/egress
 import { SandDeepLinkController, extractDeepLinkCandidatesFromArgv } from "./deep-link/deep-link-controller.js";
 import { electronCollectionsWindowPort, openCollectionsWindow } from "./collections/collections-window.js";
 import { registerAuthCallbackProtocol } from "./auth/auth-callback-registration.js";
+import { resolveOpenGrokAppVariant } from "./startup/desktop-user-data-bootstrap.js";
+import { OPENGROK_V2_DEEP_LINK_SCHEME } from "../shared/deep-link.js";
 import { resolveAttachProdBoxPreferred } from "./dev/dev-attach-prod-box.js";
 import { resolveSandMainWindowPreload } from "./dev/dev-capability.js";
 import type { SandThemeController, SandThemeState } from "./prefs/theme-controller.js";
@@ -484,7 +486,11 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
   const resources = resolveElectronProductionResources({ moduleDir: bindings.moduleDir, app: bindings.native.app, env, metadata, ...(bindings.attachProdBoxPreferencePath == null ? {} : { attachProdBoxPreferencePath: bindings.attachProdBoxPreferencePath }) });
   const startupTracker = createDesktopStartupTracker({ monotonicNow: bindings.startup.monotonicNow ?? (() => performance.now()), translated: platform === "darwin" ? bindings.native.app.runningUnderARM64Translation === true ? "true" : "false" : "unknown", report: bindings.startup.report, scheduleStuck: bindings.startup.scheduleStuck, captureFailure: bindings.startup.captureFailure });
   bindings.services.registerMediaScheme();
-  const authCallbackRegistration = registerAuthCallbackProtocol({ app: bindings.native.app, isPackaged: bindings.native.app.isPackaged, isLabBuild: metadata.sandLab, env });
+  const appVariant = resolveOpenGrokAppVariant(process.execPath, env);
+  const authCallbackRegistration = registerAuthCallbackProtocol({ app: bindings.native.app, isPackaged: bindings.native.app.isPackaged, isLabBuild: metadata.sandLab, env, skip: appVariant === "v2" });
+  if (appVariant === "v2" && bindings.native.app.isPackaged && !metadata.sandLab && typeof bindings.native.app.setAsDefaultProtocolClient === "function") {
+    bindings.native.app.setAsDefaultProtocolClient(OPENGROK_V2_DEEP_LINK_SCHEME);
+  }
   if (!authCallbackRegistration.skipped && !authCallbackRegistration.registered) {
     bindings.reportFailure("cursor-auth", "protocol-registration", new Error(`Unable to register ${authCallbackRegistration.protocolScheme}:${authCallbackRegistration.redirectTarget}.`));
   }
