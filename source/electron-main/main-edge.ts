@@ -1095,6 +1095,34 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       } catch { hasToken = false; signedIn = false; }
       return { gatewayUrl: typeof gatewayUrl === "string" ? gatewayUrl : null, configuredUrl: configuredOpenGrokServerUrl(deps), hasToken, signedIn, email, status: getOpenGrokServerStatus() };
     },
+    /*
+     * Rebind a lost gateway without the browser step.
+     *
+     * The gateway bearer can be lost while the session is still perfectly valid
+     * — a wiped secret store, a mistaken clear, an upgrade. Until now the only
+     * way back was a full browser sign-in, which asks a person to prove who they
+     * are to an app that already knows. The refresh credential is what a session
+     * IS: if it can still produce an access token, the server will mint a gateway
+     * bearer for it, the same call sign-in makes after the browser step. If it
+     * cannot, this throws, and the landing's sign-in is the right answer.
+     */
+    rebindOpenGrokGateway: async () => {
+      const configured = configuredOpenGrokServerUrl(deps) ?? "";
+      if (configured.length === 0) throw new Error("No OpenGrok server is configured. Set OPENGROK_SERVER_URL when packaging, or export it before launching.");
+      const signin = await import("./box/opengrok-signin.js");
+      const base = signin.assertUsableServerUrl(configured);
+      // A token valid now, renewed from the refresh credential — not the stored copy.
+      const access = await openGrokAccountSecrets(deps, base).readSecret(OPENGROK_ACCESS_TOKEN_SECRET);
+      if (access == null || access.length === 0) throw new Error("Sign in to your OpenGrok server first.");
+      const mint = await signin.mintOpenGrokGateway(base, access);
+      const secrets = await import("./secrets/secret-store.js");
+      await secrets.writeSecret(OPENGROK_GATEWAY_TOKEN_SECRET, mint.gatewayToken);
+      invoke(deps.settingsStore, "setOpenGrokGatewayUrl", mint.gatewayUrl);
+      invoke(deps.settingsStore, "setBoxRuntime", "opengrok");
+      noteOpenGrokServerStatus({ ok: true, detail: `Using the OpenGrok server at ${mint.gatewayUrl}.`, gatewayUrl: mint.gatewayUrl });
+      invoke(deps.boxRecovery, "restartCoordinator");
+      return { gatewayUrl: mint.gatewayUrl, signedIn: true, status: getOpenGrokServerStatus() };
+    },
     setOpenGrokServer: async (raw) => {
       const body = req(raw);
       const gatewayUrl = typeof body.gatewayUrl === "string" ? body.gatewayUrl.trim() : "";

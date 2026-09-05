@@ -311,6 +311,7 @@ export function createDesktopPreloadBridge(options: {
       getOpenGrokServer: () => edge("getOpenGrokServer"),
       signInToOpenGrokServer: (gatewayUrl: string) => edge("signInToOpenGrokServer", { gatewayUrl }),
       signOutOfOpenGrokServer: () => edge("signOutOfOpenGrokServer"),
+      rebindOpenGrokGateway: () => edge("rebindOpenGrokGateway"),
       cancelOpenGrokSignIn: () => edge("cancelOpenGrokSignIn"),
       listOpenGrokComputers: () => edge("listOpenGrokComputers"),
       resetOpenGrokComputer: () => edge("resetOpenGrokComputer"),

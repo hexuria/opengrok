@@ -1034,3 +1034,25 @@ test("the connector's identity read renews, writes back, and names the server it
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+
+/*
+ * A lost gateway bearer with a live session used to cost a full browser sign-in.
+ * The refresh credential IS the session; rebinding renews from it and mints, the
+ * same call sign-in makes after the browser step, and it fails closed when the
+ * session cannot be renewed.
+ */
+test("a lost gateway bearer is rebound from the refresh credential, not the browser", async () => {
+  const edge = await readFile(path.join(repoRoot, "source/electron-main/main-edge.ts"), "utf8");
+  const rebind = edge.slice(edge.indexOf("rebindOpenGrokGateway: async"), edge.indexOf("setOpenGrokServer: async"));
+  assert.match(rebind, /openGrokAccountSecrets\(deps, base\)\.readSecret\(OPENGROK_ACCESS_TOKEN_SECRET\)/, "the identity is the RENEWING read, never the stored copy");
+  assert.match(rebind, /mintOpenGrokGateway\(base, access\)/);
+  assert.match(rebind, /writeSecret\(OPENGROK_GATEWAY_TOKEN_SECRET, mint\.gatewayToken\)/);
+  assert.match(rebind, /"setBoxRuntime", "opengrok"/, "a rebound gateway is the active runtime");
+  assert.match(rebind, /"restartCoordinator"/);
+  assert.match(rebind, /throw new Error\("Sign in to your OpenGrok server first\."\)/, "no renewable session means sign in, not a guess");
+  const rpc = await readFile(path.join(repoRoot, "source/shared/rpc/main.ts"), "utf8");
+  assert.match(rpc, /rebindOpenGrokGateway: \{ args: "none" \}/);
+  const preload = await readFile(path.join(repoRoot, "source/electron-preload/preload.ts"), "utf8");
+  assert.match(preload, /rebindOpenGrokGateway: \(\) => edge\("rebindOpenGrokGateway"\)/);
+});
