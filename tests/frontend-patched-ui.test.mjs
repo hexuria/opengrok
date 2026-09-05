@@ -689,7 +689,17 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(landing, /signInToOpenGrokServer\(""\)/, "an empty URL means the configured server");
   assert.match(landing, /server\?\.configuredUrl/);
   assert.match(landing, /OPENGROK_SERVER_UNCONFIGURED/);
-  assert.match(landing, /<OnboardingCharacter color="black" idleGaze isFollowingPointer shape="blob" sizePx=\{64\}/, "V1's 64px black mark: solid, eyes follow the pointer and wander");
+  assert.match(landing, /<MascotLottie className="sand-onboarding__mark" size=\{64\} \/>/, "the sign-in mark is the Lottie mascot");
+  const mascotComponent = await readFrontend("frontend/src/production/patched-ui/MascotLottie.tsx");
+  assert.match(mascotComponent, /from "lottie-web\/build\/player\/lottie_light"/, "light player: SVG only, no expression evaluator under script-src self");
+  const mascot = JSON.parse(await readFrontend("frontend/src/production/assets/mascot.lottie.json"));
+  assert.equal(mascot.nm, "Open Grok mascot");
+  assert.ok(Array.isArray(mascot.layers) && mascot.layers.length >= 2, "body and eyes layers");
+  assert.ok(mascot.op > mascot.ip && mascot.fr === 30);
+  const eyes = mascot.layers.find((layer) => layer.nm === "eyes");
+  const eyeTransform = eyes.shapes[0].it.find((item) => item.ty === "tr");
+  assert.equal(eyeTransform.p.a, 1, "eyes glance around");
+  assert.equal(eyeTransform.s.a, 1, "eyes blink");
   const character = await readFrontend("frontend/src/recovered/features/onboarding/signed-in/character.tsx");
   assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
   assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
