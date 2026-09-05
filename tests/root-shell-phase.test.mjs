@@ -190,6 +190,35 @@ whenFrontend("the first-run flow is gone and the empty state offers the first bo
   assert.match(renderer, /onCreateBot=\{\(\) => void createAgent\(\)\}/, "the button makes a bot the ordinary way");
   assert.doesNotMatch(renderer, /templateId|isKickstartRequested: true/, "no template hire from the shell");
 
+  // A restarting coordinator is not a refused roster read. Signing in restarts
+  // it twice, and a freshly launched one reports "down" until its stream is up;
+  // recording that as a roster failure is what flashed "Couldn't load your bots"
+  // at a brand-new account whose server had refused nothing.
+  assert.doesNotMatch(
+    renderer,
+    /state === "down"\)? \{\s*setRosterLoadFailed\(true\)/,
+    "a transport report never claims a roster failure",
+  );
+  assert.match(
+    renderer,
+    /setTransport\(state === "connected" \? "connected" : hasLoadedAgentsRef\.current \? "down" : "connecting"\)/,
+    "before the first roster, a transport that is not up yet is still connecting",
+  );
+
+  // A pushed roster is a change signal, never the roster. The server's live
+  // frames are built for its configured account and reach every open stream, so
+  // adopting one paints another account's bots; the RPC is the path that knows
+  // who is asking.
+  assert.match(renderer, /client\.subscribe\("agents", \(\) => \{[\s\S]*?void refreshRoster\(\)/, "an agents push re-asks listAgents");
+  assert.doesNotMatch(renderer, /subscribe\("agents", \(value\) => \{[\s\S]{0,400}setAgents\(projected\)/, "a pushed roster is never adopted wholesale");
+  assert.match(renderer, /if \(!completeRosterAgentIdsRef\.current\.includes\(projected\.id\)\) \{ void refreshRoster\(\)/, "an unknown upserted agent is verified over RPC, not adopted");
+
+  // A fresh sign-in has to re-read who signed in. The landing dismisses the
+  // login wall on its own, but the account status only changes in the main
+  // process, so without this the shell renders behind a logged-out account and
+  // the empty state below never appears until the app is relaunched.
+  assert.match(renderer, /observeAccountRef\.current\(status\)/, "a finished sign-in re-reads the account");
+
   // The bot-character renderer outlived the flow it was filed under: it draws
   // every agent avatar and backs the avatar editor.
   const avatar = await readFrontend("frontend/src/recovered/features/conversation/workspace/agent-avatar.tsx");
