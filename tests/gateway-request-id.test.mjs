@@ -80,3 +80,84 @@ test("every gateway call carries a fresh X-Request-Id and reports it", async () 
     await cleanup();
   }
 });
+
+/*
+ * The server refuses an anonymous request by code instead of answering it as
+ * its configured account. The connection, not the call, is what was wrong, so
+ * the client rebuilds it once — re-reading who is signed in — and retries. Once.
+ */
+test("an anonymous-connection refusal rebuilds the connection once and retries the call", async () => {
+  const { loaded, cleanup } = await loadClient();
+  const originalFetch = globalThis.fetch;
+  try {
+    let calls = 0, invalidations = 0, resolves = 0;
+    const seenHeaders = [];
+    globalThis.fetch = async (_url, init) => {
+      calls += 1;
+      seenHeaders.push(init.headers["x-opengrok-account"] ?? null);
+      if (init.headers["x-opengrok-account"] == null) {
+        return { ok: false, status: 401, headers: new Headers(), async text() { return JSON.stringify({ error: "say who this is for", code: "account_identity_required" }); }, async json() { return {}; } };
+      }
+      return { ok: true, status: 200, headers: new Headers(), async json() { return [{ id: "cw_1" }]; }, async text() { return "[]"; } };
+    };
+    const client = new loaded.CoordinatorGatewayClient({
+      // The first resolve is the poisoned connection; the rebuild reads the identity.
+      resolveConnection: async () => { resolves += 1; return { baseUrl: "http://server.test:1447", token: "t", ...(resolves > 1 ? { headers: { "x-opengrok-account": "jwt" } } : {}) }; },
+      invalidateConnection: () => { invalidations += 1; },
+      timing: timing(),
+      onEvent() {},
+    });
+    const result = await client.command("listAgents", {});
+    assert.deepEqual(result, [{ id: "cw_1" }]);
+    assert.equal(invalidations, 1, "the cached connection was dropped exactly once");
+    assert.equal(calls, 2, "one refusal, one retry");
+    assert.deepEqual(seenHeaders, [null, "jwt"], "the retry carried the identity the rebuild read");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await cleanup();
+  }
+});
+
+test("a refusal that persists surfaces after one rebuild, whichever code it carries", async () => {
+  const { loaded, cleanup } = await loadClient();
+  const originalFetch = globalThis.fetch;
+  try {
+    const refuse = (code) => async () => ({ ok: false, status: 401, headers: new Headers(), async text() { return JSON.stringify({ error: "refused", code }); }, async json() { return {}; } });
+    const make = (invalidations) => new loaded.CoordinatorGatewayClient({
+      resolveConnection: async () => ({ baseUrl: "http://server.test:1447", token: "t" }),
+      invalidateConnection: () => { invalidations.count += 1; },
+      timing: timing(),
+      onEvent() {},
+    });
+
+    // Still anonymous after the rebuild: an identity store that cannot produce a
+    // name must surface, not spin.
+    let calls = 0;
+    const stillAnonymous = { count: 0 };
+    globalThis.fetch = async (...a) => { calls += 1; return refuse("account_identity_required")(...a); };
+    await assert.rejects(make(stillAnonymous).command("listAgents", {}), (error) => error instanceof loaded.SandGatewayIdentityError && error.code === "account_identity_required");
+    assert.equal(stillAnonymous.count, 1);
+    assert.equal(calls, 2);
+
+    // An identity that does not verify is almost always a token that expired while
+    // the connection stayed open. Rebuilding re-reads and renews it, so it gets the
+    // same single rebuild; if it STILL does not verify, that surfaces with the code
+    // intact so the UI can ask for a sign-in.
+    calls = 0;
+    const invalid = { count: 0 };
+    globalThis.fetch = async (...a) => { calls += 1; return refuse("account_identity_invalid")(...a); };
+    await assert.rejects(make(invalid).command("listAgents", {}), (error) => error instanceof loaded.SandGatewayIdentityError && error.code === "account_identity_invalid");
+    assert.equal(invalid.count, 1, "one rebuild, which is where renewal happens");
+    assert.equal(calls, 2);
+
+    // Any other 401 is still an ordinary command error, unchanged.
+    calls = 0;
+    const plain = { count: 0 };
+    globalThis.fetch = async () => ({ ok: false, status: 401, headers: new Headers(), async text() { return JSON.stringify({ error: "nope" }); }, async json() { return {}; } });
+    await assert.rejects(make(plain).command("listAgents", {}), (error) => error instanceof loaded.SandGatewayCommandError && !(error instanceof loaded.SandGatewayIdentityError));
+    assert.equal(plain.count, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await cleanup();
+  }
+});

@@ -927,3 +927,110 @@ test("an OpenGrok server sign-in is a logged-in session", async () => {
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+/*
+ * A connection without the account header is anonymous, and the server used to
+ * answer an anonymous request as its configured account — the admin's bots in
+ * another person's sidebar, and their writes into the admin's transcripts. The
+ * connector must refuse to build one rather than quietly leave the header off.
+ */
+test("an OpenGrok connect with no readable identity is refused, never sent anonymously", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-opengrok-connect-identity-"));
+  try {
+    const outfile = path.join(temporary, "connector.mjs");
+    await build({
+      entryPoints: [path.join(repoRoot, "source/electron-main/box/local-docker-host-connector.ts")],
+      outfile, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
+    });
+    const { createSettingsRoutedHostConnector, OPENGROK_IDENTITY_UNREADABLE_DETAIL } = await import(pathToFileURL(outfile).href);
+    const settings = {
+      settingsPath: path.join(temporary, "settings.json"),
+      getBoxRuntime: () => "opengrok",
+      getOpenGrokGatewayUrl: () => "https://server.test:1447",
+      getInferenceProvider: () => "cursor",
+    };
+    const remote = { connect: async () => { throw new Error("OpenGrok must not fall back to the broker"); } };
+
+    // An empty read and a throwing read are the same thing: no identity.
+    await assert.rejects(
+      createSettingsRoutedHostConnector(remote, settings, async () => "gw-bearer", async () => "").connect(),
+      (error) => error instanceof Error && error.message === OPENGROK_IDENTITY_UNREADABLE_DETAIL,
+    );
+    await assert.rejects(
+      createSettingsRoutedHostConnector(remote, settings, async () => "gw-bearer", async () => { throw new Error("keychain locked"); }).connect(),
+      (error) => error instanceof Error && error.message === OPENGROK_IDENTITY_UNREADABLE_DETAIL,
+    );
+    // A reader that was never wired is no identity either.
+    await assert.rejects(
+      createSettingsRoutedHostConnector(remote, settings, async () => "gw-bearer").connect(),
+      (error) => error instanceof Error && error.message === OPENGROK_IDENTITY_UNREADABLE_DETAIL,
+    );
+
+    // And when the identity IS readable the header is always present, not optional.
+    const connection = await createSettingsRoutedHostConnector(remote, settings, async () => "gw-bearer", async () => "account-jwt").connect();
+    assert.equal(connection.headers["x-opengrok-account"], "account-jwt");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+
+/*
+ * The identity read is a RENEWING read. The stored access token lives an hour;
+ * a connection built from a stale copy presented that dead token on every call
+ * for as long as it stayed open, and the server answered as its configured
+ * account. So the connector asks for a token valid now, writes it back for every
+ * other reader, and only falls back to the stored copy when renewal is unavailable.
+ */
+test("the connector's identity read renews, writes back, and names the server it is for", async () => {
+  const temporary = await mkdtemp(path.join(repoRoot, ".tmp-opengrok-account-token-"));
+  try {
+    const outfile = path.join(temporary, "token.mjs");
+    await build({
+      entryPoints: [path.join(repoRoot, "source/electron-main/box/opengrok-account-token.ts")],
+      outfile, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
+    });
+    const { readValidOpenGrokAccountToken } = await import(pathToFileURL(outfile).href);
+    const written = [];
+    const store = (stored) => ({
+      readSecret: async () => stored,
+      writeSecret: async (key, value) => { written.push([key, value]); },
+    });
+
+    // Fresh beats stored, and the fresh copy is written back so no reader keeps the stale one.
+    const asked = [];
+    const fresh = await readValidOpenGrokAccountToken({ ...store("stale-jwt"), getValidAccessToken: async ({ backendUrl }) => { asked.push(backendUrl); return "fresh-jwt"; } }, "https://server.test:1447");
+    assert.equal(fresh, "fresh-jwt");
+    assert.deepEqual(asked, ["https://server.test:1447"], "renewal is asked for the server this connection is for");
+    assert.deepEqual(written, [["opengrok-access-token", "fresh-jwt"]]);
+
+    // Renewal unavailable: the stored copy is the best identity we have; the server judges it.
+    written.length = 0;
+    const fallback = await readValidOpenGrokAccountToken({ ...store("stale-jwt"), getValidAccessToken: async () => { throw new Error("offline"); } }, "https://server.test:1447");
+    assert.equal(fallback, "stale-jwt");
+    assert.deepEqual(written, [], "nothing to write back");
+
+    // Nothing stored and nothing renewable is no identity at all.
+    assert.equal(await readValidOpenGrokAccountToken({ ...store(""), getValidAccessToken: async () => "" }, "https://server.test:1447"), null);
+    assert.equal(await readValidOpenGrokAccountToken({ ...store(null), getValidAccessToken: async () => { throw new Error("no session"); } }, "https://server.test:1447"), null);
+
+    // And the connector hands the reader the server URL it is connecting to.
+    const connectorOut = path.join(temporary, "connector.mjs");
+    await build({
+      entryPoints: [path.join(repoRoot, "source/electron-main/box/local-docker-host-connector.ts")],
+      outfile: connectorOut, bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
+    });
+    const { createSettingsRoutedHostConnector } = await import(pathToFileURL(connectorOut).href);
+    const seenBaseUrl = [];
+    const connection = await createSettingsRoutedHostConnector(
+      { connect: async () => { throw new Error("not the broker"); } },
+      { settingsPath: path.join(temporary, "settings.json"), getBoxRuntime: () => "opengrok", getOpenGrokGatewayUrl: () => "https://server.test:1447", getInferenceProvider: () => "cursor" },
+      async () => "gw-bearer",
+      async (baseUrl) => { seenBaseUrl.push(baseUrl); return "renewed-jwt"; },
+    ).connect();
+    assert.deepEqual(seenBaseUrl, ["https://server.test:1447"]);
+    assert.equal(connection.headers["x-opengrok-account"], "renewed-jwt");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});

@@ -11,8 +11,9 @@ import type {
 import type { ProductionServiceContext } from "../main-production-services.js";
 import type { BoxConnectionInfo } from "../../shared/node/egress-tunnel/box-connection.js";
 import { createSettingsRoutedHostConnector } from "../box/local-docker-host-connector.js";
+import { readValidOpenGrokAccountToken } from "../box/opengrok-account-token.js";
 import { OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../../shared/box-runtime.js";
-import { readSecret } from "../secrets/secret-store.js";
+import { readSecret, writeSecret } from "../secrets/secret-store.js";
 
 function requireFunction(value: unknown, label: string): asserts value is (...args: never[]) => unknown {
   if (typeof value !== "function") {
@@ -53,7 +54,9 @@ export function createProductionCoordinatorGatewayBinding(): Pick<
         context.env,
         context.requireUpdate(),
         descriptorFastPath,
-      ), context.settings.settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET), async () => await readSecret(OPENGROK_ACCESS_TOKEN_SECRET)) as unknown as {
+      ), context.settings.settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET),
+        // A token that is valid now, not whatever copy the store happens to hold.
+        async (baseUrl) => await readValidOpenGrokAccountToken({ readSecret, writeSecret, getValidAccessToken: deps.getAccessToken }, baseUrl)) as unknown as {
         connect(): unknown | Promise<unknown>;
         recreate?: (...args: any[]) => unknown;
         forceRecreate?: (...args: any[]) => unknown;

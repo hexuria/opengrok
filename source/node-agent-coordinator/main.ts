@@ -256,6 +256,7 @@ export async function composeCoordinator(dependencies: ComposeCoordinatorDepende
 
   const gatewayClient = new CoordinatorGatewayClient({
     resolveConnection: (signal) => hostSupervisor.ensureConnection(signal) as Promise<GatewayConnection>,
+    invalidateConnection: () => hostSupervisor.dropConnection(),
     onEvent: handleGatewaySseEvent,
     onTransportEvent: handleTransportEvent,
     onTransportRetry: () => hostSupervisor.invalidateHealthCache(),

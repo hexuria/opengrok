@@ -132,6 +132,20 @@ export class SandHostSupervisor {
     this.latestConnectionAttempt?.retire();
   }
 
+  /*
+   * Forget the connection outright. invalidateHealthCache only re-probes the
+   * one we have, and a connection built without an identity probes healthy —
+   * the health endpoint needs none — so it was handed back for as long as the
+   * stream stayed live. That is how a single empty identity read at connect
+   * time named the wrong account for the rest of a session. The server now
+   * refuses such a connection by code; this is what lets that refusal become a
+   * fresh connect that re-reads who is signed in.
+   */
+  dropConnection(): void {
+    delete this.connection;
+    this.invalidateHealthCache();
+  }
+
   async ensureConnection(signal?: AbortSignal): Promise<GatewayConnection> {
     const cached = this.connection;
     if (cached != null) {

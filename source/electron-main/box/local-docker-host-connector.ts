@@ -442,11 +442,14 @@ export async function stopLocalDockerBox(): Promise<void> {
   if (!stopped.ok) throw new Error(`Could not stop the local Docker VM: ${stopped.output}`);
 }
 
+/** What the status surface and the thrown connect both say when the signed-in identity cannot be read. */
+export const OPENGROK_IDENTITY_UNREADABLE_DETAIL = "Couldn't read who is signed in. Sign in to your OpenGrok server again.";
+
 export function createSettingsRoutedHostConnector(
   remote: SandRemoteHostConnector,
   settings: SandSettingsStore,
   readOpenGrokToken?: () => Promise<string | null>,
-  readOpenGrokAccountToken?: () => Promise<string | null>,
+  readOpenGrokAccountToken?: (baseUrl: string) => Promise<string | null>,
 ): SandRemoteHostConnector {
   const localConnect = (): Promise<GatewayConnection> => {
     if (ensureInFlight == null) ensureInFlight = connectLocalDocker(settings.settingsPath, async () => {
@@ -492,17 +495,27 @@ export function createSettingsRoutedHostConnector(
         let token = "";
         try { token = (readOpenGrokToken == null ? null : await readOpenGrokToken()) ?? ""; } catch { token = ""; }
         let account = "";
-        try { account = (readOpenGrokAccountToken == null ? null : await readOpenGrokAccountToken()) ?? ""; } catch { account = ""; }
+        try { account = (readOpenGrokAccountToken == null ? null : await readOpenGrokAccountToken(baseUrl)) ?? ""; } catch { account = ""; }
+        // The bearer names the gateway; the account header names whose bots
+        // these are. A connection without it is anonymous, and the server used
+        // to answer an anonymous request as its configured account: somebody
+        // else's bots in this sidebar, and writes into their transcripts. So an
+        // identity that cannot be read is a refused connect, not a quiet
+        // omission. The coordinator retries a connect that throws, so a
+        // momentary empty read costs one retry; a read that keeps failing
+        // surfaces as a failure, instead of as the wrong person.
+        if (account.length === 0) {
+          noteOpenGrokServerStatus({ ok: false, detail: OPENGROK_IDENTITY_UNREADABLE_DETAIL, gatewayUrl: baseUrl });
+          throw new Error(OPENGROK_IDENTITY_UNREADABLE_DETAIL);
+        }
         await noteConnector(settings.settingsPath, `target=opengrok url=${baseUrl}`).catch(() => undefined);
         noteOpenGrokServerStatus({ ok: true, detail: `Using the OpenGrok server at ${baseUrl}.`, gatewayUrl: baseUrl });
         // Built inline rather than via buildConnection: importing it drags the
         // Connect/proto graph into main-edge, which tests load in isolation.
-        // The bearer names the gateway; the account header names whose bots to
-        // list. Without it the server falls back to its configured account.
         return {
           baseUrl,
           ...(token.length > 0 ? { token } : {}),
-          ...(account.length > 0 ? { headers: { [OPENGROK_ACCOUNT_HEADER]: account } } : {}),
+          headers: { [OPENGROK_ACCOUNT_HEADER]: account },
         };
       }
       // Leave grok-bot-local-vm running so Local VM can attach to the existing container.

@@ -57,8 +57,31 @@ export function extractGatewayErrorMessage(body: string): string | null {
   } catch { return null; }
 }
 
+/** The server names WHY it refused as a stable code beside the sentence, when it can. */
+export function extractGatewayErrorCode(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as { readonly code?: unknown };
+    return typeof parsed.code === "string" && parsed.code.length > 0 ? parsed.code : null;
+  } catch { return null; }
+}
+
 export { SandGatewayCommandError } from "./gateway-errors.js";
 export class GatewayEndpointChangedError extends Error {}
+
+/*
+ * Identity refusals. A request has to say whose bots it is about. The server
+ * used to fill a missing name in with its own configured account and answer
+ * 200 — somebody else's sidebar, and writes into their transcripts. It refuses
+ * by code now, and the two codes ask for different things of us.
+ */
+/** No identity was offered: the connection was built anonymously. */
+export const GATEWAY_IDENTITY_REQUIRED_CODE = "account_identity_required";
+/** An identity was offered and did not verify — usually a token that expired while the connection stayed open. */
+export const GATEWAY_IDENTITY_INVALID_CODE = "account_identity_invalid";
+
+export class SandGatewayIdentityError extends SandGatewayCommandError {
+  constructor(readonly code: string, message: string) { super(message); }
+}
 
 export interface GatewayClientTiming {
   readonly clock: Clock;
@@ -105,13 +128,15 @@ export interface CoordinatorGatewayClientOptions {
   readonly onEvent: (event: { readonly channel: string; readonly payload: unknown }) => void;
   readonly onTransportEvent?: (event: unknown) => void;
   readonly onTransportRetry?: () => void;
+  /** Forget the cached connection so the next resolve re-reads who is signed in. */
+  readonly invalidateConnection?: () => void;
   readonly onReachability?: (report: unknown, baseUrl?: string) => void;
   readonly recordTransportStage?: (report: unknown) => void;
   readonly recordGatewayCommandSpan?: (report: unknown) => void;
   readonly resolveTraceWindowTraceparent?: () => Promise<string | null | undefined>;
 }
 
-type RequestInit = { readonly signal?: AbortSignal; readonly requiredBaseUrl?: string };
+type RequestInit = { readonly signal?: AbortSignal; readonly requiredBaseUrl?: string; readonly identityRebuilt?: boolean };
 
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException("This operation was aborted", "AbortError");
@@ -271,6 +296,28 @@ export class CoordinatorGatewayClient {
   }
 
   async request(method: string, args: unknown, init?: RequestInit): Promise<{ result: unknown; connection: GatewayConnection }> {
+    try { return await this.requestOnce(method, args, init); }
+    catch (error) {
+      // An identity refusal is the connection's fault, not this call's. Absent
+      // means it was built anonymously; invalid almost always means the copy of
+      // the token it was built from has since expired. Either way the remedy is
+      // the same: drop it and rebuild once — building re-reads the identity,
+      // and that read renews — then make the same call again. Once, so a store
+      // that cannot produce a live identity surfaces, with the code intact for
+      // the UI to ask for a sign-in, instead of spinning.
+      if (error instanceof SandGatewayIdentityError && init?.identityRebuilt !== true && this.options.invalidateConnection != null) {
+        // Silent on purpose. The token lives an hour and the connection outlives
+        // it, so on a healthy session this refusal is simply the renewal firing,
+        // about once an hour — not a transport retry, not an error. Only the
+        // second refusal, below, is anything anyone needs to see.
+        this.options.invalidateConnection();
+        return await this.requestOnce(method, args, { ...init, identityRebuilt: true });
+      }
+      throw error;
+    }
+  }
+
+  private async requestOnce(method: string, args: unknown, init?: RequestInit): Promise<{ result: unknown; connection: GatewayConnection }> {
     const startMonotonicMs = this.options.timing.clock.monotonicNow();
     let connection: GatewayConnection | undefined;
     let commandTrace: { root: string; child: { traceparent: string; spanId: string } } | undefined;
@@ -297,6 +344,10 @@ export class CoordinatorGatewayClient {
       if (!response.ok) {
         const detail = await response.text().catch(() => response.statusText);
         const message = extractGatewayErrorMessage(detail) ?? `gateway ${method} failed: ${detail}`;
+        if (response.status === 401) {
+          const code = extractGatewayErrorCode(detail);
+          if (code === GATEWAY_IDENTITY_REQUIRED_CODE || code === GATEWAY_IDENTITY_INVALID_CODE) throw new SandGatewayIdentityError(code, message);
+        }
         if (response.status < 500) throw new SandGatewayCommandError(message);
         throw new SandGatewayUnreachableError("http_5xx", message, { httpStatus: response.status, attemptedBaseUrl: connection.baseUrl });
       }

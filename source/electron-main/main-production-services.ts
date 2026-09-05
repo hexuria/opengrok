@@ -6,6 +6,7 @@ import { createEgressConnectionObserver } from "./box/remote-connector-egress.js
 import { createDesktopGatewayDescriptorFastPath } from "./box/gateway-descriptor-store.js";
 import { createRemoteHostConnector, type SandRemoteHostConnector } from "./box/box-host-connector.js";
 import { createSettingsRoutedHostConnector } from "./box/local-docker-host-connector.js";
+import { readValidOpenGrokAccountToken } from "./box/opengrok-account-token.js";
 import { createSandClientPauseControl } from "./box/box-client-pause.js";
 import { createSandMigrationWatcher } from "./box/box-migration-watcher.js";
 import type { RecreateResult } from "./box/box-recreate-commands.js";
@@ -54,7 +55,7 @@ import type { SandAuthStatus } from "./account/cursor-auth.js";
 import { shouldPreserveComputersAcrossAccountDeparture } from "./account/preserve-computers.js";
 import { OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
 import { setBackendUrlResolver } from "../shared/node/cursor-token.js";
-import { readSecret } from "./secrets/secret-store.js";
+import { readSecret, writeSecret } from "./secrets/secret-store.js";
 import type { SecureStorageCodec } from "./secrets/secret-store.js";
 import { recordLocalToolApproval as persistLocalToolApproval, clearLocalToolApprovals as clearPersistedLocalToolApprovals } from "../host/local-exec/local-tool-approvals.js";
 import { fetchSandAvailableModels } from "./models/cursor-model-catalog.js";
@@ -718,7 +719,10 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
           env,
           { noteBackendUpdateRequirement: (required) => requireValue(update, "update").noteBackendUpdateRequirement(required) },
           gatewayFastPath,
-        ), requireValue(settings, "settings").settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET), async () => await readSecret(OPENGROK_ACCESS_TOKEN_SECRET));
+        ), requireValue(settings, "settings").settingsStore, async () => await readSecret(OPENGROK_GATEWAY_TOKEN_SECRET),
+        // A token that is valid now, not whatever copy the store happens to hold:
+        // the stored one expires after an hour and used to be presented dead.
+        async (baseUrl) => await readValidOpenGrokAccountToken({ readSecret, writeSecret, getValidAccessToken: backendClientOptions.getAccessToken }, baseUrl));
       const baseRemoteConnector = wrapRemoteHostConnectorWithDevBoxPlane(
         rawRemoteConnector,
         {
