@@ -452,12 +452,16 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   const teachTopBar = await readFrontend("frontend/src/recovered/features/computer/teach-recording/view.tsx");
   assert.match(teachTopBar, /sand-computer-top-bar/);
   assert.match(teachTopBar, /Teach a task/);
+  const teachMark = await readFrontend("frontend/src/recovered/features/computer/teach-recording/primitives.tsx");
+  assert.match(teachMark, /fill="#ff263c"/);
   const teachComposition = await readFrontend("frontend/src/recovered/features/computer/teach-recording/composition.ts");
   assert.doesNotMatch(teachComposition, /openTrigger === "preview"/);
   const productionCss = await readFrontend("frontend/src/production/production.css");
   assert.match(productionCss, /overflow: hidden/);
   assert.match(productionCss, /100cqh \* 16 \/ 9/);
   assert.match(productionCss, /display: none !important/);
+  assert.match(productionCss, /color-scheme: dark/);
+  assert.match(productionCss, /fill: #ff263c/);
   assert.match(productionCss, /-webkit-app-region: no-drag;/);
   const vncWebview = await readFrontend("frontend/src/recovered/features/computer/shell/vnc-webview.tsx");
   assert.match(vncWebview, /callbacksRef/);
