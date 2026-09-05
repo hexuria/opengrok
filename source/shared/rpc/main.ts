@@ -86,6 +86,7 @@ export const MAIN_METHOD_TABLE = {
   setOpenGrokServer: { args: "object" },
   signInToOpenGrokServer: { args: "object" },
   signOutOfOpenGrokServer: { args: "none" },
+  cancelOpenGrokSignIn: { args: "none" },
   listOpenGrokComputers: { args: "none" },
   resetOpenGrokComputer: { args: "none" },
   stopOpenGrokAgentTurn: { args: "object" },

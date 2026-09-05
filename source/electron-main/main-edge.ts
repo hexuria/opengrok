@@ -17,6 +17,8 @@ import { getOpenGrokServerStatus, noteOpenGrokServerStatus } from "./box/opengro
 
 /** OPENGROK_SERVER_URL at package time is written into the app's package.json and copied into the environment at startup; a dev launch can export it directly. */
 export const OPENGROK_SERVER_URL_ENV = "OPENGROK_SERVER_URL";
+/** The browser step in flight, so a new attempt or a Cancel can abort it. */
+let pendingOpenGrokSignIn: AbortController | null = null;
 export function defaultOpenGrokServerUrl(env: NodeJS.ProcessEnv = process.env): string | null {
   const value = env[OPENGROK_SERVER_URL_ENV]?.trim();
   return value != null && value.length > 0 ? value : null;
@@ -1032,12 +1034,19 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const configured = requested.length > 0 ? requested : configuredOpenGrokServerUrl(deps) ?? "";
       if (configured.length === 0) throw new Error("No OpenGrok server is configured. Set OPENGROK_SERVER_URL when packaging, or export it before launching.");
       const base = signin.assertUsableServerUrl(configured);
+      // A second click restarts the browser step: the previous poll is aborted
+      // so nobody waits three minutes for a browser tab they already closed.
+      pendingOpenGrokSignIn?.abort();
+      const controller = new AbortController();
+      pendingOpenGrokSignIn = controller;
       const params = signin.createLoginParams(base);
       // The browser step is what proves a person is here: the server binds the
       // uuid to the account only when this page is opened, and only then will
       // poll release a token to the matching verifier.
       try { void (require("electron") as { shell: { openExternal(url: string): Promise<void> } }).shell.openExternal(params.loginUrl); } catch { /* headless or blocked */ }
-      const identity = await signin.pollForOpenGrokToken(base, params.uuid, params.verifier);
+      let identity;
+      try { identity = await signin.pollForOpenGrokToken(base, params.uuid, params.verifier, { signal: controller.signal }); }
+      finally { if (pendingOpenGrokSignIn === controller) pendingOpenGrokSignIn = null; }
       const mint = await signin.mintOpenGrokGateway(base, identity.accessToken);
       const secrets = await import("./secrets/secret-store.js");
       await secrets.writeSecret(OPENGROK_ACCESS_TOKEN_SECRET, identity.accessToken);
@@ -1054,6 +1063,12 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         accountId: identity.accountId ?? null,
         status: getOpenGrokServerStatus(),
       };
+    },
+    cancelOpenGrokSignIn: async () => {
+      const pending = pendingOpenGrokSignIn;
+      pendingOpenGrokSignIn = null;
+      pending?.abort();
+      return { cancelled: pending != null };
     },
     signOutOfOpenGrokServer: async () => {
       const secrets = await import("./secrets/secret-store.js");

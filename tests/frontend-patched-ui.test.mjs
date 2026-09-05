@@ -689,7 +689,15 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(landing, /signInToOpenGrokServer\(""\)/, "an empty URL means the configured server");
   assert.match(landing, /server\?\.configuredUrl/);
   assert.match(landing, /OPENGROK_SERVER_UNCONFIGURED/);
-  assert.match(landing, /<AgentAvatar agentId="open-grok" color="black" shape="blob" size="xl"/, "V1's black mark, animated");
+  assert.match(landing, /<OnboardingCharacter color="black" idleGaze isFollowingPointer shape="blob" sizePx=\{64\}/, "V1's 64px black mark: solid, eyes follow the pointer and wander");
+  const character = await readFrontend("frontend/src/recovered/features/onboarding/signed-in/character.tsx");
+  assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
+  assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
+  const landingCss = await readFrontend("frontend/src/production/production.css");
+  assert.match(landingCss, /\.sand-onboarding__brand h1 \{ font-size: 52px;/);
+  assert.match(landingCss, /p\.sand-onboarding__lede \{ max-width: 336px;/);
+  assert.match(landing, /cancelOpenGrokSignIn/, "a stuck browser step can be cancelled or restarted");
+  assert.doesNotMatch(landing, /Opening your browser/, "the button never goes dead while the browser step is pending");
   assert.match(landing, /Your bots live on your own server, and the work runs there\./);
   assert.match(landing, /Signing in opens your browser to your server\./);
   assert.match(landing, /finishWithoutCursor/);
@@ -710,17 +718,13 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(status, /onSkip == null \? null/);
   assert.match(status, /className="sand-onboarding__cta"/);
   const css = await readFrontend("frontend/src/production/production.css");
-  const providerRule = css.match(/button\.sand-onboarding__provider \{[^}]+\}/)?.[0] ?? "";
   const ctaRule = css.match(/button\.sand-onboarding__cta \{[^}]+\}/)?.[0] ?? "";
-  assert.match(providerRule, /background: var\(--sand-fill-secondary-solid\);/);
-  assert.match(providerRule, /border-radius: 16px;/);
   assert.match(css, /button\.sand-onboarding__signin \{[^}]*background: var\(--sand-fill-primary\);/, "the one sign-in pill is near-black, never accent");
   assert.doesNotMatch(css, /sand-onboarding__providers|sand-onboarding__gateway/);
   assert.match(ctaRule, /background: var\(--sand-fill-primary\);/);
   assert.match(ctaRule, /color: var\(--sand-text-on-primary\);/);
   assert.doesNotMatch(css, /\.sand-onboarding__landing button \{[^}]*--cursor-bg-accent/);
   assert.doesNotMatch(css, /\.sand-onboarding__landing button \{[^}]*--cursor-accent/);
-  assert.doesNotMatch(providerRule, /--cursor-bg-accent|--cursor-accent|#4f8cff|#1084fe/);
   assert.doesNotMatch(ctaRule, /--cursor-bg-accent|--cursor-accent|#4f8cff|#1084fe/);
 });
 
