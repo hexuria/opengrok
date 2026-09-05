@@ -88,7 +88,7 @@ test("src/app runtime assets are generated, vendored, or skipped — never hashe
   assert.equal(jpgPlan.bytes[0], 0xff);
   assert.equal(jpgPlan.bytes[1], 0xd8);
 
-  const xlsxPlan = planRuntimeAssetCopy({ file: "xlsx-CNerDvZX.js" }, "src/app/dist/renderer/assets");
+  const xlsxPlan = planRuntimeAssetCopy({ file: "compact-C8-lyxgK.js" }, "src/app/dist/renderer/assets");
   assert.equal(xlsxPlan.action, "skip");
 
   const allowed = planRuntimeAssetCopy({ file: "app-icon.png", sha256: "abc" }, "frontend/src/recovered/assets");
@@ -133,7 +133,7 @@ test("npm-vendored renderer JS is exempt from the clean-source banner without 0.
   };
   assert.equal(isNpmVendoredRendererAsset("assets/extra-vendor.js", provenance), true);
   assert.equal(isNpmVendoredRendererAsset("assets/index.js", provenance), false);
-  assert.equal(isNpmVendoredRendererAsset("assets/xlsx-CNerDvZX.js", provenance), false);
+  assert.equal(isNpmVendoredRendererAsset("assets/compact-C8-lyxgK.js", provenance), false);
 });
 
 test("copyRuntimeAssets does not read src/app even when the manifest points there", async () => {
@@ -156,14 +156,14 @@ test("copyRuntimeAssets does not read src/app even when the manifest points ther
         { file: "demo-computer-wallpaper-BO7Ye4dV.jpg", sha256: "90e253579c5e6ff18cb03059bbe380d64263222be48360802cda58e3d8392216" },
       ],
       immutableAssets: [
-        { file: "xlsx-CNerDvZX.js", sha256: "88bd58aabec374fbb50e18e1f271a15d6fca247297e8af73db4c368ae0408a9c" },
+        { file: "compact-C8-lyxgK.js", sha256: "a163448dab9eeeb2eba2e743625ae925eac5d2d70f919c3396897c5f042ba39c" },
         ...(hasKatex ? [{ file: "katex-DHMw6HUq.js", bytes: 259053, sha256: "8c143536a1933d1f96d975b0e7dcbd6057bb0885fea799852896530b3234d08a" }] : []),
       ],
     };
     const { copied, skipped } = await copyRuntimeAssets(rendererRoot, { manifest, frontendRoot });
     const generated = copied.filter((asset) => asset.source === "generated").map((asset) => asset.file).sort();
     assert.deepEqual(generated, ["app-icon-C7NKj2u7.png", "calendly-DYRMkyLM.svg", "demo-computer-wallpaper-BO7Ye4dV.jpg"]);
-    assert.deepEqual(skipped.map((asset) => asset.file), ["xlsx-CNerDvZX.js"]);
+    assert.deepEqual(skipped.map((asset) => asset.file), ["compact-C8-lyxgK.js"]);
     for (const asset of copied.filter((row) => row.source === "generated")) {
       assert.notEqual(asset.sha256, manifest.assets.find((row) => row.file === asset.file)?.sha256);
       const bytes = await readFile(path.join(rendererRoot, "assets", asset.file));
@@ -174,7 +174,7 @@ test("copyRuntimeAssets does not read src/app even when the manifest points ther
       assert.equal(katex.source, "npm");
       assert.notEqual(katex.sha256, "8c143536a1933d1f96d975b0e7dcbd6057bb0885fea799852896530b3234d08a");
     }
-    assert.equal(existsSync(path.join(rendererRoot, "assets", "xlsx-CNerDvZX.js")), false);
+    assert.equal(existsSync(path.join(rendererRoot, "assets", "compact-C8-lyxgK.js")), false);
     if (existsSync(srcAppAsset)) {
       const upstream = sha256(await readFile(srcAppAsset));
       assert.notEqual(copied.find((asset) => asset.file === "app-icon-C7NKj2u7.png").sha256, upstream);

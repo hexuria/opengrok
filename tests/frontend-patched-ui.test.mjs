@@ -823,7 +823,7 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.match(hover, /\.sand-agent-hover-card \{/);
   assert.match(hover, /width: 260px;/);
   assert.match(hover, /position: fixed;/);
-  assert.match(hover, /z-index: 10000;/);
+  assert.match(hover, /z-index: var\(--sand-layer-popover\);/);
   const preview = await readFrontend("frontend/src/recovered/features/conversation/workspace/sidebar-agent-preview-content.tsx");
   assert.match(preview, /rect\.right - 9/);
   assert.doesNotMatch(preview, /#20231f/);
