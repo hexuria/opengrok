@@ -580,6 +580,66 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(deleteHost, /findRow\(id\)\?\.appendChild\(box\)/);
 });
 
+whenFrontend("settings General tab matches the 0.43 Settings dialog: shell, cards, switch, select", async () => {
+  // Measured live over CDP against Grok Bot 0.43.0 on 2026-09-05.
+  const view = await readFrontend("frontend/src/recovered/features/settings/overlay/view.css");
+  const shell = await readFrontend("frontend/src/recovered/features/settings/overlay/view.tsx");
+  const panels = await readFrontend("frontend/src/recovered/features/settings/overlay/panels.tsx");
+  const autoReview = await readFrontend("frontend/src/recovered/features/settings/overlay/auto-review.tsx");
+  const card = await readFrontend("frontend/src/recovered/features/settings/overlay/settings-card.tsx");
+  const formCss = await readFrontend("frontend/src/recovered/ui/sand-form-primitives.css");
+  const formTsx = await readFrontend("frontend/src/recovered/ui/sand-form-primitives.tsx");
+  const floating = await readFrontend("frontend/src/recovered/ui/sand-floating-primitives.tsx");
+  const floatingCss = await readFrontend("frontend/src/recovered/ui/sand-floating-primitives.css");
+  const installer = await readFrontend("frontend/src/recovered/features/runtime-theme-token-installer.ts");
+  // Shell: 900x702, 198px nav on bg-subtle, 8px nav rows, tokens only.
+  assert.match(view, /\.sand-settings-dialog \{[^}]*width: min\(900px, calc\(100vw - 32px\)\)/);
+  assert.match(view, /\.sand-settings-dialog \{[^}]*height: min\(702px, calc\(100vh - 32px\)\)/);
+  assert.match(view, /\.sand-settings-dialog \{[^}]*border: 1px solid var\(--cursor-stroke-secondary\)/);
+  assert.doesNotMatch(view, /\.sand-settings-dialog \{[^}]*#414141/);
+  assert.doesNotMatch(view, /\.sand-settings-dialog \{[^}]*Inter/);
+  assert.match(view, /\.sand-settings-nav \{[^}]*width: 198px[^}]*background: var\(--sand-bg-subtle\)/);
+  assert.match(view, /\.sand-settings-nav__item \{[^}]*padding: 7px 9px[^}]*border-radius: 8px/);
+  assert.match(view, /\.sand-settings-nav__item:hover:not\(:disabled\) \{ background: var\(--cursor-bg-tertiary\); \}/);
+  assert.match(view, /\.sand-settings-nav__item\[data-active\] \{ background: var\(--sand-fill-ghost-selected\); \}/);
+  assert.match(view, /\.sand-settings-panel__header > h2 \{[^}]*font-size: 17px[^}]*line-height: 24px/);
+  assert.match(view, /\.sand-settings-pane \{[^}]*padding: 22px 32px 28px/);
+  assert.match(shell, /<header className="sand-settings-panel__header"><h2 id=\{headingId\}>/);
+  assert.match(shell, /size=\{15\}/, "nav icons are 15px like official");
+  // Sections: caption + one card, rows split by a 0.5px hairline.
+  assert.match(card, /className="sand-settings-card"/);
+  assert.match(view, /\.sand-settings-group > h3 \{[^}]*font-size: 12px[^}]*color: var\(--sand-text-secondary\)|\.sand-settings-group > h3 \{[^}]*color: var\(--sand-text-secondary\)[^}]*font-size: 12px/);
+  assert.match(view, /\.sand-settings-card \{[^}]*background: var\(--sand-fill-neutral-subtle\)[^}]*border-radius: var\(--cursor-radius-xl, 14px\)/);
+  assert.match(view, /\.sand-settings-card > \* \+ \*::before \{[^}]*height: \.5px[^}]*background: var\(--sand-border-default\)/);
+  assert.match(view, /\.sand-settings-card__row \{[^}]*padding: 12px 14px/);
+  assert.match(panels, /<SettingsGroup title="Bot">/);
+  assert.doesNotMatch(panels, /<SettingsGroup title="Agent">/);
+  assert.match(panels, /<SettingsCardRow id=\{sandSettingRowId\("theme"\)\} label="Theme">/);
+  assert.match(panels, /<SettingsCardRow id=\{sandSettingRowId\("timezone"\)\} label="Timezone">/);
+  assert.match(panels, /className="sand-account-card__name"/);
+  assert.match(view, /\.sand-account-card__avatar \{[^}]*width: 44px/);
+  assert.match(autoReview, /<SettingsCardRow description="Grok Bot checks each action[^"]*" id=\{sandSettingRowId\("auto-review"\)\} label="Auto-review">/);
+  assert.match(autoReview, /<SettingsCardRow className="sand-auto-review" stack>/);
+  assert.doesNotMatch(autoReview, /SandTextField/);
+  // Switch: single 32x20 pill, control-checked fill, 12px knob travel.
+  assert.match(formTsx, /ariaLabel/);
+  assert.doesNotMatch(formTsx, /translateX\(16px\)/);
+  assert.match(formCss, /\[role="switch"\] \{[^}]*width: 32px/);
+  assert.match(formCss, /\[role="switch"\]\[aria-checked="true"\] > span \{[^}]*translate\(calc\(12px \* var\(--sand-inline-sign, 1\)\), -50%\)/);
+  assert.match(formCss, /\[role="switch"\]\[aria-checked="true"\]:hover:not\(:disabled\) \{[^}]*--sand-fill-control-checked-hover/);
+  // Select trigger: label + 10px chevron, 28px tall, neutral-subtle on border-subtle.
+  assert.match(floating, /<span className="ui-select-trigger__label">/);
+  assert.match(floating, /name="chevron-down" size=\{10\}/);
+  assert.match(floatingCss, /\.ui-select-trigger \{[^}]*min-height: 28px[^}]*padding: 4px 5px 4px 7px/);
+  assert.match(floatingCss, /\.ui-select-trigger \{[^}]*border: 1px solid var\(--sand-border-subtle\)/);
+  assert.doesNotMatch(view, /\.sand-settings-dialog \.ui-select-trigger \{/);
+  // Tokens corrected to the live 0.43 values.
+  assert.match(installer, /--sand-font-weight-regular: 420/);
+  assert.match(installer, /--cursor-font-weight-normal: 420/);
+  assert.match(installer, /"--sand-text-disabled","light":"#14141474"/);
+  assert.match(installer, /"--sand-border-focus","light":"#0c64c1"/);
+});
+
 whenFrontend("first-run is loader then provider picker, not the shell", async () => {
   const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
   assert.match(renderer, /if \(bridge != null && account == null\)/);
