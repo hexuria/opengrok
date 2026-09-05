@@ -714,7 +714,8 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   const ctaRule = css.match(/button\.sand-onboarding__cta \{[^}]+\}/)?.[0] ?? "";
   assert.match(providerRule, /background: var\(--sand-fill-secondary-solid\);/);
   assert.match(providerRule, /border-radius: 16px;/);
-  assert.match(css, /button\.sand-onboarding__provider:hover \{[^}]*background: var\(--sand-fill-secondary-solid-hover\);/);
+  assert.match(css, /button\.sand-onboarding__signin \{[^}]*background: var\(--sand-fill-primary\);/, "the one sign-in pill is near-black, never accent");
+  assert.doesNotMatch(css, /sand-onboarding__providers|sand-onboarding__gateway/);
   assert.match(ctaRule, /background: var\(--sand-fill-primary\);/);
   assert.match(ctaRule, /color: var\(--sand-text-on-primary\);/);
   assert.doesNotMatch(css, /\.sand-onboarding__landing button \{[^}]*--cursor-bg-accent/);
