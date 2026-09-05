@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { urlTypesXmlFor } from "../scripts/lib/electron-shell.mjs";
 import { fileURLToPath } from "node:url";
 import createIgnore from "ignore";
 
@@ -78,8 +79,10 @@ test("default packaging wraps npm Electron and does not require the official Mac
   assert.doesNotMatch(source, /officialMacReleaseShellHash/);
   assert.doesNotMatch(source, /expectedSignatureExcludedMachOHash/);
   assert.match(shell, /CFBundleName/);
-  assert.match(shell, /<string>sand<\/string>/);
-  assert.match(shell, /<string>opengrok<\/string>/);
+  // The URL types are generated per app variant; V1 declares sand + opengrok.
+  assert.match(shell, /urlTypesXmlFor\(reconstructedUrlSchemes\)/);
+  assert.match(urlTypesXmlFor(["sand", "opengrok"]), /<string>sand<\/string>/);
+  assert.match(urlTypesXmlFor(["sand", "opengrok"]), /<string>opengrok<\/string>/);
   assert.match(shell, /MACOS_EXECUTABLE_NAME/);
   assert.match(diagnostic, /verifyOfficialMacReference/);
   assert.match(diagnostic, /buildFidelityReconstructedAsar/);
