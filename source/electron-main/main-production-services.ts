@@ -53,7 +53,7 @@ import { registerElectronProductionVncTrust, type ElectronProductionVncTrustDeps
 import { registerProductionTelemetryIpc } from "./telemetry/production-telemetry-ipc.js";
 import type { SandAuthStatus } from "./account/cursor-auth.js";
 import { shouldPreserveComputersAcrossAccountDeparture } from "./account/preserve-computers.js";
-import { OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
+import { OPENGROK_GATEWAY_TOKEN_SECRET } from "../shared/box-runtime.js";
 import { setBackendUrlResolver } from "../shared/node/cursor-token.js";
 import { readSecret, writeSecret } from "./secrets/secret-store.js";
 import type { SecureStorageCodec } from "./secrets/secret-store.js";

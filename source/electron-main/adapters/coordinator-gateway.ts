@@ -12,7 +12,7 @@ import type { ProductionServiceContext } from "../main-production-services.js";
 import type { BoxConnectionInfo } from "../../shared/node/egress-tunnel/box-connection.js";
 import { createSettingsRoutedHostConnector } from "../box/local-docker-host-connector.js";
 import { readValidOpenGrokAccountToken } from "../box/opengrok-account-token.js";
-import { OPENGROK_ACCESS_TOKEN_SECRET, OPENGROK_GATEWAY_TOKEN_SECRET } from "../../shared/box-runtime.js";
+import { OPENGROK_GATEWAY_TOKEN_SECRET } from "../../shared/box-runtime.js";
 import { readSecret, writeSecret } from "../secrets/secret-store.js";
 
 function requireFunction(value: unknown, label: string): asserts value is (...args: never[]) => unknown {
