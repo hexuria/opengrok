@@ -562,7 +562,9 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
     "agent name belongs in the chat header, not over the traffic-light band",
   );
   assert.match(renderer, /className="sand-workspace-grid"/);
-  assert.match(renderer, /minmax\(0, 1fr\) auto/);
+  assert.match(renderer, /const detailsPaneTrack = detailsPaneOpen/);
+  assert.match(renderer, /minmax\(0, 1fr\) \$\{detailsPaneTrack\}/);
+  assert.doesNotMatch(renderer, /minmax\(0, 1fr\) auto/);
   assert.match(renderer, /setAgents\(\(current\) => current\.some/);
   assert.match(renderer, /menuPlacement=\{renderedSidebarLayout\.isCollapsed \? "right-start" : "bottom-start"\}/);
   assert.match(renderer, /className="sand-agents-sidebar__dock"/);
@@ -577,6 +579,19 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   const production = await readFrontend("frontend/src/production/production.css");
   assert.match(production, /\.sand-workspace-grid \{/);
   assert.match(production, /\.sand-info-pane\[data-open\] \{/);
+  assert.match(production, /\.sand-shell \{[^}]*--sand-info-pane-width: 320px;/s);
+  assert.match(
+    production,
+    /\.sand-info-pane\[data-open\]:not\(#\\#\):not\(#\\#\):not\(#\\#\):not\(#\\#\):not\(#\\#\) \{[^}]*max-width: calc\(var\(--sand-info-pane-width, 320px\)/s,
+  );
+  assert.doesNotMatch(
+    production,
+    /\.sand-info-pane\[data-open\] \{[^}]*max-width: min\(480px/s,
+    "open details must not grow past --sand-info-pane-width into an empty chrome column",
+  );
+  assert.match(production, /\.sand-info-pane__inner:not\(#\\#\):not\(#\\#\):not\(#\\#\):not\(#\\#\):not\(#\\#\) \{[^}]*width: 100%;/s);
+  assert.match(production, /\.sand-info-pane__resize-handle:not\(#\\#\):not\(#\\#\):not\(#\\#\):not\(#\\#\):not\(#\\#\) \{[^}]*left: 0;/s);
+  assert.match(production, /\.sand-computer-preview__frame \{[^}]*max-width: 100%;/s);
   assert.match(production, /\.sand-workspace-rail\[data-sidebar-collapsed\]/);
   assert.match(production, /padding-top: var\(--sand-titlebar-block, 52px\);/);
   assert.match(production, /\.sand-workspace-rail \{[^}]*background: var\(--cursor-bg-chrome\);/s);
