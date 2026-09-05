@@ -689,7 +689,7 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(landing, /signInToOpenGrokServer\(""\)/, "an empty URL means the configured server");
   assert.match(landing, /server\?\.configuredUrl/);
   assert.match(landing, /OPENGROK_SERVER_UNCONFIGURED/);
-  assert.match(landing, /<Mascot3D className="sand-onboarding__mark" size=\{64\} \/>/, "the sign-in mark is the live 3D mascot");
+  assert.match(landing, /<Mascot3D className="sand-onboarding__mark" size=\{88\} \/>/, "the sign-in mark is the live 3D mascot");
   const mascotComponent = await readFrontend("frontend/src/production/patched-ui/Mascot3D.tsx");
   assert.match(mascotComponent, /radialGradient/, "shaded sphere");
   assert.match(mascotComponent, /Math\.cos\(lat\) \* Math\.sin\(lon\)/, "eyes are projected onto the sphere");
@@ -707,7 +707,7 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
   assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
   const landingCss = await readFrontend("frontend/src/production/production.css");
-  assert.match(landingCss, /\.sand-onboarding__brand h1 \{ font-size: 88px;/, "the O matches the 64px mascot");
+  assert.match(landingCss, /\.sand-onboarding__brand h1 \{ font-size: 72px;/, "the O sits just under the 69px visible ball");
   assert.match(landingCss, /p\.sand-onboarding__lede \{ max-width: 336px;/);
   assert.match(landing, /cancelOpenGrokSignIn/, "a stuck browser step can be cancelled or restarted");
   assert.doesNotMatch(landing, /Opening your browser/, "the button never goes dead while the browser step is pending");
