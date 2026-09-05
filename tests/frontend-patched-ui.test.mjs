@@ -366,6 +366,14 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(surface, /DictationPanel/);
   assert.match(surface, /RouterUsagePanel/);
   assert.match(surface, /showUsage=\{true\}/);
+  // The Computer tab carries the machine-consent rows from the patched build (this computer, remote control, performance).
+  assert.match(surface, /<LocalComputerGroup \/>\s+<RemoteControlGroup \/>\s+<HardwareAccelerationGroup \/>\s+<RouterSettingsPanel/);
+  const localComputer = await readFrontend("frontend/src/production/patched-ui/LocalComputerPanel.tsx");
+  for (const label of ["This computer accepts bot commands", "Allow administrator (sudo) commands", "Bots using this computer", "Standing rules", "Turn off", "Forget this computer", "Hardware acceleration"]) assert.ok(localComputer.includes(`label="${label}"`), label);
+  assert.match(localComputer, /setLocalComputerName\?\.\(next\)/);
+  assert.match(localComputer, /sudoAskpass\?\.set\(true\)/);
+  assert.match(localComputer, /value: "bypass", label: "Always allow"/);
+  assert.match(localComputer, /addRemoteControlRule\?\.\(kind, pattern\)/);
   const renderer = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
   assert.match(renderer, /AgentModelCombobox/);
   assert.match(renderer, /AgentUsagePane/);
