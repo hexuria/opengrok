@@ -441,6 +441,16 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.doesNotMatch(computerPane, /ComputerRuntimeDock/);
   assert.match(computerPane, /sand-info-pane__computer/);
   assert.match(computerPane, /const onHostKey = useCallback/);
+  assert.match(computerPane, /style=\{\{ width: "100%", height: "100%" \}\}/);
+  const teachTopBar = await readFrontend("frontend/src/recovered/features/computer/teach-recording/view.tsx");
+  assert.match(teachTopBar, /sand-computer-top-bar/);
+  assert.match(teachTopBar, /Teach a task/);
+  const teachComposition = await readFrontend("frontend/src/recovered/features/computer/teach-recording/composition.ts");
+  assert.doesNotMatch(teachComposition, /openTrigger === "preview"/);
+  const productionCss = await readFrontend("frontend/src/production/production.css");
+  assert.match(productionCss, /\.sand-computer-preview__frame \{[^}]*overflow: hidden;/);
+  assert.match(productionCss, /\.sand-computer-fullscreen \.sand-computer-top-bar \{[^}]*position: absolute;/);
+  assert.match(productionCss, /-webkit-app-region: no-drag;/);
   const vncWebview = await readFrontend("frontend/src/recovered/features/computer/shell/vnc-webview.tsx");
   assert.match(vncWebview, /callbacksRef/);
   assert.match(vncWebview, /\[bridge, forwardedRef, isInteractive, isViewerVisible, openedAtMs, src\]/);
@@ -483,6 +493,10 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(triggerEditor, /platform: "webhook", label: "Webhook"/);
   assert.ok(triggerEditor.indexOf("Webhook") < triggerEditor.indexOf("On a schedule"));
   assert.match(triggerEditor, /When a webhook fires/);
+  assert.match(triggerEditor, /createPortal/);
+  assert.match(triggerEditor, /data-portaled="true"/);
+  assert.match(routinesCss, /app-region: no-drag/);
+  assert.match(routinesCss, /\[data-portaled\]/);
   assert.match(renderer, /setRoutinesInfoPaneOpen\(false\); setComputerInfoOpen\(false\)/);
   assert.doesNotMatch(
     routinesView.slice(routinesView.indexOf("export function InfoPaneRoutines")),
