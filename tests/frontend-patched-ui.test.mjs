@@ -441,6 +441,22 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(view, /\.sand-code-block \{[^}]*border: 1px solid var\(--cursor-stroke-tertiary/);
   assert.doesNotMatch(view, /\.sand-code-block \{[^}]*background: #1a1d19/);
   assert.doesNotMatch(view, /\.sand-code-block \{[^}]*color: #d9ded4/);
+  // Fenced code is token-coloured through shiki's css-variables theme, mapped onto the Cursor palette like official.
+  const highlighter = await readFrontend("frontend/src/recovered/features/conversation/workspace/code-highlighter.ts");
+  const bootstrap = JSON.parse(await readFrontend("frontend/manifests/renderer-bootstrap.json"));
+  assert.match(highlighter, /createCssVariablesTheme\(\{ name: CODE_HIGHLIGHT_THEME, variablePrefix: "--shiki-"/);
+  assert.match(highlighter, /export const CODE_HIGHLIGHT_THEME = "css-variables";/);
+  assert.match(highlighter, /createJavaScriptRegexEngine\(\{ forgiving: true \}\)/);
+  assert.equal((highlighter.match(/^import \w+ from "@shikijs\/langs\//gm) ?? []).length, 77, "same grammar set as the official chunk");
+  assert.match(highlighter, /shell: "shellscript"/); assert.match(highlighter, /zsh: "bash"/);
+  assert.match(transcript, /import\("\.\/code-highlighter"\)/, "grammars stay behind a lazy boundary");
+  assert.doesNotMatch(transcript, /^import (?!type ).*from "\.\/code-highlighter"/m);
+  assert.match(transcript, /lines == null \? code : <HighlightedCodeLines lines=\{lines\} \/>/);
+  assert.ok(bootstrap.lazyBoundaries.some((boundary) => boundary.cleanDynamicEntry === "src/recovered/features/conversation/workspace/code-highlighter.ts"));
+  assert.match(view, /\.sand-code-block \{[^}]*--shiki-token-keyword: var\(--cursor-syntax-keyword\);/);
+  assert.match(view, /\.sand-code-block \{[^}]*--shiki-token-type: var\(--cursor-syntax-type, var\(--cursor-syntax-constant\)\);/);
+  assert.match(view, /\.sand-code-block \{[^}]*--shiki-foreground: var\(--cursor-syntax-foreground\);/);
+  assert.doesNotMatch(view, /hljs/);
   assert.match(view, /\.sand-message-prose a \{[^}]*color: var\(--cursor-text-link/);
   assert.doesNotMatch(view, /\.sand-message-prose a \{[^}]*color: #bfe86b/);
   assert.match(view, /\.sand-message\[data-role="user"\] \{[^}]*color: var\(--sand-text-on-color/);

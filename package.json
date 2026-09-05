@@ -123,6 +123,7 @@
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "rxjs": "8.0.0-alpha.14",
+    "shiki": "4.4.3",
     "tar": "7.5.21",
     "tree-sitter": "0.21.1",
     "tree-sitter-bash": "0.21.0",
