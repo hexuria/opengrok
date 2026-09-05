@@ -452,7 +452,14 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(renderer, /setRoutinesInfoPaneOpen\(true\)/);
   assert.match(renderer, /if \(routinesInfoPaneOpen\)/);
   assert.match(routinesView, /Back to screen/);
-  assert.match(routinesView, />Cancel</);
+  assert.match(routinesView, /name="chevrons-left"/);
+  assert.match(routinesView, /name="chevrons-right"/);
+  assert.doesNotMatch(routinesView, />Cancel</);
+  assert.doesNotMatch(routinesView, /name="chevron-left"/);
+  const routinesCss = await readFrontend("frontend/src/recovered/features/automations/routines/view.css");
+  assert.match(routinesCss, /border-radius: var\(--cursor-radius-xl\)/);
+  assert.match(routinesCss, /\.sand-trigger-card__add \{/);
+  assert.match(renderer, /setRoutinesInfoPaneOpen\(false\); setComputerInfoOpen\(false\)/);
   assert.doesNotMatch(
     routinesView.slice(routinesView.indexOf("export function InfoPaneRoutines")),
     /RoutineEditor/,
