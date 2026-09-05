@@ -40,6 +40,8 @@ export const NPM_RUNTIME_ASSET_SOURCES = Object.freeze({
   "pdf-WLgSwHwh.js": "node_modules/pdfjs-dist/build/pdf.min.mjs",
   "pdf.worker.min-qwK7q_zL.mjs": "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
   "katex-DHMw6HUq.js": "node_modules/katex/dist/katex.min.js",
+  // Not a 0.18 name: the docx reader is ours. mammoth converts .docx to HTML in the renderer.
+  "mammoth.browser.min-1.12.2.js": "node_modules/mammoth/mammoth.browser.min.js",
 });
 
 /** Renderer-relative path (`assets/foo.js`) of an npm-vendored runtime file. */
