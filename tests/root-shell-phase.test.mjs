@@ -213,6 +213,11 @@ whenFrontend("the first-run flow is gone and the empty state offers the first bo
   assert.doesNotMatch(renderer, /subscribe\("agents", \(value\) => \{[\s\S]{0,400}setAgents\(projected\)/, "a pushed roster is never adopted wholesale");
   assert.match(renderer, /if \(!completeRosterAgentIdsRef\.current\.includes\(projected\.id\)\) \{ scheduleRosterRefresh\(\)/, "an unknown upserted agent is verified over RPC, not adopted");
 
+  // The palette's search is served from the server's configured account, not
+  // the caller's, and it returns message snippets; a match for an agent this
+  // identity's roster does not hold is dropped before it renders.
+  assert.match(renderer, /searchAgents: async \(input\) => \{[\s\S]*?const known = new Set\(completeRosterAgentIdsRef\.current\);[\s\S]*?known\.has\(/, "search results are filtered to the identity-scoped roster");
+
   // A fresh sign-in has to re-read who signed in. The landing dismisses the
   // login wall on its own, but the account status only changes in the main
   // process, so without this the shell renders behind a logged-out account and

@@ -513,7 +513,19 @@ export class CoordinatorGatewayClient {
             void response.body?.cancel().catch(() => {});
             throw new Error("gateway connect superseded");
           }
-          if (!response.ok || response.body == null) throw new SandGatewayUnreachableError(outcomeForHttpStatus(response.status) ?? "network", `gateway events failed: ${response.status}`, { httpStatus: response.status });
+          if (!response.ok || response.body == null) {
+            // An identity refusal on the stream open is the connection's fault,
+            // not the stream's: drop the cached connection so the next backoff
+            // attempt re-reads — and renews — who is signed in, instead of
+            // re-presenting the same dead token on every tick forever. Same
+            // codes, same extractor as /api/*; the ordinary backoff does the rest.
+            if (response.status === 401 && this.options.invalidateConnection != null) {
+              const detail = await response.text().catch(() => "");
+              const code = extractGatewayErrorCode(detail);
+              if (code === GATEWAY_IDENTITY_REQUIRED_CODE || code === GATEWAY_IDENTITY_INVALID_CODE) this.options.invalidateConnection();
+            }
+            throw new SandGatewayUnreachableError(outcomeForHttpStatus(response.status) ?? "network", `gateway events failed: ${response.status}`, { httpStatus: response.status });
+          }
           return { connection: resolved, reader: response.body.getReader() };
         }, controller.signal);
       } catch (error) { if (error instanceof DeadlineExceededError) controller.abort(); throw error; }

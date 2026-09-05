@@ -161,3 +161,19 @@ test("a refusal that persists surfaces after one rebuild, whichever code it carr
     await cleanup();
   }
 });
+
+
+/*
+ * The stream open is refused with the same codes as /api/*. Left as a generic
+ * failure it would retry the same dead token on every backoff tick, forever;
+ * dropping the cached connection first means the next attempt re-reads and
+ * renews. Pinned as source because the event loop is backoff-driven.
+ */
+test("an identity refusal on the stream open drops the cached connection before backoff", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(path.join(repoRoot, "source/node-agent-coordinator/gateway/gateway-client.ts"), "utf8");
+  const open = source.slice(source.indexOf("private async streamEvents("), source.indexOf("private dispatchEventBlock") > 0 ? source.indexOf("private dispatchEventBlock") : undefined);
+  assert.match(open, /response\.status === 401 && this\.options\.invalidateConnection != null/, "the stream open recognises an identity refusal");
+  assert.match(open, /extractGatewayErrorCode\(detail\)/, "it reads the same code field as /api/*");
+  assert.match(open, /GATEWAY_IDENTITY_REQUIRED_CODE \|\| code === GATEWAY_IDENTITY_INVALID_CODE\) this\.options\.invalidateConnection\(\)/, "and drops the connection so the next attempt renews");
+});
