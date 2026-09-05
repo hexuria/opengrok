@@ -638,6 +638,22 @@ whenFrontend("settings General tab matches the 0.43 Settings dialog: shell, card
   assert.match(installer, /--cursor-font-weight-normal: 420/);
   assert.match(installer, /"--sand-text-disabled","light":"#14141474"/);
   assert.match(installer, /"--sand-border-focus","light":"#0c64c1"/);
+  // The other tabs share the same card rows; the legacy boxed-row CSS is gone.
+  for (const file of ["frontend/src/recovered/features/settings/overlay/computer-runtime.tsx", "frontend/src/recovered/features/settings/overlay/computer-view.tsx", "frontend/src/recovered/features/settings/overlay/provider-computers.tsx", "frontend/src/production/patched-ui/RouterUsagePanel.tsx", "frontend/src/production/patched-ui/DictationPanel.tsx", "frontend/src/production/patched-ui/OpenRouterModelField.tsx"]) {
+    const source = await readFrontend(file);
+    assert.match(source, /SettingsCardRow/, `${file} uses the shared card row`);
+    assert.doesNotMatch(source, /className="sand-settings-row/, `${file} dropped the legacy row box`);
+    assert.doesNotMatch(source, /sand-settings-copy|sand-provider-usage-card/, `${file} dropped legacy row copy`);
+  }
+  assert.doesNotMatch(panels, /sand-settings-row"|sand-settings-copy|sand-provider-usage-card|sand-usage-state|#ef8585/);
+  assert.match(panels, /<SettingsGroup title="Grok Bot Updates">/);
+  assert.match(panels, /label=\{<>Version <bdi>\{status\.currentVersion\}<\/bdi>/);
+  assert.doesNotMatch(view, /\.sand-settings-row \{|\.sand-settings-copy \{|\.sand-provider-usage-card|\.sand-settings-uptodate-banner|\.sand-settings-dialog button:not/);
+  assert.match(view, /\.sand-settings-status \{[^}]*border-radius: 10px/);
+  const kitCss = await readFrontend("frontend/src/recovered/ui/sand-kit-primitives.css");
+  assert.doesNotMatch(kitCss, /background: var\(--cursor-accent\);\n  color: var\(--cursor-base\);/);
+  const computerView = await readFrontend("frontend/src/recovered/features/settings/overlay/computer-view.tsx");
+  assert.match(computerView, /<SettingsStatusPill icon="check-circle">\{UP_TO_DATE_COPY\}<\/SettingsStatusPill>/);
 });
 
 whenFrontend("first-run is loader then provider picker, not the shell", async () => {
