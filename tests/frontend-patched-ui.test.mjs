@@ -447,6 +447,9 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(renderer, /InfoPaneRoutines/);
   assert.match(renderer, /startCreate: routinesCreate/);
   assert.match(renderer, /setRoutinesInfoPaneOpen\(true\)/);
+  assert.match(renderer, /if \(routinesInfoPaneOpen\)/);
+  assert.match(routinesView, /Back to screen/);
+  assert.match(routinesView, />Cancel</);
   assert.doesNotMatch(
     routinesView.slice(routinesView.indexOf("export function InfoPaneRoutines")),
     /RoutineEditor/,
