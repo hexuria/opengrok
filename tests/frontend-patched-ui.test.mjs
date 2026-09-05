@@ -452,13 +452,21 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(renderer, /setRoutinesInfoPaneOpen\(true\)/);
   assert.match(renderer, /if \(routinesInfoPaneOpen\)/);
   assert.match(routinesView, /Back to screen/);
-  assert.match(routinesView, /name="chevrons-left"/);
+  assert.match(routinesView, /name="chevron-left"/);
   assert.match(routinesView, /name="chevrons-right"/);
   assert.doesNotMatch(routinesView, />Cancel</);
-  assert.doesNotMatch(routinesView, /name="chevron-left"/);
+  assert.match(routinesView, /<RoutineRunHistory snapshot=\{runHistory\} \/>/);
+  assert.match(routinesView, /sand-automation-toolbar/);
   const routinesCss = await readFrontend("frontend/src/recovered/features/automations/routines/view.css");
-  assert.match(routinesCss, /border-radius: var\(--cursor-radius-xl\)/);
-  assert.match(routinesCss, /\.sand-trigger-card__add \{/);
+  assert.match(routinesCss, /background: var\(--sand-bg-base\)/);
+  assert.match(routinesCss, /border: 1px solid var\(--sand-border-default\)/);
+  assert.match(routinesCss, /\.sand-trigger-card__item:hover/);
+  assert.match(routinesCss, /\.sand-trigger-card__remove/);
+  assert.doesNotMatch(routinesCss, /--cursor-bg-input/);
+  const triggerEditor = await readFrontend("frontend/src/recovered/features/automations/routines/schedule-editor.tsx");
+  assert.match(triggerEditor, /platform: "webhook", label: "Webhook"/);
+  assert.ok(triggerEditor.indexOf("Webhook") < triggerEditor.indexOf("On a schedule"));
+  assert.match(triggerEditor, /When a webhook fires/);
   assert.match(renderer, /setRoutinesInfoPaneOpen\(false\); setComputerInfoOpen\(false\)/);
   assert.doesNotMatch(
     routinesView.slice(routinesView.indexOf("export function InfoPaneRoutines")),
