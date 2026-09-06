@@ -14,6 +14,8 @@ const JSON_EXTENSIONS = new Set(["json"]);
 const TABLE_EXTENSIONS = new Set(["csv", "tsv", "xlsx", "xls", "xlsm", "ods"]);
 // Archives the renderer can LIST without extracting (zip central directory, tar headers, gzip via DecompressionStream).
 const ARCHIVE_EXTENSIONS = new Set(["zip", "tar", "gz", "tgz"]);
+// Office documents the renderer reads itself (docx via mammoth; pptx/odt/odp by walking the package XML; rtf by stripping control words).
+const OFFICE_EXTENSIONS = new Set(["docx", "pptx", "odt", "odp", "rtf"]);
 
 export type FilePreviewKind =
   | "image"
@@ -38,7 +40,7 @@ export function getFilePreviewKind(nameOrPath: string): FilePreviewKind {
   if (TABLE_EXTENSIONS.has(extension)) return "table";
   if (JSON_EXTENSIONS.has(extension)) return "json";
   if (MARKDOWN_EXTENSIONS.has(extension)) return "markdown";
-  if (extension === "docx") return "docx";
+  if (OFFICE_EXTENSIONS.has(extension)) return "docx";
   if (ARCHIVE_EXTENSIONS.has(extension)) return "archive";
   if (isTextPreviewableName(nameOrPath)) return "text";
   return "unknown";
