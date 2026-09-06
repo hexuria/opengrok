@@ -65,28 +65,25 @@ test("the pill label matches official", async () => {
   } finally { await cleanup(); }
 });
 
-test("the server's reading and this device's reading merge, later wins", async () => {
+test("a server that speaks unread is the authority; the device record only stands in when it does not", async () => {
   const { loaded, cleanup } = await load();
   try {
     const store = new Map();
-    globalThis.localStorage = {
-      getItem: (key) => store.get(key) ?? null,
-      setItem: (key, value) => { store.set(key, value); },
-    };
+    globalThis.localStorage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => { store.set(key, value); } };
     const entries = [{ kind: "message", id: "m", role: "assistant", timestampMs: 5000 }];
-    // Nothing known anywhere: mark nothing, and remember where we came in, so
-    // the NEXT thing that arrives is the first unread one.
-    assert.equal(loaded.resolveUnreadAnchorForAgent("bot", { lastViewedAt: 0, lastActivityAt: 0 }, entries), null);
-    assert.equal(loaded.localLastViewedAt("bot"), 5000, "seeded on that first look");
+    // Server speaks unread (lastActivityAt present): its values are used verbatim, whatever this device remembers.
+    loaded.recordLocalLastViewedAt("bot", 9000);
+    assert.equal(loaded.resolveUnreadAnchorForAgent("bot", { lastViewedAt: 4000, lastActivityAt: 5000 }, entries), 4000, "server says unread since 4000; a device record of 9000 does not override a deliberate Mark as Unread");
+    assert.equal(loaded.resolveUnreadAnchorForAgent("bot", { lastViewedAt: 5000, lastActivityAt: 5000 }, entries), null, "server says caught up");
+    assert.equal(loaded.resolveUnreadAnchorForAgent("bot", { lastViewedAt: 0, lastActivityAt: 5000 }, entries), 0, "server: never viewed, spoke — everything is new");
+    // Server without the fields at all: the device record decides, seeding on first look.
+    store.clear();
+    assert.equal(loaded.resolveUnreadAnchorForAgent("bot2", {}, entries), null);
+    assert.equal(loaded.localLastViewedAt("bot2"), 5000, "seeded on that first look");
     const later = [...entries, { kind: "message", id: "m2", role: "assistant", timestampMs: 9000 }];
-    assert.equal(loaded.resolveUnreadAnchorForAgent("bot", { lastViewedAt: 0, lastActivityAt: 0 }, later), 5000, "now something has arrived since");
-    // Now this device is caught up even though the server still reports nothing.
-    assert.equal(loaded.resolveUnreadAnchorForAgent("bot", { lastViewedAt: 0, lastActivityAt: 0 }, entries), null);
-    // A later server reading wins over the local one.
-    assert.equal(loaded.resolveUnreadAnchorForAgent("bot", { lastViewedAt: 7000, lastActivityAt: 9000 }, entries), 7000);
-    // Recording never moves backwards.
-    loaded.recordLocalLastViewedAt("bot", 100);
-    assert.equal(loaded.localLastViewedAt("bot"), 5000);
+    assert.equal(loaded.resolveUnreadAnchorForAgent("bot2", {}, later), 5000, "something arrived since");
+    loaded.recordLocalLastViewedAt("bot2", 100);
+    assert.equal(loaded.localLastViewedAt("bot2"), 5000, "recording never moves backwards");
     delete globalThis.localStorage;
   } finally { await cleanup(); }
 });
