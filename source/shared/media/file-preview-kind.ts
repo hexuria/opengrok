@@ -11,7 +11,9 @@ const VIDEO_EXTENSIONS = new Set(Object.keys(VIDEO_MIME_FROM_EXTENSION).map((ext
 const AUDIO_EXTENSIONS = new Set(Object.keys(AUDIO_MIME_FROM_EXTENSION).map((extension) => extension.slice(1)));
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx"]);
 const JSON_EXTENSIONS = new Set(["json"]);
-const TABLE_EXTENSIONS = new Set(["csv", "tsv", "xlsx", "xls"]);
+const TABLE_EXTENSIONS = new Set(["csv", "tsv", "xlsx", "xls", "xlsm", "ods"]);
+// Archives the renderer can LIST without extracting (zip central directory, tar headers, gzip via DecompressionStream).
+const ARCHIVE_EXTENSIONS = new Set(["zip", "tar", "gz", "tgz"]);
 
 export type FilePreviewKind =
   | "image"
@@ -23,6 +25,7 @@ export type FilePreviewKind =
   | "markdown"
   | "docx"
   | "text"
+  | "archive"
   | "unknown";
 
 export function getFilePreviewKind(nameOrPath: string): FilePreviewKind {
@@ -36,10 +39,11 @@ export function getFilePreviewKind(nameOrPath: string): FilePreviewKind {
   if (JSON_EXTENSIONS.has(extension)) return "json";
   if (MARKDOWN_EXTENSIONS.has(extension)) return "markdown";
   if (extension === "docx") return "docx";
+  if (ARCHIVE_EXTENSIONS.has(extension)) return "archive";
   if (isTextPreviewableName(nameOrPath)) return "text";
   return "unknown";
 }
 
 export function previewKindNeedsBytes(kind: FilePreviewKind): boolean {
-  return kind === "pdf" || kind === "table" || kind === "docx" || kind === "text" || kind === "json" || kind === "markdown";
+  return kind === "pdf" || kind === "table" || kind === "docx" || kind === "text" || kind === "json" || kind === "markdown" || kind === "archive";
 }

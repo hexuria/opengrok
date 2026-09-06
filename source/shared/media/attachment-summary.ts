@@ -68,6 +68,8 @@ export function classifyPathLike(source: string): Exclude<SandAttachmentKind, "f
       const extension = attachmentExtension(subject);
       return extension != null && JSON_EXTENSIONS.has(extension) ? "json" : "text";
     }
+    case "archive":
+      return "archive";
     case "unknown": {
       const extension = attachmentExtension(subject);
       return extension != null && ARCHIVE_EXTENSIONS.has(extension) ? "archive" : null;

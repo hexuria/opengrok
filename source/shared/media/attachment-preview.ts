@@ -8,6 +8,8 @@ export const TEXT_PREVIEWABLE_EXTENSIONS = new Set([
   "java", "kt", "kts", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "cs", "php", "swift",
   "scala", "dart", "lua", "pl", "pm", "r", "sql", "graphql", "gql", "proto", "vue", "svelte",
   "astro", "sh", "bash", "zsh", "fish", "bat", "ps1", "tf", "tfvars", "dockerfile", "diff", "patch",
+  // Calendars, contacts, subtitles and build manifests read fine as text (mirrors the renderer's textExtensions).
+  "ics", "vcf", "vcard", "srt", "vtt", "makefile", "lock", "csproj", "sln",
 ]);
 
 export function isTextPreviewableName(nameOrPath: string): boolean {
