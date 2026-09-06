@@ -120,6 +120,13 @@ pkill -9 -f "Open Grok.app/Contents"; sleep 2
 - For screenshots of the app, `screencapture -R<x,y,w,h>` on the window
   bounds; only fight window focus if the user is not actively using the Mac.
 
+**Hand the driving to a Sonnet subagent.** Typing a fixture, reading the DOM
+back and reporting what it says is mechanical work whose intermediate output —
+DOM dumps, screenshots, retries — is worth nothing once the answer is known.
+Spawn it with the Agent tool at `model: "sonnet"`, brief it with the exact
+selectors and the exact questions, and keep only its findings. The judgement
+that follows (what the result means, what to change) stays in the main session.
+
 ## Media debug overlay
 
 The production build ships a runtime media debugger (no debug build needed):
