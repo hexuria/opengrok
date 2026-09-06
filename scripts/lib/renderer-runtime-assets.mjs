@@ -43,6 +43,8 @@ export const NPM_RUNTIME_ASSET_SOURCES = Object.freeze({
   "xlsx-CNerDvZX.js": "node_modules/xlsx/xlsx.mjs",
   // Not a 0.18 name: the docx reader is ours. mammoth converts .docx to HTML in the renderer.
   "mammoth.browser.min-1.12.2.js": "node_modules/mammoth/mammoth.browser.min.js",
+  // Not a 0.18 name either: the recovered mermaid.core chunk is forbidden, so diagrams render through the public package's UMD build.
+  "mermaid.min-11.17.2.js": "node_modules/mermaid/dist/mermaid.min.js",
 });
 
 /** Renderer-relative path (`assets/foo.js`) of an npm-vendored runtime file. */
