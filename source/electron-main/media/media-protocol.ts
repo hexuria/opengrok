@@ -220,7 +220,12 @@ export async function handleSandMediaRequest(request: Request): Promise<Response
     if (resized != null) return resized;
   }
   const local = await serveLocalMedia(rawPath, request); if (local != null) return local;
-  return remoteReader == null ? notFound() : await handleRemoteMediaRequest(remoteReader, rawPath, request);
+  if (remoteReader == null) return notFound();
+  // A remote leg that throws (the gateway has no such file, or is unreachable)
+  // must still answer: a rejected handler surfaces in the renderer as a
+  // network failure, which the media fallback cannot tell apart from a bad
+  // decode. 404 is what "no bytes for this path" means to it.
+  try { return await handleRemoteMediaRequest(remoteReader, rawPath, request); } catch { return notFound(); }
 }
 function electronMediaProtocol(): SandMediaProtocol {
   return (require("electron") as { readonly protocol: SandMediaProtocol }).protocol;
