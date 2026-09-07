@@ -563,7 +563,9 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(view, /\.sand-virtual-transcript > \.sand-message-action-anchor \{[^}]*margin: 0 0 8px;/);
   assert.match(view, /\.sand-transcript-row\[data-role="user"\] \{[^}]*align-items: flex-end;/);
   assert.match(view, /\.sand-transcript-row\[data-role="assistant"\] \{[^}]*align-items: flex-start;/);
-  assert.match(view, /\.sand-message-hover-actions__button \{[^}]*background: var\(--cursor-bg-elevated\);/);
+  // Official 0.18 hover actions are ghost buttons (measured 2026-09-07): transparent at rest, ghost fill on hover.
+  assert.match(view, /\.sand-message-hover-actions__button \{[^}]*background: transparent;/);
+  assert.match(view, /\.sand-message-hover-actions__button:hover \{[^}]*--sand-fill-ghost-hover/);
   assert.match(view, /\.sand-message-more-menu \{[^}]*background: var\(--cursor-bg-elevated\);/);
   assert.doesNotMatch(view, /\.sand-message-hover-actions__button \{[^}]*#20231f/);
   assert.doesNotMatch(view, /\.sand-message-more-menu \{[^}]*#20231f/);
