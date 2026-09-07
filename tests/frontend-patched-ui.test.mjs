@@ -846,6 +846,29 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   // carries a search cell of its own, or it would be one row short and
   // everything below it would jump (operator's call, 2026-09-07).
   assert.match(production, /--sand-sidebar-row: 54px;/);
+  // A send that failed reads as a centred line in the conversation, not under
+  // the composer, where the grid put it below the text in the pill and flex put
+  // it above the text in the box (operator's call, 2026-09-07).
+  const composerSource = await readFrontend("frontend/src/recovered/features/conversation/workspace/composer.tsx");
+  const workspaceView = await readFrontend("frontend/src/recovered/features/conversation/workspace/view.css");
+  const transcript = await readFrontend("frontend/src/recovered/features/conversation/workspace/transcript.tsx");
+  const rendererSource = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
+  assert.doesNotMatch(composerSource, /className="sand-prompt-attachment-notice"/);
+  assert.match(workspaceView, /\.sand-transcript-notice \{/);
+  assert.match(rendererSource, /notice=\{notice\}/);
+  // A row carrying a client-side delivery state is our own send, whatever the
+  // stored entry's role says — it belongs on the right, with its Resend and
+  // Delete actions.
+  assert.match(transcript, /const sideRoleOf =/);
+  assert.match(transcript, /data-role=\{sideRoleOf\(entry\)\}/);
+  // The unlabelled title-bar dot and the unstyled roster reconnect notice are
+  // both unmounted; the reconnect banner says it once, centred.
+  assert.doesNotMatch(rendererSource, /<WindowStatusBadge/);
+  const connection = await readFrontend("frontend/src/recovered/features/root-resilience/connection-state.ts");
+  assert.match(connection, /void RosterReconnectNotice;\n  return null;/);
+  assert.match(workspaceView, /\.sand-computer-reconnect-banner \{[^}]*left: 50%;/);
+  // The row menu is official's shape: left-aligned rows with glyphs and rules.
+  assert.match(production, /\.sand-agent-row-menu \{/);
   assert.match(production, /--sand-sidebar-gap: 4px;/);
   assert.match(production, /\.sand-agents-sidebar__rail-search \{/);
   assert.match(sidebar, /className="sand-agents-sidebar__rail-search"/);
