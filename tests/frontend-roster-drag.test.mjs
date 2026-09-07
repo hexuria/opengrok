@@ -109,7 +109,30 @@ test("the roster wires the card, the pin zone and the end of a drag", async () =
   // An aborted drag must clear the highlights; there was no dragend at all.
   assert.match(sidebar, /onDragEnd=\{\(\) => onDragStateChange\?\.\(null\)\}/);
 
+  /*
+   * The rail and the open sidebar must share ONE section drop surface. They
+   * were two branches of the same ternary and only the open one carried the
+   * handlers, so in the mini sidebar the pin zone was the only thing that
+   * accepted a drop — dragging into another section was impossible
+   * (operator's report, 2026-09-08).
+   */
+  assert.match(sidebar, /const sectionDropProps = \(sectionId: string\) => \(\{/);
+  assert.equal(sidebar.match(/\{\.\.\.sectionDropProps\(section\.id\)\}/g)?.length, 2, "both branches take a drop");
+  assert.equal(sidebar.match(/className=\{sectionClassName\(section\.id\)\}/g)?.length, 2, "and both highlight while hovered");
+  // A pinned coworker is draggable into a section without being unpinned first.
+  assert.match(sidebar, /const canMoveToSection = onMoveAgentToSection != null;/);
+  assert.doesNotMatch(sidebar, /const canMoveToSection = !agent\.isPinned/);
+  const rowActions = await readFile(path.join(repoRoot, "frontend/src/production/AgentRowActions.tsx"), "utf8");
+  assert.doesNotMatch(rowActions, /const canMoveToSection = !isPinned/, "the menu offers the move while pinned too");
+
   const renderer = await readFile(path.join(repoRoot, "frontend/src/production/ProductionRenderer.tsx"), "utf8");
+  /*
+   * Landing in a section unpins. projectSidebarSections filters every pinned id
+   * out of every section, so writing membership for a pinned coworker was a
+   * silent no-op and the drag looked broken.
+   */
+  assert.match(renderer, /const stillPinned = pinnedAgentIdsRef\.current\.filter\(\(agentId\) => !moved\.has\(agentId\)\)/);
+  assert.match(renderer, /if \(stillPinned\.length !== pinnedAgentIdsRef\.current\.length\) persistPinnedAgentIds\(stillPinned\)/);
   // Dragging out of the synthetic "Unassigned" bucket used to be a silent no-op:
   // that bucket has an empty agentIds by design, and the mover required prior
   // membership. Do not put that filter back.
