@@ -943,6 +943,22 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   // invariant pinned further up this file.
   assert.doesNotMatch(header, /\.sand-chat-header \{[^}]*app-region: drag;/s);
   assert.match(chrome, /\.sand-cover-drag \{[^}]*app-region: drag;/s, "the one strip that stays");
+  /*
+   * And the half that must NOT go with it. Taking `drag` off the header is what
+   * makes this easy to lose: it reads as if the header no longer has anything
+   * to do with drag regions. It does. `.sand-cover-drag` still covers the same
+   * 52px band, and Electron subtracts the union of no-drag rects from the union
+   * of drag rects GEOMETRICALLY — it never asks which element declared what, or
+   * who is whose descendant. So the header's controls are inside a drag region
+   * either way, and without their own hole the OS takes the click before the
+   * page sees it. Deleting these four selectors alongside the header's `drag`
+   * killed "View agent settings", "Grok Bot's Computer" and "Channels" outright
+   * while they still hit-tested as perfectly clickable (operator's report,
+   * 2026-09-08). Verify live with docs/research/tools/cdp-drag-regions.mjs,
+   * which now fails on a control left sitting on bare drag region — the earlier
+   * version only looked for drag BELOW the title bar and passed this build.
+   */
+  assert.match(header, /\.sand-chat-header button,[\s\S]{0,200}?\.sand-chat-header \[role="button"\] \{[^}]*app-region: no-drag;/s, "the header's controls keep their hole");
   const model = await readFrontend("frontend/src/production/model.ts");
   assert.match(model, /isRecord\(value\) && Array\.isArray\(value\.agents\)/);
   const computer = await readFrontend("frontend/src/recovered/features/computer/shell/view.tsx");
