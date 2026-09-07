@@ -872,6 +872,21 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.doesNotMatch(workspaceView, /\.sand-computer-reconnect-banner[^{]*\{[^}]*translateX/);
   // The row menu is official's shape: left-aligned rows with glyphs and rules.
   assert.match(production, /\.sand-agent-row-menu \{/);
+  /*
+   * Electron resolves -webkit-app-region: drag in the OS, BEFORE the page sees
+   * the mouse, so it ignores z-index and ignores what is painted on top. The
+   * rail is a full-height drag strip whose only holes are its own buttons (the
+   * roster rows), and a surface portalled to <body> is not its descendant — so
+   * a context menu opened low on the roster was dead wherever it covered the
+   * empty rail below the last row: no hover, no click, and a drag moved the
+   * window (operator's report, 2026-09-07). Anything that floats over the rail
+   * must punch its own no-drag hole. Do not remove these.
+   */
+  assert.match(production, /\.sand-workspace-rail \{[^}]*-webkit-app-region: drag;/s, "the rail is still a drag strip, which is why the holes are needed");
+  assert.match(production, /\.sand-agent-hover-card \*,[\s\S]*?app-region: no-drag;/);
+  assert.match(production, /\[data-ui-dialog-root\] \*,/);
+  const floating = await readFrontend("frontend/src/recovered/ui/sand-floating-primitives.css");
+  assert.match(floating, /\[data-sand-floating-surface="true"\] \*\s*\{[^}]*app-region: no-drag;/s);
   // Never stretch a row's children: the leading glyph is one of them, and a
   // width:100% on it pushed every label out of the menu.
   assert.doesNotMatch(production, /\.sand-agent-row-menu[^{]*> span[^{]*\{[^}]*width: 100%/);
