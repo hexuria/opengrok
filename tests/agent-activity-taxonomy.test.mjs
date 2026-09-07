@@ -258,8 +258,12 @@ test("the sidebar keeps the conversation on the row and moves the verb to the av
   // preview is what it shows, working or not (operator's call, 2026-09-07).
   assert.match(source, /className="sand-agent-item__preview"/);
   assert.doesNotMatch(source, /status\.isWorking \|\| activity === "Working"/, "no second, accent-blue line while it works");
-  assert.match(source, /agentActivityHint\(/);
-  assert.match(source, /<SandTooltip content=\{avatarHint\}/, "the row's avatar carries the words now");
+  // The roster row does NOT name the activity any more: the verb is written out
+  // once, beside the mark above the composer. A tooltip on every avatar in the
+  // app popped an empty bubble whenever there was no verb (operator's call,
+  // 2026-09-07).
+  assert.doesNotMatch(source, /agentActivityHint\(/);
+  assert.doesNotMatch(source, /avatarHint/);
 });
 
 test("connector logos come from the recovered tool-asset set and fall back to plug", async () => {
@@ -297,8 +301,13 @@ test("the transcript no longer names the activity, and still shows the dots", as
   assert.doesNotMatch(source, /className="sand-typing-dot"/, "no bare dots at the end of the transcript");
   assert.match(source, /isAgentRunning && presenceAvatar != null/);
   assert.match(source, /sand-typing-indicator__avatar/);
-  assert.match(source, /content=\{presenceHint\}/, "the mark carries the activity on hover");
-  assert.match(source, /placement="right"/, "the activity reads beside the mark, not over the transcript");
+  // Plain text beside the mark, no bubble and no container — official's own
+  // treatment ("Gene is working"), and the only place the verb is written.
+  assert.match(source, /sand-typing-indicator__label/);
+  assert.match(source, /\{presenceHint\}<\/span>/);
+  assert.doesNotMatch(source, /content=\{presenceHint\}/, "the verb is text, not a tooltip");
+  const header = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/chat-header.tsx"), "utf8");
+  assert.doesNotMatch(header, /SandTooltip/, "and the chat header's avatar carries no bubble either");
   // The roster shows the same mark, never a stand-in.
   const status = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar-agent-status.ts"), "utf8");
   assert.doesNotMatch(status, /SidebarAgentTypingDots/);
