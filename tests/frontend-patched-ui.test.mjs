@@ -882,9 +882,26 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
    * window (operator's report, 2026-09-07). Anything that floats over the rail
    * must punch its own no-drag hole. Do not remove these.
    */
-  assert.match(production, /\.sand-workspace-rail \{[^}]*-webkit-app-region: drag;/s, "the rail is still a drag strip, which is why the holes are needed");
+  /*
+   * THE INVARIANT: nothing below the title bar is a drag region. One strip
+   * exists, .sand-cover-drag across the top 52px. The rail was a full-height
+   * drag strip and the chat header was one too, which is what produced three
+   * dead-spot bugs; they are not any more. Verify with
+   * docs/research/tools/cdp-drag-regions.mjs, which exits 1 on a violation.
+   */
+  assert.doesNotMatch(production, /\.sand-workspace-rail \{[^}]*app-region: drag;/s, "the rail must not be a drag region");
+  assert.doesNotMatch(workspaceView, /\.sand-chat-header \{[^}]*app-region: drag;/s, "nor the chat header");
   assert.match(production, /\.sand-agent-hover-card \*,[\s\S]*?app-region: no-drag;/);
   assert.match(production, /\[data-ui-dialog-root\] \*,/);
+  // The other half: a menu is dismissed by clicking AWAY from it, and the empty
+  // chrome is where people aim. A click on bare drag region never reaches the
+  // page, so the outside-press listener never fires and the menu will not close.
+  assert.match(production, /html:has\(\[data-component="menu-popup"\]\) \.sand-workspace-rail,/);
+  assert.match(production, /html:has\(\[data-ui-dialog-root\]\) \.sand-chat-header \{[^}]*app-region: no-drag !important;/s);
+  // Tooltips and hover cards close on pointer movement, never on a click. If they
+  // were listed the title bar would stop dragging for as long as one is on screen.
+  assert.doesNotMatch(production, /html:has\(\[data-component="tooltip-popup"\]\)/);
+  assert.doesNotMatch(production, /html:has\(\.sand-agent-hover-card\)/);
   const floating = await readFrontend("frontend/src/recovered/ui/sand-floating-primitives.css");
   assert.match(floating, /\[data-sand-floating-surface="true"\] \*\s*\{[^}]*app-region: no-drag;/s);
   // Never stretch a row's children: the leading glyph is one of them, and a
@@ -909,7 +926,12 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.match(chrome, /\.sand-cover-drag \{[^}]*z-index: 0;/);
   assert.match(chrome, /\.sand-cover-drag \{[^}]*pointer-events: none;/);
   const header = await readFrontend("frontend/src/recovered/features/conversation/workspace/view.css");
-  assert.match(header, /\.sand-chat-header \{[^}]*-webkit-app-region: drag;/);
+  // The header was a drag region in official 0.18 and here until 2026-09-07.
+  // It is not any more: .sand-cover-drag covers the same 52px band, and a drag
+  // region under an overlay is a dead spot no z-index can beat. See the
+  // invariant pinned further up this file.
+  assert.doesNotMatch(header, /\.sand-chat-header \{[^}]*app-region: drag;/s);
+  assert.match(chrome, /\.sand-cover-drag \{[^}]*app-region: drag;/s, "the one strip that stays");
   const model = await readFrontend("frontend/src/production/model.ts");
   assert.match(model, /isRecord\(value\) && Array\.isArray\(value\.agents\)/);
   const computer = await readFrontend("frontend/src/recovered/features/computer/shell/view.tsx");

@@ -219,8 +219,26 @@ Three instances so far, all the same bug:
 - the roster's context menu, dead below the last row because the roster rows are
   buttons that had already punched holes for the part above (2026-09-07).
 
-**The rule for new overlays.** Anything that floats over the window must punch
-its own hole:
+**The invariant, as of 2026-09-07.** *Nothing below the title bar is a drag
+region.* There is exactly ONE drag strip: `.sand-cover-drag`, fixed across the
+top 52px (`window-chrome/view.css`). The rail and the chat header used to be
+drag regions too — the rail over its full height — and that is what produced all
+three dead-spot bugs. They are not any more; the rail reserves the same 52px as
+padding, so dragging the window by the top of the sidebar still works. What no
+longer works is dragging the window by empty roster space, which is the trade.
+
+**Check it with a tool, because you cannot check it by clicking.**
+
+```sh
+CDP_PORT=9225 node docs/research/tools/cdp-drag-regions.mjs   # exit 1 = dead-spot risk
+```
+
+It walks computed styles and prints the geometry Electron will actually use.
+Close any open menu first: a click-away overlay makes the strips no-drag by
+design, so a broken build reads as clean (the tool says so when it sees one).
+
+**The rule for new overlays.** If you must add a drag region below the title bar,
+anything that floats over the window has to punch its own hole:
 
 ```css
 .my-overlay, .my-overlay * { -webkit-app-region: no-drag; app-region: no-drag; }
