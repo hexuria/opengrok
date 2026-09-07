@@ -138,6 +138,35 @@ whenFrontend("model combobox: labels, groups, filter, stale pin, typed id", asyn
     assert.deepEqual(loaded.comboboxMove(false, 0, 5, 1), { open: true, active: 0 }, "ArrowDown from closed opens on the first option");
     assert.deepEqual(loaded.comboboxMove(true, 0, 5, 1), { open: true, active: 1 });
     assert.deepEqual(loaded.comboboxMove(true, 0, 5, -1), { open: true, active: 4 }, "ArrowUp wraps");
+
+    /*
+     * The armed row must be one that would DO something. Choosing the current
+     * pin is an explicit no-op, so arming it meant Enter on the obvious row did
+     * nothing — which is what an empty catalogue always looks like, since the
+     * pin is then the only row there is (operator's report, 2026-09-07).
+     */
+    const { firstActionableOption } = loaded;
+    assert.equal(firstActionableOption(optionsFor(CATALOGUE, "oag/auto", ""), "oag/auto"), 1, "skips the current pin");
+    assert.equal(firstActionableOption(optionsFor(CATALOGUE, null, ""), null), 0);
+    // An empty catalogue: the only row is the pin itself, and nothing is armed.
+    const empty = optionsFor([], "xai/grok-4.6@sub", "");
+    assert.deepEqual(empty.map((o) => o.group), ["Not in the catalogue"]);
+    assert.equal(firstActionableOption(empty, "xai/grok-4.6@sub"), -1, "no row looks armed when none would act");
+    // Typing an id gives it something to arm again.
+    const typed = optionsFor([], "xai/grok-4.6@sub", "openai/gpt-6");
+    assert.equal(firstActionableOption(typed, "xai/grok-4.6@sub"), 0);
+
+    /*
+     * The field distinguishes "not typing" (null) from "cleared" (""). It used
+     * to treat both as empty, so deleting the last character repainted the
+     * committed label and the box could never be cleared to type a new id.
+     */
+    const combobox = await readFrontend("frontend/src/production/patched-ui/AgentModelCombobox.tsx");
+    assert.match(combobox, /const \[filter, setFilter\] = useState<string \| null>\(null\);/);
+    assert.match(combobox, /const display = !open \|\| filter === null \? \(current \? labelOf\(current\) : ""\) : filter;/);
+    assert.doesNotMatch(combobox, /filter === "" \? \(current/, "an empty query is not the same as no query");
+    assert.match(combobox, /setActive\(firstActionableOption\(next, current\)\)/);
+    assert.doesNotMatch(combobox, /setActive\(next\.length \? 0 : -1\)/, "never arm row 0 blindly");
   } finally {
     await cleanup();
   }
@@ -594,7 +623,9 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   const combobox = await readFrontend("frontend/src/production/patched-ui/AgentModelCombobox.tsx");
   assert.match(combobox, /comboboxMove/);
   assert.match(combobox, /inputRef\.current\?\.select/);
-  assert.match(combobox, /onFocus=\{\(\) => \{ try \{ inputRef\.current\?\.select\(\); \} catch \{\} setFilter\(""\); show\(\); \}\}/);
+  // Focus selects the text and opens on "not typing" (null), not on a cleared
+  // query — see the filter-state assertions in the combobox test above.
+  assert.match(combobox, /onFocus=\{\(\) => \{ try \{ inputRef\.current\?\.select\(\); \} catch \{\} show\(\); \}\}/);
   const surfaceOpenRouter = await readFrontend("frontend/src/recovered/features/settings/overlay/desktop-surface.tsx");
   assert.match(surfaceOpenRouter, /OpenRouterModelField model=\{openRouterModel\}/);
   const deleteHost = await readFrontend("frontend/src/production/patched-ui/DeleteMessageHost.tsx");
