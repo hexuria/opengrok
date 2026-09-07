@@ -959,6 +959,16 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
    * version only looked for drag BELOW the title bar and passed this build.
    */
   assert.match(header, /\.sand-chat-header button,[\s\S]{0,200}?\.sand-chat-header \[role="button"\] \{[^}]*app-region: no-drag;/s, "the header's controls keep their hole");
+  /*
+   * Every one of the header's three info-pane buttons TOGGLES. The identity
+   * button alone called setAgentSettingsOpen(true), so once Settings was up it
+   * did nothing at all and the pane could only be closed from its own chevron
+   * (operator's call, 2026-09-08).
+   */
+  const infoPaneButtons = await readFrontend("frontend/src/production/ProductionRenderer.tsx");
+  assert.match(infoPaneButtons, /setAgentSettingsOpen\(\(open\) => !open\)/, "the identity button toggles Settings");
+  assert.match(infoPaneButtons, /setComputerInfoOpen\(\(open\) => !open\)/);
+  assert.match(infoPaneButtons, /setChannelsInfoPaneOpen\(\(open\) => !open\)/);
   const model = await readFrontend("frontend/src/production/model.ts");
   assert.match(model, /isRecord\(value\) && Array\.isArray\(value\.agents\)/);
   const computer = await readFrontend("frontend/src/recovered/features/computer/shell/view.tsx");
