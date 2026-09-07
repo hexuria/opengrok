@@ -26,5 +26,14 @@ export {
   type MockListenOptions,
 } from "./http-server.js";
 export { createMockTokenPair, mintMockJwt } from "./jwt.js";
+export {
+  MOCK_DEFAULT_MODEL,
+  MOCK_MODEL_CATALOGUE,
+  MockOpenGrokAccount,
+  type MockCoworkerRow,
+  type MockModelEntry,
+  type MockModelPoints,
+} from "./opengrok-account.js";
+export { tryHandleOpenGrokAccountHttp } from "./opengrok-account-http.js";
 export { createInProcessMock, createMockServices, type MockRouterOptions } from "./routes.js";
 export { createSeededMockStore, MockGrokBotStore } from "./store.js";

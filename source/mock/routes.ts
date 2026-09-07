@@ -5,12 +5,15 @@ import { GrokBotService } from "../packages/proto/generated/aiserver/v1/grok_bot
 import { createDashboardHandlers, createDefaultMockProfile, type MockProfile } from "./dashboard-handlers.js";
 import { createDefaultServiceImpl } from "./default-handlers.js";
 import { createGrokBotHandlers } from "./grok-bot-handlers.js";
+import type { MockOpenGrokAccount } from "./opengrok-account.js";
 import { createSeededMockStore, type MockGrokBotStore } from "./store.js";
 
 export interface MockRouterOptions {
   readonly store?: MockGrokBotStore;
   readonly profile?: MockProfile;
   readonly holdWatchStreams?: boolean;
+  /** The account API's pin state. Only the HTTP face reads it. */
+  readonly account?: MockOpenGrokAccount;
 }
 
 export function createMockServices(options: MockRouterOptions = {}): {

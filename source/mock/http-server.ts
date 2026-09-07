@@ -2,6 +2,8 @@ import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tryHandleAuthHttp } from "./auth-http.js";
 import { DEFAULT_MOCK_HOST, DEFAULT_MOCK_PORT } from "./constants.js";
+import { MockOpenGrokAccount } from "./opengrok-account.js";
+import { tryHandleOpenGrokAccountHttp } from "./opengrok-account-http.js";
 import { createMockServices, type MockRouterOptions } from "./routes.js";
 import { tryHandleTeachHttp } from "./teach-http.js";
 
@@ -24,9 +26,12 @@ export function createMockHttpHandler(options: MockRouterOptions = {}): (request
     ...options,
   });
   const connect = connectNodeAdapter({ routes: services.routes });
+  // One account per handler, so pins survive across calls the way the server's do.
+  const account = options.account ?? new MockOpenGrokAccount();
   return (request, response) => {
     if (tryHandleAuthHttp(request, response, services.profile)) return;
     if (tryHandleTeachHttp(request, response, services.store)) return;
+    if (tryHandleOpenGrokAccountHttp(request, response, { store: services.store, account })) return;
     connect(request, response);
   };
 }
