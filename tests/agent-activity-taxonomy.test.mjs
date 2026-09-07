@@ -254,7 +254,10 @@ test("the sidebar keeps the conversation on the row and moves the verb to the av
   // the conversation on the row; the verb is the avatar's tooltip and the mark
   // animates for the state. Do not "restore" this as a regression.
   assert.doesNotMatch(source, /namedActivity\?\.text \?\? agent\.lastMessage/, "the verb must not replace the row's preview");
-  assert.match(source, /preview=\{agent\.lastMessage \?\? null\}/);
+  // The row has one line for the conversation and no working variant of it: the
+  // preview is what it shows, working or not (operator's call, 2026-09-07).
+  assert.match(source, /className="sand-agent-item__preview"/);
+  assert.doesNotMatch(source, /status\.isWorking \|\| activity === "Working"/, "no second, accent-blue line while it works");
   assert.match(source, /agentActivityHint\(/);
   assert.match(source, /<SandTooltip content=\{avatarHint\}/, "the row's avatar carries the words now");
 });
@@ -286,23 +289,22 @@ test("the transcript no longer names the activity, and still shows the dots", as
   // and its styles stay in the tree, unmounted, for the parity record.
   assert.doesNotMatch(source, /<TranscriptActivityLine/, "the activity line must not be mounted");
   assert.match(source, /sand-virtual-transcript/);
-  // Both dot indicators stay: they are the only in-place "something is happening".
-  assert.match(source, /sand-message-typing/, "the in-bubble dots stay");
-  assert.match(source, /sand-typing-indicator/, "the end-of-transcript indicator stays");
-  // The dots and the mark never show together. Before the first word: three
-  // dots, the same three the roster row shows, so the two surfaces agree. Once
-  // the answer streams, the mark takes their place under the bubble — official
-  // 0.18's placement — and hovering it names the verb (operator's call,
-  // 2026-09-07).
+  // ONE indicator now, the coworker's mark, in the roster and in the transcript.
+  // There used to be three — dots in the roster, dots at the end of the
+  // transcript, dots in a wordless bubble — each with rules for when to yield to
+  // the others (operator's call, 2026-09-07). Do not bring the dots back.
+  assert.match(source, /sand-typing-indicator/, "the mark above the composer stays");
+  assert.doesNotMatch(source, /className="sand-typing-dot"/, "no bare dots at the end of the transcript");
   assert.match(source, /isAgentRunning && presenceAvatar != null/);
   assert.match(source, /sand-typing-indicator__avatar/);
   assert.match(source, /content=\{presenceHint\}/, "the mark carries the activity on hover");
-  assert.match(source, /isAgentRunning && !hasStreamingDots \?/, "bare dots remain the no-avatar fallback");
-  // The roster says the same thing in its own place: a working row shows the dots.
+  assert.match(source, /placement="right"/, "the activity reads beside the mark, not over the transcript");
+  // The roster shows the same mark, never a stand-in.
   const status = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar-agent-status.ts"), "utf8");
-  assert.match(status, /SidebarAgentTypingDots/, "a working roster row shows three dots, not a green pip");
+  assert.doesNotMatch(status, /SidebarAgentTypingDots/);
   const sidebar = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar.tsx"), "utf8");
-  assert.match(sidebar, /status\.isWorking\s*\n?\s*\? <SidebarAgentTypingDots \/>/, "the dots stand in for the mark, never beside it");
+  assert.doesNotMatch(sidebar, /SidebarAgentTypingDots/, "the roster shows the mark, working or not");
+  assert.doesNotMatch(sidebar, /<SidebarAgentActivity/, "and shows the conversation, not a verb in accent blue");
   // ...and neither set of dots sits in a bubble any more.
   const css = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/view.css"), "utf8");
   assert.match(css, /\.sand-typing-indicator \{[^}]*background: transparent;/, "end-of-transcript dots are bare");
@@ -314,8 +316,7 @@ test("the transcript no longer names the activity, and still shows the dots", as
   // the tooltip wrapper around the mark and painted it as a 5px grey circle.
   assert.match(css, /\.sand-typing-indicator \.sand-typing-dot \{ width: 5px;/);
   assert.doesNotMatch(css, /\.sand-typing-indicator span \{/);
-  assert.match(css, /\.sand-message:has\(> \.sand-message-prose > \.sand-message-typing:only-child\) \{[^}]*background: transparent;/, "in-bubble dots drop the bubble");
-  // The two indicators are kept apart structurally: while any bubble is drawing
-  // dots, the mark is hidden.
-  assert.match(css, /:has\(\.sand-message-typing\) \.sand-typing-indicator\[data-presence="avatar"\] \{ display: none; \}/);
+  // A bubble with no words in it yet is not drawn at all; the mark above the
+  // composer already says an answer is coming.
+  assert.match(css, /\.sand-message:has\(> \.sand-message-typing:only-child\) \{ display: none; \}/);
 });

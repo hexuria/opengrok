@@ -447,7 +447,10 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(view, /\.sand-prompt-shell \{[^}]*border-radius: 999px;/);
   assert.match(view, /\.sand-message-typing \{[^}]*background: transparent;/);
   assert.doesNotMatch(view, /\.sand-message-typing \{[^}]*background: var\(--cursor-bg-secondary\)/);
-  assert.match(transcript, /hasStreamingDots/);
+  // The transcript no longer reasons about who is drawing dots: there is one
+  // indicator, the coworker's mark above the composer (operator's call,
+  // 2026-09-07).
+  assert.doesNotMatch(transcript, /hasStreamingDots/);
   assert.match(view, /\.sand-prompt-shell \{[^}]*box-shadow: none;/);
   assert.match(view, /\.sand-prompt-shell \{[^}]*backdrop-filter: none;/);
   assert.match(view, /\.sand-chat-input-dock \{[^}]*margin-top: 0;/);
