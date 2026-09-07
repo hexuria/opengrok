@@ -67,12 +67,53 @@ test("nine coworkers get a badge and the tenth gets nothing", async () => {
   } finally { await cleanup(); }
 });
 
+test("the numbers run down the column the roster actually draws", async () => {
+  const { loaded, cleanup } = await load();
+  try {
+    const { rosterShortcutOrder, agentShortcutHints } = loaded;
+    const a = (id) => ({ id });
+    // Sections reorder the rows. Reading the raw roster instead gave the column
+    // ⌘1, ⌘2, ⌘4, ⌘3 with one coworker in each of two sections.
+    const order = rosterShortcutOrder({
+      pinned: [a("pin")],
+      unpinned: [a("loose"), a("rust"), a("power")],
+      sections: [{ agents: [a("loose")] }, { agents: [a("rust")] }, { agents: [a("power")] }]
+    });
+    assert.deepEqual(order.map((agent) => agent.id), ["pin", "loose", "rust", "power"]);
+    const hints = agentShortcutHints(order.map((agent) => agent.id));
+    assert.equal(hints.get("rust"), "⌘3");
+    assert.equal(hints.get("power"), "⌘4");
+
+    // A folded section draws no rows, so it takes no numbers.
+    const folded = rosterShortcutOrder({
+      pinned: [],
+      unpinned: [a("one"), a("hidden"), a("two")],
+      sections: [{ agents: [a("one")] }, { agents: [a("hidden")], isCollapsed: true }, { agents: [a("two")] }]
+    });
+    assert.deepEqual(folded.map((agent) => agent.id), ["one", "two"]);
+
+    // With no sections at all it is the plain roster, pinned first.
+    assert.deepEqual(
+      rosterShortcutOrder({ pinned: [a("p")], unpinned: [a("x")], sections: null }).map((agent) => agent.id),
+      ["p", "x"]
+    );
+    assert.deepEqual(
+      rosterShortcutOrder({ pinned: [], unpinned: [a("x")], sections: [] }).map((agent) => agent.id),
+      ["x"]
+    );
+  } finally { await cleanup(); }
+});
+
 test("the roster draws the badge, and yields the numbers to the palette", async () => {
   const { cleanup } = await load();
   try {
     const sidebar = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar.tsx"), "utf8");
-    // The badge order must match what focusAgent resolves against: pinned, then the rest.
-    assert.match(sidebar, /agentShortcutHints\(\[\.\.\.orderedPinned, \.\.\.unpinned\]\.map\(\(agent\) => agent\.id\)\)/);
+    // One ordering helper, both call sites: the badge cannot name a number that
+    // opens somebody else, and neither can disagree with the drawn column.
+    assert.match(sidebar, /agentShortcutHints\(rosterShortcutOrder\(\{ pinned: orderedPinned, sections, unpinned \}\)\.map\(\(agent\) => agent\.id\)\)/);
+    const focus = await readFile(path.join(repoRoot, "frontend/src/production/ProductionRenderer.tsx"), "utf8");
+    assert.match(focus, /const ordered = rosterShortcutOrder\(\{ pinned, sections, unpinned \}\)/);
+    assert.doesNotMatch(focus, /resolveIndexedAgentId\(\[\.\.\.pinned, \.\.\.unpinned\]/, "the raw roster order is not the drawn order");
     assert.match(sidebar, /className="sand-agent-item__shortcut"/);
     const renderer = await readFile(path.join(repoRoot, "frontend/src/production/ProductionRenderer.tsx"), "utf8");
     assert.match(renderer, /shortcutHintsEnabled=\{!commandPaletteOpen\}/, "⌘1 belongs to the palette's list while it is open");

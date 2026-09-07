@@ -831,8 +831,9 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   // (operator's call, 2026-09-07).
   assert.match(sidebar, /name="layout-sidebar-left"/);
   assert.doesNotMatch(sidebar, /isCollapsed \? "md" : "sm"/);
-  assert.match(sidebar, /agentId="open-grok-brand"/);
-  assert.match(sidebar, /shape="blob"/);
+  // The brand mark is the live mascot now, not a static blob — see the mascot
+  // assertions further down this file.
+  assert.match(sidebar, /className="sand-agents-sidebar__logo"/);
   // New Bot is on the brand row now, inside the expanded branch only: the rail
   // is a column of coworkers and a toggle, nothing else. It used to be the last
   // item in the dock (operator's call, 2026-09-07) — do not restore it there.
@@ -980,6 +981,23 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.match(production, /\.sand-command-palette > \[role="listbox"\] \{[^}]*height: 360px;/s);
   assert.match(production, /\.sand-command-palette > p \{[^}]*height: 360px;/s, "the empty state is the same box");
   assert.match(production, /\.sand-command-palette > p \{[^}]*justify-content: center;/s);
+  /*
+   * The brand row carries the live mascot, not a static blob: same component
+   * the sign-in and loading screens use, so its eyes follow the pointer and it
+   * turns its back when you reach it. 46px draws a 36px ball, which is a
+   * coworker's mark exactly, and 16px of padding puts that ball in the roster's
+   * own column (12px list + 9px row = 21px = 16 + the 5px the ball is inset).
+   */
+  assert.match(sidebar, /<Mascot3D shyRadius=\{0\.5\} size=\{SIDEBAR_MASCOT_PX\} \/>/);
+  assert.match(sidebar, /const SIDEBAR_MASCOT_PX = 46;/);
+  assert.doesNotMatch(sidebar, /agentId="open-grok-brand"/, "the static brand blob is gone");
+  assert.match(production, /\.sand-agents-sidebar__logo \{[^}]*width: 46px;/s);
+  assert.match(production, /\.sand-agents-sidebar__brand \{[^}]*padding: 0 12px 0 16px;/s);
+  // Mounted in chrome it outlives every screen it used to appear on, so it must
+  // stop when the window is hidden rather than animate where nobody is looking.
+  const mascot = await readFrontend("frontend/src/production/patched-ui/Mascot3D.tsx");
+  assert.match(mascot, /document\.addEventListener\("visibilitychange", onVisibility\)/);
+  assert.match(mascot, /if \(document\.hidden\) \{ cancelAnimationFrame\(frame\); frame = 0; \}/);
   const model = await readFrontend("frontend/src/production/model.ts");
   assert.match(model, /isRecord\(value\) && Array\.isArray\(value\.agents\)/);
   const computer = await readFrontend("frontend/src/recovered/features/computer/shell/view.tsx");
