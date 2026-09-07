@@ -8,12 +8,21 @@
  * electron-main/box/opengrok-account-call.ts), and nothing in this repository
  * could answer them.
  *
- * That left the model picker impossible to exercise without the whole stack —
- * a Rust server, a Postgres, and a live gateway holding a catalogue. Worse, the
- * one mode the server is actually developed in cannot help: with a mock model
- * door it has no gateway to ask, so `GET /models` answers `[]` on purpose and
- * says so in a note. So the picker was untestable in every configuration a
- * person actually runs (operator's call, 2026-09-08).
+ * That left the model picker impossible to exercise without the whole stack: a
+ * Rust server, a Postgres, a gateway, and a schema in that gateway's database
+ * holding a catalogue. On 2026-09-08 the last of those was gone — the gateway's
+ * dev Postgres mounts its data directory as tmpfs, Docker restarted, and
+ * `/v1/models` began answering 500 — and there was no way to drive the picker
+ * at all while it lasted. That is what this mock is for: the desktop half,
+ * without any of the other half.
+ *
+ * Not to be confused with a different empty-catalogue branch on the server: a
+ * deployment that sets no gateway variables has no catalogue to ask and answers
+ * `[]` with a note saying so. That one is real but is NOT why the picker was
+ * empty here — this machine has `OG_GATEWAY_TOKEN` set, so the server did call
+ * its gateway, and the gateway is what failed (server session's correction,
+ * 2026-09-08). A dev catalogue would not have prevented it; restoring the
+ * schema would.
  *
  * The catalogue below is not a token list. It is chosen to drive every branch
  * the picker has: the `oag/` ladder group, plain pins, both `@` suffixes, an
