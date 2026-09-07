@@ -82,6 +82,20 @@ test("the roster wires the card, the pin zone and the end of a drag", async () =
   assert.match(sidebar, /aria-label="Pin drop zone"/);
   assert.match(sidebar, /Drag here to pin/);
   assert.match(sidebar, /const showPinTarget = drag != null && !drag\.isPinned/);
+  // The rail gets the zone too, as a 54px cell with the glyph and no words.
+  assert.doesNotMatch(sidebar, /showPinTarget = drag != null && !drag\.isPinned && !isCollapsed/);
+  const view = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/view.css"), "utf8");
+  assert.match(view, /\.sand-agents-pin-zone \{[^}]*height: 104px;/s, "official's 104px box");
+  assert.match(view, /\.sand-workspace-rail\[data-sidebar-collapsed\] \.sand-agents-pin-zone__label \{ display: none; \}/);
+  /*
+   * A section keeps its SPACE in the rail even though its name cannot be shown.
+   * Without the stand-in the header's 30px vanished and every coworker below it
+   * sat at a different height than in the open sidebar — the column jumped on
+   * collapse (operator's report, 2026-09-08).
+   */
+  assert.match(sidebar, /className="sand-agents-section__rail-rule"/);
+  assert.match(view, /\.sand-agents-section__rail-rule \{[^}]*height: 30px;/s);
+  assert.match(view, /\.sand-agents-section__header \{[^}]*height: 30px;/s, "the two heights must stay equal");
   // An aborted drag must clear the highlights; there was no dragend at all.
   assert.match(sidebar, /onDragEnd=\{\(\) => onDragStateChange\?\.\(null\)\}/);
 
