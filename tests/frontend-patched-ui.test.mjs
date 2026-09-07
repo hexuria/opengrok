@@ -908,6 +908,11 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   // width:100% on it pushed every label out of the menu.
   assert.doesNotMatch(production, /\.sand-agent-row-menu[^{]*> span[^{]*\{[^}]*width: 100%/);
   assert.match(production, /\.sand-agent-row-menu \.ui-icon:not\(#\\#\):not\(#\\#\) \{[^}]*width: 14px;/);
+  // A disabled row is dimmed text and nothing else. The secondary button keeps a
+  // fill when disabled, which made "Move up" and "Move down" read as the
+  // selected rows — the opposite of what they are.
+  assert.match(production, /:disabled \{\s*background: transparent;/);
+  assert.match(production, /:hover:not\(:disabled\) \{ background: var\(--cursor-bg-secondary\); \}/);
   assert.match(production, /--sand-sidebar-gap: 4px;/);
   assert.match(production, /\.sand-agents-sidebar__rail-search \{/);
   assert.match(sidebar, /className="sand-agents-sidebar__rail-search"/);
