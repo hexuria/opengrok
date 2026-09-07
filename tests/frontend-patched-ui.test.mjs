@@ -969,6 +969,17 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.match(infoPaneButtons, /setAgentSettingsOpen\(\(open\) => !open\)/, "the identity button toggles Settings");
   assert.match(infoPaneButtons, /setComputerInfoOpen\(\(open\) => !open\)/);
   assert.match(infoPaneButtons, /setChannelsInfoPaneOpen\(\(open\) => !open\)/);
+  /*
+   * The command palette is ONE height whatever it is showing. The list is a
+   * hard 360px, but the empty branch was a bare <p> sized by its own text, and
+   * the palette is centred on the viewport — so a filter with nothing in it
+   * re-centred the whole surface and it jumped up, then back down on the way
+   * out (operator's report, 2026-09-08). Official gives its else-branch div the
+   * same 360px and centres the message in it.
+   */
+  assert.match(production, /\.sand-command-palette > \[role="listbox"\] \{[^}]*height: 360px;/s);
+  assert.match(production, /\.sand-command-palette > p \{[^}]*height: 360px;/s, "the empty state is the same box");
+  assert.match(production, /\.sand-command-palette > p \{[^}]*justify-content: center;/s);
   const model = await readFrontend("frontend/src/production/model.ts");
   assert.match(model, /isRecord\(value\) && Array\.isArray\(value\.agents\)/);
   const computer = await readFrontend("frontend/src/recovered/features/computer/shell/view.tsx");
