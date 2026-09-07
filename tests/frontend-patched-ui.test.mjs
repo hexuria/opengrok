@@ -866,9 +866,16 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.doesNotMatch(rendererSource, /<WindowStatusBadge/);
   const connection = await readFrontend("frontend/src/recovered/features/root-resilience/connection-state.ts");
   assert.match(connection, /void RosterReconnectNotice;\n  return null;/);
-  assert.match(workspaceView, /\.sand-computer-reconnect-banner \{[^}]*left: 50%;/);
+  // The banner centres itself; this rule only drops it below the title bar.
+  // Setting left/width/transform here pinned the pill off the left edge.
+  assert.match(workspaceView, /\.sand-computer-reconnect-banner:not\(#\\#\):not\(#\\#\) \{[^}]*transform: none;/);
+  assert.doesNotMatch(workspaceView, /\.sand-computer-reconnect-banner[^{]*\{[^}]*translateX/);
   // The row menu is official's shape: left-aligned rows with glyphs and rules.
   assert.match(production, /\.sand-agent-row-menu \{/);
+  // Never stretch a row's children: the leading glyph is one of them, and a
+  // width:100% on it pushed every label out of the menu.
+  assert.doesNotMatch(production, /\.sand-agent-row-menu[^{]*> span[^{]*\{[^}]*width: 100%/);
+  assert.match(production, /\.sand-agent-row-menu \.ui-icon:not\(#\\#\):not\(#\\#\) \{[^}]*width: 14px;/);
   assert.match(production, /--sand-sidebar-gap: 4px;/);
   assert.match(production, /\.sand-agents-sidebar__rail-search \{/);
   assert.match(sidebar, /className="sand-agents-sidebar__rail-search"/);
