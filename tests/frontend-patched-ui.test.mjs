@@ -837,7 +837,16 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.doesNotMatch(sidebar, /isCollapsed[\s\S]{0,200}sand-agents-sidebar__new/);
   assert.match(renderer, /onToggleCollapsed=/);
   assert.match(production, /sand-agents-sidebar__dock-label/);
-  assert.match(production, /width: 54px;/);
+  // ONE vertical spec for both states: every row in the sidebar column is
+  // --sand-sidebar-row tall with --sand-sidebar-gap between, so collapsing to
+  // the rail moves things sideways and never up or down. The rail therefore
+  // carries a search cell of its own, or it would be one row short and
+  // everything below it would jump (operator's call, 2026-09-07).
+  assert.match(production, /--sand-sidebar-row: 54px;/);
+  assert.match(production, /--sand-sidebar-gap: 4px;/);
+  assert.match(production, /\.sand-agents-sidebar__rail-search \{/);
+  assert.match(sidebar, /className="sand-agents-sidebar__rail-search"/);
+  assert.doesNotMatch(production, /--sand-rail-gap/, "the rail no longer keeps a rhythm of its own");
   const hover = await readFrontend("frontend/src/recovered/features/conversation/workspace/view.css");
   assert.match(hover, /\.sand-agent-hover-card \{/);
   assert.match(hover, /width: 260px;/);

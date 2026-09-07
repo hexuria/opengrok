@@ -306,6 +306,14 @@ test("the transcript no longer names the activity, and still shows the dots", as
   // ...and neither set of dots sits in a bubble any more.
   const css = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/view.css"), "utf8");
   assert.match(css, /\.sand-typing-indicator \{[^}]*background: transparent;/, "end-of-transcript dots are bare");
+  // The indicator is pinned to the bottom of the transcript rather than carried
+  // along by the answer: 16px above the composer however tall it grows, 16px off
+  // the last bubble when scrolled to the end (operator's call, 2026-09-07).
+  assert.match(css, /\.sand-typing-indicator \{[^}]*position: sticky;[^}]*bottom: 0;[^}]*margin: 16px 0 0;/);
+  // Only the dots are dots — this selector used to be `span`, which also caught
+  // the tooltip wrapper around the mark and painted it as a 5px grey circle.
+  assert.match(css, /\.sand-typing-indicator \.sand-typing-dot \{ width: 5px;/);
+  assert.doesNotMatch(css, /\.sand-typing-indicator span \{/);
   assert.match(css, /\.sand-message:has\(> \.sand-message-prose > \.sand-message-typing:only-child\) \{[^}]*background: transparent;/, "in-bubble dots drop the bubble");
   // The two indicators are kept apart structurally: while any bubble is drawing
   // dots, the mark is hidden.
