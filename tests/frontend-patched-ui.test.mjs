@@ -837,6 +837,12 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   // is a column of coworkers and a toggle, nothing else. It used to be the last
   // item in the dock (operator's call, 2026-09-07) — do not restore it there.
   assert.match(sidebar, /aria-label="New Bot" className="sand-agents-sidebar__new"/);
+  // The hover card carries no status dot. It sat between the mark and the name,
+  // inside the identity row, and pushed the mark, the name and the time out of
+  // line with one another; the roster row already shows the same signal
+  // (operator's call, 2026-09-08).
+  assert.doesNotMatch(sidebar, /renderStatus=/);
+  assert.doesNotMatch(sidebar, /sand-avatar-status-dot/);
   assert.doesNotMatch(sidebar, /isCollapsed[\s\S]{0,200}sand-agents-sidebar__new/);
   assert.match(renderer, /onToggleCollapsed=/);
   assert.match(production, /sand-agents-sidebar__dock-label/);
