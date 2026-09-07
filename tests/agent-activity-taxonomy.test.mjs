@@ -35,6 +35,7 @@ const tool = (name, extra = {}) => ({ kind: "tool", tool: name, ...extra });
  */
 const CASES = [
   [{ kind: "thinking" }, "thinking", "Thinking", "thinking-medium"],
+  [{ kind: "writing" }, "writing", "Writing", "pencil"],
   [tool("WebSearch"), "searching", "Searching the web", "magnifying-glass"],
   [tool("WebFetch"), "browsing", "Reading the web", "globe"],
   [tool("Read"), "reading", "Reading file", "book-open"],
@@ -237,7 +238,7 @@ test("the avatar reads the shared taxonomy instead of guessing from tool names",
   assert.match(source, /typeof value\.verb === "string" \? value\.verb : null/);
 });
 
-test("the sidebar shows the named activity and rings the mark for it", async () => {
+test("the sidebar keeps the conversation on the row and moves the verb to the avatar", async () => {
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(
     path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar.tsx"),
@@ -248,8 +249,14 @@ test("the sidebar shows the named activity and rings the mark for it", async () 
   assert.match(source, /agent\.awaitingUserResponse != null \? null : \(agent\.currentActivity/);
   assert.match(source, /describeAgentActivity\(heldActivity\)/);
   assert.match(source, /isActivityNamed: namedActivity != null/);
-  // The label wins over the last message, but the last message still stands in.
-  assert.match(source, /namedActivity\?\.text \?\? agent\.lastMessage \?\? null/);
+  // DELIBERATE DEPARTURE FROM 0.18 (operator's call, 2026-09-07): official
+  // replaces the row's preview with the verb while a coworker works. We keep
+  // the conversation on the row; the verb is the avatar's tooltip and the mark
+  // animates for the state. Do not "restore" this as a regression.
+  assert.doesNotMatch(source, /namedActivity\?\.text \?\? agent\.lastMessage/, "the verb must not replace the row's preview");
+  assert.match(source, /preview=\{agent\.lastMessage \?\? null\}/);
+  assert.match(source, /agentActivityHint\(/);
+  assert.match(source, /<SandTooltip content=\{avatarHint\}/, "the row's avatar carries the words now");
 });
 
 test("connector logos come from the recovered tool-asset set and fall back to plug", async () => {
@@ -266,18 +273,41 @@ test("connector logos come from the recovered tool-asset set and fall back to pl
   }
 });
 
-test("the transcript activity line sits outside the virtualized window", async () => {
+test("the transcript no longer names the activity, and still shows the dots", async () => {
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(
     path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/transcript.tsx"),
     "utf8",
   );
-  assert.match(source, /TranscriptActivityLine/);
-  assert.match(source, /useActivityHold/);
+  // DELIBERATE DEPARTURE FROM 0.18 (operator's call, 2026-09-07): official
+  // mounts an activity line under the transcript that reads "Thinking". Our
+  // server reports that verb for the whole turn, so it sat beside a bubble that
+  // was already typing. The words moved to the avatar's tooltip; the component
+  // and its styles stay in the tree, unmounted, for the parity record.
+  assert.doesNotMatch(source, /<TranscriptActivityLine/, "the activity line must not be mounted");
   assert.match(source, /sand-virtual-transcript/);
-  // The slot is a sibling of the virtualized window, not a mapped row.
-  const slotIndex = source.indexOf("<TranscriptActivityLine");
-  const windowClose = source.lastIndexOf("sand-virtual-transcript");
-  assert.ok(slotIndex > 0, "the activity line must be mounted");
-  assert.ok(slotIndex > windowClose, "the activity line must sit after the virtualized window");
+  // Both dot indicators stay: they are the only in-place "something is happening".
+  assert.match(source, /sand-message-typing/, "the in-bubble dots stay");
+  assert.match(source, /sand-typing-indicator/, "the end-of-transcript indicator stays");
+  // The dots and the mark never show together. Before the first word: three
+  // dots, the same three the roster row shows, so the two surfaces agree. Once
+  // the answer streams, the mark takes their place under the bubble — official
+  // 0.18's placement — and hovering it names the verb (operator's call,
+  // 2026-09-07).
+  assert.match(source, /isAgentRunning && presenceAvatar != null/);
+  assert.match(source, /sand-typing-indicator__avatar/);
+  assert.match(source, /content=\{presenceHint\}/, "the mark carries the activity on hover");
+  assert.match(source, /isAgentRunning && !hasStreamingDots \?/, "bare dots remain the no-avatar fallback");
+  // The roster says the same thing in its own place: a working row shows the dots.
+  const status = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar-agent-status.ts"), "utf8");
+  assert.match(status, /SidebarAgentTypingDots/, "a working roster row shows three dots, not a green pip");
+  const sidebar = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar.tsx"), "utf8");
+  assert.match(sidebar, /status\.isWorking\s*\n?\s*\? <SidebarAgentTypingDots \/>/, "the dots stand in for the mark, never beside it");
+  // ...and neither set of dots sits in a bubble any more.
+  const css = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/view.css"), "utf8");
+  assert.match(css, /\.sand-typing-indicator \{[^}]*background: transparent;/, "end-of-transcript dots are bare");
+  assert.match(css, /\.sand-message:has\(> \.sand-message-prose > \.sand-message-typing:only-child\) \{[^}]*background: transparent;/, "in-bubble dots drop the bubble");
+  // The two indicators are kept apart structurally: while any bubble is drawing
+  // dots, the mark is hidden.
+  assert.match(css, /:has\(\.sand-message-typing\) \.sand-typing-indicator\[data-presence="avatar"\] \{ display: none; \}/);
 });

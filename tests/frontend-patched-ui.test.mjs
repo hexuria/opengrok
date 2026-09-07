@@ -707,7 +707,12 @@ whenFrontend("first-run is loader then provider picker, not the shell", async ()
   assert.match(mascotComponent, /const BLINK_MS = 460;/, "a blink you can see, closing into two dashes");
   const character = await readFrontend("frontend/src/recovered/features/agent-character/character.tsx");
   assert.match(character, /resolvedColor === "black" \? \{ light: "light-dark\(#000000, #FFFFFF\)"/, "the brand mark is solid, not a black-to-white gradient");
-  assert.match(character, /idleGaze && time - wanderRef\.current\.lastPointerAt > 1600/);
+  // Where the eyes look is part of the beat script now (choreography.ts) rather
+  // than a wander timer, so every bot maps the same action to the same look;
+  // a pointer, when one is steering, still wins.
+  assert.match(character, /const steered = isFollowingPointer \|\| followTarget != null;/);
+  assert.match(character, /const target = steered \? gazeRef\.current : pose\.gaze;/);
+  assert.match(character, /characterPose\(beats, elapsed\)/);
   const landingCss = await readFrontend("frontend/src/production/production.css");
   assert.match(landingCss, /\.sand-onboarding__brand h1 \{ font-size: 72px;/, "the O sits just under the 69px visible ball");
   assert.match(landingCss, /p\.sand-onboarding__lede \{ max-width: 336px;/);
@@ -780,7 +785,11 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.match(renderer, /menuPlacement=\{renderedSidebarLayout\.isCollapsed \? "right-start" : "bottom-start"\}/);
   assert.match(renderer, /className="sand-agents-sidebar__dock"/);
   assert.match(renderer, /className="sand-workspace-rail__main"/);
-  assert.match(renderer, />New Bot</);
+  // New Bot moved OUT of the dock and onto the sidebar's brand row, next to the
+  // name: a control that makes a new coworker belongs above the list of
+  // coworkers, not under it. Deliberate departure from official 0.18, asked for
+  // by the operator on 2026-09-07 — do not "restore" the dock entry.
+  assert.doesNotMatch(renderer, />New Bot</);
   assert.match(renderer, /label="Collections"/);
   assert.match(renderer, />Groups</);
   assert.match(renderer, /sessionActive=\{subscriptionReady \|\| account\?\.kind === "logged-in"\}/);
@@ -814,10 +823,18 @@ whenFrontend("workspace chrome: right info pane, cover-drag, collapsed rail, new
   assert.match(sidebar, /BRAND_OPEN_NAME/);
   assert.match(sidebar, /sand-agents-sidebar__expand/);
   assert.match(sidebar, /onToggleCollapsed/);
-  assert.match(sidebar, /name="arrow-left"/);
+  // The rail's toggle is the sidebar glyph, not a back arrow, and the rail no
+  // longer carries the brand mark: it read as another agent above the agents
+  // (operator's call, 2026-09-07).
+  assert.match(sidebar, /name="layout-sidebar-left"/);
+  assert.doesNotMatch(sidebar, /isCollapsed \? "md" : "sm"/);
   assert.match(sidebar, /agentId="open-grok-brand"/);
   assert.match(sidebar, /shape="blob"/);
-  assert.doesNotMatch(sidebar, /sand-agents-sidebar__new/);
+  // New Bot is on the brand row now, inside the expanded branch only: the rail
+  // is a column of coworkers and a toggle, nothing else. It used to be the last
+  // item in the dock (operator's call, 2026-09-07) — do not restore it there.
+  assert.match(sidebar, /aria-label="New Bot" className="sand-agents-sidebar__new"/);
+  assert.doesNotMatch(sidebar, /isCollapsed[\s\S]{0,200}sand-agents-sidebar__new/);
   assert.match(renderer, /onToggleCollapsed=/);
   assert.match(production, /sand-agents-sidebar__dock-label/);
   assert.match(production, /width: 54px;/);

@@ -49,3 +49,43 @@ test("explicitly emptying the composer discards the failed-send recovery", async
     assert.deepEqual(snapshots.get(), { draft: null, recovery: null }, "clearing an already empty composer is a no-op");
   } finally { await cleanup(); }
 });
+
+// The sidebar shows "Draft: …" on any row whose composer holds unsent text. That
+// text lives here, not on the server row, so the roster reads it through a
+// store-wide view. Two things it must get right: the same object identity while
+// nothing changes (useSyncExternalStore compares by identity and would loop on a
+// fresh object each read), and a notification on every mutation path.
+test("the roster view lists unsent drafts and is stable between changes", async () => {
+  const { loaded, cleanup } = await load();
+  try {
+    const store = loaded.createComposerDraftStateStore(persistence);
+    await store.restore("acct");
+    const prompts = store.draftPrompts();
+    let notifications = 0;
+    const stop = prompts.subscribe(() => { notifications += 1; });
+
+    assert.deepEqual(prompts.get(), {}, "no drafts, no rows");
+    const first = prompts.get();
+    assert.equal(prompts.get(), first, "a second read with nothing changed returns the same object");
+
+    store.setDraft("alpha", { prompt: "  half a thought  ", attachments: [] });
+    assert.deepEqual(prompts.get(), { alpha: "half a thought" }, "the prompt is trimmed for display");
+    assert.ok(notifications > 0, "writing a draft notifies the roster");
+
+    store.setDraft("beta", { prompt: "another", attachments: [] });
+    assert.deepEqual(prompts.get(), { alpha: "half a thought", beta: "another" });
+
+    // A chip with no text is a draft, but there is nothing to quote in the row.
+    store.setDraft("gamma", chip);
+    assert.equal("gamma" in prompts.get(), false, "an attachment-only draft has no preview text");
+
+    store.setDraft("alpha", { prompt: "", attachments: [] });
+    assert.deepEqual(prompts.get(), { beta: "another" }, "clearing a draft drops its row");
+
+    const before = notifications;
+    store.reset();
+    assert.deepEqual(prompts.get(), {}, "reset empties the view");
+    assert.ok(notifications > before, "reset notifies too");
+    stop();
+  } finally { await cleanup(); }
+});
