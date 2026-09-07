@@ -250,6 +250,26 @@ primitives are listed beside the fullscreen-stage rule in `production.css`. Add
 yours there. Leave genuinely empty chrome draggable; that is what the strips are
 for.
 
+## Drag and drop: synthetic DragEvents prove nothing
+
+A dispatched `new DragEvent("dragstart")` runs your handlers whether or not a
+real drag could survive, so it will report a feature working that a mouse cannot
+use. Two things it hides:
+
+- **A DOM change inside `dragstart` aborts the drag.** Chromium cancels the drag
+  it was about to start; `dragstart` and `dragend` both fire in the same tick.
+  Any state update that renders a drop target must be deferred — a `setTimeout`
+  of zero is enough (roster pin zone, 2026-09-08).
+- **`setDragImage` needs its element attached** and rasterised during the
+  handler, and removed a frame later, not synchronously.
+
+To drive a REAL drag over CDP: `Input.setInterceptDrags({enabled:true})`, then
+`Input.dispatchMouseEvent` mousePressed plus several mouseMoved steps. Chromium
+emits `Input.dragIntercepted` only if a drag genuinely began — that event is the
+proof. Continue with `Input.dispatchDragEvent` (`dragEnter`, `dragOver`, `drop`,
+passing back the intercepted `data`) to finish the gesture. Watch `dragend`
+firing immediately after `dragstart`: that is the abort signature.
+
 **Do not try to reproduce it with CDP.** `elementFromPoint`, `elementsFromPoint`
 and `Input.dispatchMouseEvent` all run inside the renderer and report the DOM's
 answer, which is that the overlay is perfectly clickable. They cannot see a drag

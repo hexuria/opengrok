@@ -77,6 +77,16 @@ test("a row with no mark still produces a card rather than throwing", async () =
 test("the roster wires the card, the pin zone and the end of a drag", async () => {
   const sidebar = await readFile(path.join(repoRoot, "frontend/src/recovered/features/conversation/workspace/sidebar.tsx"), "utf8");
   assert.match(sidebar, /event\.dataTransfer\.setDragImage\(card, hotspot\.x, hotspot\.y\)/);
+  /*
+   * The drag-started signal MUST stay deferred. Rendering the pin target changes
+   * the DOM, and a DOM change inside the dragstart handler makes Chromium
+   * abandon the drag it was about to start — dragstart and dragend both fired in
+   * the same tick and no drag ever happened, so neither the card nor the zone
+   * was ever seen. Synthetic DragEvents hide this completely: they fire the
+   * handlers whether or not a real drag would survive (operator's report,
+   * 2026-09-08).
+   */
+  assert.match(sidebar, /setTimeout\(\(\) => onDragStateChange\?\.\(started\), 0\)/);
   // Official shows the dashed zone only while a coworker is being dragged, and
   // the tile rail becomes the target once anything is pinned.
   assert.match(sidebar, /aria-label="Pin drop zone"/);
