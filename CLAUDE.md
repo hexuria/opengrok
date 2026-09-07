@@ -192,6 +192,55 @@ history. They came back only because the checksum-verified asar was still in
 `.cache/runtime/`. If you package from a worktree, copy `src/app` and
 `.cache/runtime` into it, or package from the main checkout.
 
+## Dead spots: `-webkit-app-region: drag` outranks z-index
+
+**Symptom.** An area of the window takes no hover and no click, dragging there
+moves the whole window instead, and nothing in the DOM explains it. The dead
+area has a hard edge that lines up with some other element's box. Raising
+z-index does nothing.
+
+**Cause.** Electron resolves `-webkit-app-region: drag` in the OS, *before the
+page sees the mouse*. It is a native hit target: it ignores z-index, ignores
+paint order, and ignores webviews. The only holes in a drag region are elements
+that themselves declare `app-region: no-drag`, and that declaration is read off
+the element's own computed style — a parent's `no-drag` does not cover a child
+painted over the region from elsewhere in the DOM.
+
+**Why it keeps biting this app.** Two full-height drag strips exist by design:
+`.sand-workspace-rail` (production.css) and `.sand-chat-header` (workspace
+view.css). Each exempts its own interactive descendants (`button`, `a`, `input`,
+`[role="button"]`). Anything portalled to `<body>` — every menu, popover,
+tooltip, select, dialog, hover card and banner — is NOT a descendant, so it
+lands on bare drag region wherever it overlaps one.
+
+Three instances so far, all the same bug:
+- the 16:9 computer stage over the rail (you saw VNC, clicks dragged the window);
+- modals over the rail;
+- the roster's context menu, dead below the last row because the roster rows are
+  buttons that had already punched holes for the part above (2026-09-07).
+
+**The rule for new overlays.** Anything that floats over the window must punch
+its own hole:
+
+```css
+.my-overlay, .my-overlay * { -webkit-app-region: no-drag; app-region: no-drag; }
+```
+
+Floating surfaces get it for free — `sand-floating-primitives.css` declares it
+on `[data-sand-floating-surface="true"]`. Surfaces that are not floating
+primitives are listed beside the fullscreen-stage rule in `production.css`. Add
+yours there. Leave genuinely empty chrome draggable; that is what the strips are
+for.
+
+**Do not try to reproduce it with CDP.** `elementFromPoint`, `elementsFromPoint`
+and `Input.dispatchMouseEvent` all run inside the renderer and report the DOM's
+answer, which is that the overlay is perfectly clickable. They cannot see a drag
+region, so they will tell you the bug does not exist while the operator is
+looking straight at it. What CDP *can* check is the computed property: read
+`getComputedStyle(el).getPropertyValue("-webkit-app-region")` on the overlay, its
+rows and its icons, and on the strip underneath. `drag` under an overlay whose
+own value is not `no-drag` is the bug. Confirming the feel needs a real mouse.
+
 ## Locked UI rules
 
 See `docs/performance-optimizations.md` (the locked ruleset) and
