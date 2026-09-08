@@ -352,6 +352,101 @@ whenFrontend("usage short numbers, money, table, summary, cap room", async () =>
     assert.match(usagePane, /title=\{reference \? undefined : "No points reference set"\}/, "a one-line reason for the em dash, without changing what renders");
 
     /*
+     * The displaced-bill column holds counterfactual_api_usd: money not spent
+     * on a subscription seat, the bill itself on an API-key seat. One number,
+     * two opposite meanings, so it is named from the seat - and never guessed,
+     * because "Saved" over a column of real metered cost is the one way naming
+     * it is worse than the neutral word it replaces.
+     */
+    const patchedCssPin = await readFrontend("frontend/src/production/patched-ui/patched-ui.css");
+    const { seatColumn } = loaded;
+    assert.equal(seatColumn("subscription").label, "Saved");
+    assert.equal(seatColumn("api").label, "Cost");
+    for (const unknown of [null, undefined, "", "something-else", "Subscription"]) {
+      assert.equal(seatColumn(unknown).label, "List", "an absent or unrecognised seat is not guessed at");
+    }
+    for (const seatValue of ["subscription", "api", null]) {
+      assert.ok(seatColumn(seatValue).title.length > 0, "every heading says what its figure is");
+    }
+    /*
+     * And it is named from the seat the server reports for the WINDOW on
+     * screen, not the account's month: 5h/24h/7d roll backwards and can reach
+     * past the start of the calendar month, so a month with no cost does not
+     * prove the last seven days had none. The month seat stays as the fallback
+     * for a server too old to report a window's own.
+     */
+    assert.match(usagePane, /const seat = windowSeat \?\? spendSeat;/, "the window's seat wins, the account's month is the fallback");
+    assert.match(usagePane, /setWindowSeat\(reported === "subscription" \|\| reported === "api" \? reported : null\)/, "and only the server's own two words are believed");
+    assert.match(usagePane, /<th className="n" title=\{column\.title\}>\{column\.label\}<\/th>/, "the heading is the named one");
+
+    /*
+     * Column order: Model, Requests, Points, Saved/Cost. Points is what a cap
+     * is enforced in and it used to be the last of four, behind two dollar
+     * figures.
+     */
+    const headRow = usagePane.slice(usagePane.indexOf("<thead>"), usagePane.indexOf("</thead>"));
+    const order = [...headRow.matchAll(/>(Model|Requests|\{column\.label\}|Points)</g)].map((match) => match[1]);
+    assert.deepEqual(order, ["Model", "Requests", "Points", "{column.label}"], "Points sits next to Requests, ahead of the money");
+    const footRow = usagePane.slice(usagePane.indexOf("<tfoot>"), usagePane.indexOf("</tfoot>"));
+    const footOrder = [...footRow.matchAll(/\{(short\(tt\.totals\.requests\)|usd\(tt\.totals\.list\)|tt\.totals\.pointsKnown[^}]*)\}/g)].map((match) => match[1].slice(0, 12));
+    assert.deepEqual(footOrder, ["short(tt.tot", "tt.totals.po", "usd(tt.total"], "the totals row is in the same order as the head");
+
+    /*
+     * The pinned model's row is marked. The picker pins `xai/grok-4.6@sub` and
+     * the ledger records `xai/grok-4.6`, so the two only meet on the base id.
+     * A ladder pin (oag/auto, oag/cheap, oag/frontier) is synthesised per
+     * request and never appears in the ledger, so it marks nothing - which is
+     * correct, and is the live case on this deployment's second coworker.
+     */
+    const { baseModel } = loaded;
+    assert.equal(baseModel("xai/grok-4.6@sub"), "xai/grok-4.6", "the seat suffix comes off");
+    assert.equal(baseModel("xai/grok-4.6"), "xai/grok-4.6", "and a bare id is left alone");
+    assert.equal(baseModel("oag/cheap"), "oag/cheap", "a ladder alias has no suffix to take off");
+    for (const empty of [null, undefined, ""]) assert.equal(baseModel(empty), "", "nothing pinned is not a model called \"null\"");
+    assert.match(usagePane, /const pinnedBase = baseModel\(pin\);/);
+    assert.match(usagePane, /const current = pinnedBase\.length > 0 && baseModel\(row\.model\) === pinnedBase;/, "matched on base id, and never on an empty pin");
+    assert.match(usagePane, /className="sand-us-pin" title="The model this coworker is pinned to now"/, "a marker on the row, not a column of its own");
+    assert.match(usagePane, /data-current=\{current \? "true" : undefined\}/, "and the row says so to a test");
+    assert.match(usagePane, /const result = await agent\.getAgentModel\(agentId\);/, "the pin comes through the same door the picker reads it through");
+    // The chip is the smallest step on the scale, like everything else in this pane.
+    assert.match(patchedCssPin, /\.sand-us-pin\{[^}]*font-size:var\(--cursor-font-size-xs,11px\)/, "the marker is quiet");
+
+    /*
+     * The gateway is moving its per-model report from GROUP BY model_id to
+     * GROUP BY (model_id, tier), so a model reached both by a hard pin and
+     * through the oag/* ladder arrives as two rows carrying the same id. Two
+     * React children with the same key reconcile wrongly and can paint one
+     * row's figures onto the other, so the rung is in the key - carried
+     * through untouched, rendered nowhere, null on every server that has not
+     * shipped it.
+     */
+    const { rowKey } = loaded;
+    assert.equal(rowKey({ model: "xai/grok-4.6", tier: null }), "xai/grok-4.6", "today's key is the id it always was");
+    assert.equal(rowKey({ model: "xai/grok-4.6" }), "xai/grok-4.6", "and an absent field is the same as none");
+    assert.notEqual(
+      rowKey({ model: "xai/grok-4.6", tier: "cheap" }),
+      rowKey({ model: "xai/grok-4.6", tier: null }),
+      "one model on a rung and off it are two rows, and two keys",
+    );
+    assert.notEqual(
+      rowKey({ model: "xai/grok-4.6", tier: "cheap" }),
+      rowKey({ model: "xai/grok-4.6", tier: "frontier" }),
+      "and two rungs are two keys",
+    );
+    assert.match(usagePane, /key=\{rowKey\(row\)\}/, "the table keys rows by identity, not by model id");
+    assert.doesNotMatch(usagePane, /key=\{index\}|key=\{`\$\{row\.model\}-\$\{index\}`\}/, "and never by array index, which reorders badly on a list sorted by spend");
+    // The rung rides through table() untouched. Nothing renders it yet.
+    const tiered = table({ models: [
+      { modelId: "xai/grok-4.6", tier: "cheap", requests: 2, listUsd: "0.02", costUsd: "0", points: 100 },
+      { modelId: "xai/grok-4.6", tier: "", requests: 1, listUsd: "0.01", costUsd: "0", points: 50 },
+    ] }, "all");
+    assert.equal(tiered.rows.length, 2, "two rows for one model is a shape this must survive");
+    assert.deepEqual(tiered.rows.map(rowKey).length, new Set(tiered.rows.map(rowKey)).size, "and their keys are distinct");
+    assert.equal(tiered.rows.find((r) => r.tier === null) != null, true, "an empty rung is no rung, not a rung called \"\"");
+    assert.equal(tiered.totals.requests, 3, "and the totals still total everything");
+    assert.doesNotMatch(usagePane, /rows\.find\(|\.findIndex\(/, "the pin marks every row of that model, not whichever comes first");
+
+    /*
      * The modal is the app's own surface, not a bespoke one. It was built out
      * of a hand-rolled scrim, `font:13px/1.45 system-ui`, bare <button> and
      * <input> elements and hand-picked radii, and so matched nothing else in
