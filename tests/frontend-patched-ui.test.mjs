@@ -321,6 +321,102 @@ whenFrontend("usage short numbers, money, table, summary, cap room", async () =>
     // Points render "—" only for lack of a points_reference, and that is
     // correct and must stay - but the reason should be discoverable.
     assert.match(usagePane, /title=\{reference \? undefined : "No points reference set"\}/, "a one-line reason for the em dash, without changing what renders");
+
+    /*
+     * The modal is the app's own surface, not a bespoke one. It was built out
+     * of a hand-rolled scrim, `font:13px/1.45 system-ui`, bare <button> and
+     * <input> elements and hand-picked radii, and so matched nothing else in
+     * the product (operator's report, 2026-09-08). It is now OverlayDialog -
+     * which owns Escape, the click-away, the focus trap and the
+     * [data-ui-dialog-root] drag-region exemption - wrapped around sand-kit
+     * buttons and settings-card rows.
+     */
+    assert.match(usagePane, /import \{ OverlayDialog \} from "\.\.\/\.\.\/recovered\/ui\/overlay-primitives"/, "the dialog is the app's dialog primitive");
+    assert.match(usagePane, /<OverlayDialog initialFocusRef=\{frameRef\} label="Usage" onClose=\{onClose\} open panelStyle=\{PANEL_STYLE\}>/, "named to a screen reader, and opening on the table rather than on its own close button");
+    assert.doesNotMatch(usagePane, /closeOnEscape=\{false\}|closeOnBackdrop=\{false\}/, "Escape and the scrim click-away stay on");
+    assert.doesNotMatch(usagePane, /addEventListener\("keydown"/, "and are the primitive's, not a second document-level listener beside it");
+    assert.doesNotMatch(usagePane, /sand-us-scrim|sand-us-sheet|sand-us-body|sand-us-h"|sand-us-x"/, "the hand-rolled scrim, sheet and header are gone");
+    assert.match(usagePane, /className="sand-kit-icon-button sand-settings-panel__close sand-us-close"/, "the close control is the app's icon button, not a × glyph in a bare <button>");
+    assert.match(usagePane, /<SandIcon name="close" size=\{14\} \/>/, "with the app's close icon at the size every other close uses");
+
+    /*
+     * Range tabs: kit buttons in a real tablist, pill-shaped (the operator
+     * asked for a rounder corner and the kit already has one), with roving
+     * focus so the four ranges are one stop in the tab order.
+     */
+    assert.match(usagePane, /className="sand-us-tabs" onKeyDown=\{onTablistKey\} role="tablist"/, "the range tabs live in a real tablist");
+    // size md, not sm: the sm class list carries the immutable atom
+    // `.sand-1kogg8i:not(#\#):not(#\#){border-radius:6px}`, which outranks the
+    // kit's own pill rule, so an sm pill renders as a 6px rectangle.
+    assert.match(usagePane, /<SandButton aria-controls=\{RANGE_PANEL_ID\} aria-selected=\{windowId === id\}[\s\S]*?role="tab" shape="pill" size="md"/, "and each is a pill-shaped kit button, not a bare <button>");
+    assert.match(usagePane, /tabIndex=\{windowId === id \? 0 : -1\}/, "with roving tabindex");
+    assert.match(usagePane, /const onTablistKey/, "and arrow/Home/End keys, the same contract the standing-rules tablist uses");
+    assert.doesNotMatch(usagePane, /<button aria-pressed/, "no bare <button> left in the modal's controls");
+
+    /*
+     * Limits is a settings card now - captioned group, labelled rows, values
+     * in the control column - instead of four unlabelled lines that read as
+     * debug output. The exact dollar figure moved out of it and under the
+     * table it totals, still seat-conditional, and gated on there being rows
+     * exactly like the totals row is.
+     */
+    assert.match(usagePane, /<SettingsGroup title="Limits">/, "Limits is the app's captioned settings group");
+    for (const label of ["Cap", "Pool", "Monthly cap", "Daily brake"]) {
+      assert.match(usagePane, new RegExp(`label="${label}"`), `the ${label} line is a labelled row, not a bare sentence`);
+    }
+    assert.match(usagePane, /<span className="sand-settings-card__meta" title=\{capExact\(capLimit\)\}>\{capText\(capLimit, reference\)\}<\/span>/, "the cap value keeps its exact-figure tooltip");
+    assert.match(usagePane, /description=\{limits\.pool\} label="Pool"/, "the pool sentence is the Pool row's description");
+    assert.match(usagePane, /description=\{limits\.none \|\| undefined\} label="Cap"/, "limitsText().none finally explains \"none = your pool\" instead of going unrendered");
+    const exactIdx = usagePane.indexOf("sand-us-exact");
+    const limitsIdx = usagePane.indexOf("<SettingsGroup title=\"Limits\">");
+    assert.ok(exactIdx >= 0 && exactIdx < limitsIdx, "the exact total sits under the table it totals, above Limits");
+    assert.match(usagePane, /\{tt\.rows\.length === 0 \? null : \(\s*<p className="sand-us-exact">/, "and is gated on there being rows, so an empty window prints no $0.000000");
+    for (const label of ["Monthly cap in points", "Daily brake in points"]) {
+      assert.match(usagePane, new RegExp(`aria-label="${label}"`), "the cap fields keep their aria-labels");
+    }
+    assert.match(usagePane, /className="sand-us-field"/, "and are the underline fields, not boxed inputs");
+
+    /*
+     * The stylesheet half. Everything the modal draws comes from --cursor-*
+     * / --sand-* tokens; the rules carry no font stack and no hex. And the
+     * auto-review sheet, which used to share every one of these selectors,
+     * keeps its own rules untouched.
+     */
+    const patchedCss = await readFrontend("frontend/src/production/patched-ui/patched-ui.css");
+    const usageRules = [...patchedCss.matchAll(/^\.sand-us[^{]*\{([^}]*)\}/gm)].map((match) => match[1]);
+    assert.ok(usageRules.length >= 10, `the usage rules are still here (found ${usageRules.length})`);
+    for (const body of usageRules) {
+      assert.doesNotMatch(body, /font:\s*\d/, "no font shorthand with a literal size and stack");
+      assert.doesNotMatch(body, /#[0-9a-fA-F]{3}\b|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{8}\b/, "no hardcoded colour");
+    }
+    assert.match(patchedCss, /\.sand-us\{[^}]*font-family:var\(--cursor-font-family-sans/, "the modal inherits the app's type through the same token the settings dialog uses");
+    assert.match(patchedCss, /\.sand-ar-sheet\{/, "the auto-review sheet keeps its own rule");
+    assert.doesNotMatch(patchedCss, /\.sand-ar-sheet,\.sand-us-sheet|\.sand-ar-scrim,\.sand-us-scrim/, "and no longer shares one with a modal that has moved on");
+
+    /*
+     * The table's min and max. Scroll, not pagination: every list in this app
+     * scrolls, and a totals row that stayed "correct" across pages would not
+     * add up to the page on screen. The floor keeps an empty window and a
+     * one-row window the same height (the jump the operator already fixed
+     * once); the ceiling stops the modal growing past five model rows.
+     */
+    assert.match(patchedCss, /\.sand-us-frame\{[^}]*min-height:calc\(var\(--sand-us-head-row\) \+ var\(--sand-us-row\) \+ var\(--sand-us-total-row\) \+ var\(--sand-us-edges\)\)/, "a floor of head + one row + total, so empty and one-row are exactly one height");
+    assert.match(patchedCss, /\.sand-us-frame\{[^}]*max-height:calc\(var\(--sand-us-head-row\) \+ \(5 \* var\(--sand-us-row\)\) \+ var\(--sand-us-total-row\) \+ var\(--sand-us-edges\)\)/, "a ceiling of head + five rows + total");
+    assert.match(patchedCss, /\.sand-us-frame\{[^}]*overflow:auto/, "and it scrolls past that rather than paginating");
+    assert.match(patchedCss, /\.sand-us-table th\{position:sticky;top:0/, "the header stays put while it scrolls");
+    assert.match(patchedCss, /\.sand-us-table tfoot td\{position:sticky;bottom:0/, "and so does the totals row, so the total is readable at every scroll position");
+    // Under the floor the table stretches and one empty row soaks up the
+    // slack, so the total sits on the frame's bottom edge instead of floating
+    // above a band of empty box.
+    assert.match(patchedCss, /\.sand-us-frame\{[^}]*display:flex;flex-direction:column/, "the frame is a column");
+    assert.match(patchedCss, /\.sand-us-table\{flex:1 0 auto/, "and the table fills it, without shrinking past its content");
+    assert.match(patchedCss, /\.sand-settings-card__row\.sand-us-actions\{justify-content:flex-end\}/, "and the Save row right-aligns, which needs to outrank the card row's own space-between");
+    assert.match(usagePane, /<tr aria-hidden="true" className="sand-us-filler"><td colSpan=\{4\} \/><\/tr>/, "with one aria-hidden filler row, which reads as nothing");
+    assert.match(patchedCss, /\.sand-us-table tbody tr\.sand-us-filler td\{height:auto;padding:0;border-top:0\}/, "and draws nothing");
+    assert.doesNotMatch(usagePane, /setPage|pageIndex|Next page|Previous page/, "there are no pages to be on");
+    // Underline fields, and a focus indicator that survives losing the ring.
+    assert.match(patchedCss, /\.sand-us-field\{[^}]*border:0;border-bottom:1px solid var\(--cursor-stroke-tertiary\)/, "the cap fields are underlines, the shape the command palette's own input has");
+    assert.match(patchedCss, /\.sand-us-field:focus,\.sand-us-field:focus-visible\{[^}]*border-bottom-color:var\(--cursor-stroke-focused\)/, "and focus is that underline lit up, not nothing");
   } finally {
     await cleanup();
   }
