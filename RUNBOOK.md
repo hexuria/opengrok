@@ -14,7 +14,9 @@ desktop calls the server and never talks to the gateway at all.
 Each repository documents its own half authoritatively:
 
 - `open-ai-gateway` — infrastructure, migrations, seats, ladder, catalogue.
-- `opengrok-server` — environment, model door, keys, migrations.
+- `opengrok-server` — `docs/setup/README.md` is the index; `environment.md` and
+  `running.md` carry the model door, the token-secret discipline and the restart
+  gotchas. `docs/known-gaps.md` holds its open items.
 - this file — the order, the seams between them, and the desktop.
 
 What follows is the seams: the things that are nobody's half alone, and the
