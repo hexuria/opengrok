@@ -261,6 +261,23 @@ whenFrontend("usage short numbers, money, table, summary, cap room", async () =>
       { window: "month", usedUsd: "0.000000", counterfactualUsd: "0.008300", requests: 4, freesAt: "2026-10-01T00:00:00Z" },
     ] } };
     assert.equal(summary(null, spendOnly), "4 requests · $0.0083 on API this month");
+
+    /*
+     * A flat-rate subscription seat has no cost of its own - the dollar
+     * figure shown when points aren't known is what the metered API would
+     * have billed, not spend. Mislabelling reads as money spent toward a
+     * cap; the fix is to only say "saved" when the seat is actually known
+     * to be a subscription, and never guess otherwise (operator's report,
+     * 2026-09-08: the figure moved $0.000000 -> $0.025258 after one real
+     * turn and read as spend when it was the opposite).
+     */
+    const noPoints = { usage: { models: [
+      { modelId: "xai/grok-4.6", requests: 1, listUsd: "0.030000", costUsd: "0.000000", points: null },
+    ] } };
+    assert.equal(summary(noPoints, { spend: { seat: "subscription" } }), "1 request this month · $0.03 saved vs API");
+    assert.equal(summary(noPoints, { spend: { seat: "api" } }), "1 request this month · $0.03 on API", "an api seat's figure is real cost; leave it as-is");
+    assert.equal(summary(noPoints, null), "1 request this month · $0.03 on API", "no seat info at all: no guess either way");
+    assert.equal(summary(noPoints, { spend: { seat: "something-else" } }), "1 request this month · $0.03 on API", "an unrecognised seat value: no guess either way");
     assert.equal(seatLine({ metered: true, seat: "api" }), "API key");
     assert.equal(capText({ cap: null, effectiveCap: 12000000, usedPoints: 10000000 }, "0.200000"), "none = your pool · 2m left");
     assert.equal(capText({ cap: 5000000, effectiveCap: 3000000, usedPoints: 1000000 }, "0.200000"), "≈ $1.00 · effective 3m · 2m left");
@@ -292,6 +309,18 @@ whenFrontend("usage short numbers, money, table, summary, cap room", async () =>
     // range tabs use, so "month" never prints raw.
     const tabsIdx = usagePane.indexOf("{windowLabel(id)}");
     assert.ok(tabsIdx >= 0, "the tab buttons use the shared label helper too");
+
+    /*
+     * The Limits section's dollar figure (tt.totals.list) is
+     * counterfactual-API cost, not spend, on a subscription seat - it must
+     * say so, and must not say so (or anything else) when the seat is not
+     * known to be a subscription.
+     */
+    assert.match(usagePane, /seat === "subscription" \? `\$\{usdExact\(tt\.totals\.list\)\} saved vs API` : usdExact\(tt\.totals\.list\)/, "the Limits figure reads as savings only on a confirmed subscription seat, and is otherwise left as-is");
+    assert.match(usagePane, /getCoworkerSpend/, "the modal fetches the seat, the same door the outer summary line already uses");
+    // Points render "—" only for lack of a points_reference, and that is
+    // correct and must stay - but the reason should be discoverable.
+    assert.match(usagePane, /title=\{reference \? undefined : "No points reference set"\}/, "a one-line reason for the em dash, without changing what renders");
   } finally {
     await cleanup();
   }
