@@ -766,6 +766,34 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       }
     },
     /**
+     * Probes whether a pinned-but-unadvertised model is actually servable.
+     *
+     * This is NOT the automatic probe-on-save that setAgentModel used to make
+     * (see the comment there): that ran on every save, on a route the person
+     * never chose to test, and the server rate-limits real completions per
+     * account. This one fires exactly once per click, from a Test button the
+     * person presses on purpose, for a model that already can't appear in the
+     * catalogue (xAI advertises none of its own). One request in, one answer
+     * out — no retry here, and none in callOpenGrokAccountApi underneath it.
+     */
+    probeAgentModel: async (raw) => {
+      const model = req(raw).model;
+      invariant(typeof model === "string" && model.length > 0, "probeAgentModel needs a model id.");
+      const gatewayUrl = invoke(deps.settingsStore, "getOpenGrokGatewayUrl");
+      if (typeof gatewayUrl !== "string" || gatewayUrl.length === 0) return cloneableRecord({ available: false });
+      try {
+        const secrets = openGrokAccountSecrets(deps, gatewayUrl);
+        const { callOpenGrokAccountApi } = await import("./box/opengrok-account-call.js");
+        const answer = await callOpenGrokAccountApi(secrets, OPENGROK_ACCESS_TOKEN_SECRET, gatewayUrl, {
+          path: "/models/probe", method: "POST", body: { model },
+        });
+        const record = typeof answer === "object" && answer != null ? answer as UnknownRecord : {};
+        return cloneableRecord({ available: true, ...record });
+      } catch (error) {
+        return cloneableRecord({ available: true, ok: false, detail: String(error instanceof Error ? error.message : error) });
+      }
+    },
+    /**
      * Repins a coworker.
      *
      * It used to prove the pin with a real completion first, and refuse to save one the gateway

@@ -132,7 +132,7 @@ whenFrontend("model combobox: labels, groups, filter, stale pin, typed id", asyn
     assert.deepEqual(optionsFor(CATALOGUE, null, "subscription").map((o) => o.id), ["xai/grok-4.6@sub", "subscription"]);
     const stale = optionsFor(CATALOGUE, "openai/gpt-5.6-luna", "").at(-1);
     assert.equal(stale.id, "openai/gpt-5.6-luna");
-    assert.equal(stale.group, "Not in the catalogue");
+    assert.equal(stale.group, "Pinned · not advertised");
     assert.deepEqual(optionsFor(CATALOGUE, null, "openai/gpt-6").map((o) => o.group), ["Use exactly what you typed"]);
     assert.deepEqual(optionsFor(CATALOGUE, null, "openai/gpt-5.5").map((o) => o.id), ["openai/gpt-5.5"]);
     assert.deepEqual(loaded.comboboxMove(false, 0, 5, 1), { open: true, active: 0 }, "ArrowDown from closed opens on the first option");
@@ -150,7 +150,7 @@ whenFrontend("model combobox: labels, groups, filter, stale pin, typed id", asyn
     assert.equal(firstActionableOption(optionsFor(CATALOGUE, null, ""), null), 0);
     // An empty catalogue: the only row is the pin itself, and nothing is armed.
     const empty = optionsFor([], "xai/grok-4.6@sub", "");
-    assert.deepEqual(empty.map((o) => o.group), ["Not in the catalogue"]);
+    assert.deepEqual(empty.map((o) => o.group), ["Pinned · not advertised"]);
     assert.equal(firstActionableOption(empty, "xai/grok-4.6@sub"), -1, "no row looks armed when none would act");
     // Typing an id gives it something to arm again.
     const typed = optionsFor([], "xai/grok-4.6@sub", "openai/gpt-6");
@@ -167,9 +167,54 @@ whenFrontend("model combobox: labels, groups, filter, stale pin, typed id", asyn
     assert.doesNotMatch(combobox, /filter === "" \? \(current/, "an empty query is not the same as no query");
     assert.match(combobox, /setActive\(firstActionableOption\(next, current\)\)/);
     assert.doesNotMatch(combobox, /setActive\(next\.length \? 0 : -1\)/, "never arm row 0 blindly");
+
+    /*
+     * The Test button on a "Pinned · not advertised" row probes a real,
+     * billed completion, so it must exist only there, fire from exactly one
+     * place (the button's own onMouseDown), never retry, and never be
+     * reachable from anything that runs automatically (mount, opening the
+     * list, or focusing the field).
+     */
+    const goneCheckIdx = combobox.indexOf("option.group === GONE ? (");
+    const testButtonIdx = combobox.indexOf('className="lp-test"');
+    assert.ok(goneCheckIdx >= 0 && testButtonIdx > goneCheckIdx && testButtonIdx - goneCheckIdx < 200, "the Test button only renders for the GONE group");
+    const testButtonBody = combobox.slice(testButtonIdx, combobox.indexOf('type="button"', testButtonIdx));
+    assert.match(testButtonBody, /runProbe\(option\.id\)/, "the Test button invokes the probe");
+    assert.match(testButtonBody, /event\.preventDefault\(\);\s*event\.stopPropagation\(\);/, "must not bubble into the row's choose() or blur the input");
+    assert.match(combobox, /agent\.probeAgentModel\(id\)/, "runProbe calls the bridge's probeAgentModel");
+    assert.equal((combobox.match(/\.probeAgentModel\(/g) || []).length, 1, "probeAgentModel is called from exactly one place");
+    assert.doesNotMatch(combobox, /onClick=\{[^}]*runProbe/, "the probe fires on mousedown, not a second time on click");
+    const runProbeBody = combobox.slice(combobox.indexOf("const runProbe = useCallback"), combobox.indexOf("useEffect(() => { void load(); }"));
+    assert.doesNotMatch(runProbeBody, /for \(|while \(|\.retry|setTimeout|setInterval/, "no retry loop around the probe call");
+    const showBody = combobox.slice(combobox.indexOf("const show = useCallback"), combobox.indexOf("const close = useCallback"));
+    assert.doesNotMatch(showBody, /probeAgentModel|runProbe/, "opening the list must not fire a probe");
+    const onFocusBody = combobox.slice(combobox.indexOf("onFocus={"), combobox.indexOf("onKeyDown={"));
+    assert.doesNotMatch(onFocusBody, /probeAgentModel|runProbe/, "focusing the input must not fire a probe");
+    const mountEffectBody = combobox.slice(combobox.indexOf("useEffect(() => { void load(); }"), combobox.indexOf("useEffect(() => { void load(); }") + 60);
+    assert.doesNotMatch(mountEffectBody, /probeAgentModel|runProbe/, "mounting must not fire a probe");
+    assert.doesNotMatch(runProbeBody, /close\(/, "a probe must not close the list (kept open so the result is visible)");
+    assert.doesNotMatch(testButtonBody, /close\(/, "the Test button must not close the list either");
   } finally {
     await cleanup();
   }
+});
+
+test("probeAgentModel triad: rpc table, preload bridge, and main-edge handler", async () => {
+  const rpcTable = await readFrontend("source/shared/rpc/main.ts");
+  assert.match(rpcTable, /probeAgentModel: \{ args: "object" \}/);
+  const preload = await readFrontend("source/electron-preload/preload.ts");
+  assert.match(preload, /probeAgentModel: \(model: string\) => edge\("probeAgentModel", \{ model \}\)/);
+  const mainEdge = await readFrontend("source/electron-main/main-edge.ts");
+  assert.match(mainEdge, /probeAgentModel: async \(raw\) => \{/);
+  assert.match(mainEdge, /path: "\/models\/probe", method: "POST", body: \{ model \}/);
+  // The old automatic probe-on-save is a different, removed thing (setAgentModel's
+  // own comment says why); this one stays manual, so the handler itself must not
+  // loop or schedule a retry — one call in, one answer out.
+  const probeHandlerStart = mainEdge.indexOf("probeAgentModel: async (raw)");
+  const probeHandlerEnd = mainEdge.indexOf("setAgentModel: async (raw)");
+  assert.ok(probeHandlerStart >= 0 && probeHandlerEnd > probeHandlerStart);
+  const probeHandler = mainEdge.slice(probeHandlerStart, probeHandlerEnd);
+  assert.doesNotMatch(probeHandler, /for \(|while \(|\.retry|setTimeout|setInterval/, "no retry loop in the server-side probe handler");
 });
 
 whenFrontend("usage short numbers, money, table, summary, cap room", async () => {

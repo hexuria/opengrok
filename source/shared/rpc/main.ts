@@ -115,6 +115,7 @@ export const MAIN_METHOD_TABLE = {
   openCollections: { args: "object" },
   getAgentModel: { args: "object" },
   setAgentModel: { args: "object" },
+  probeAgentModel: { args: "object" },
   getCoworkerSpend: { args: "object" },
   getCoworkerUsage: { args: "object" },
   getCoworkerLimit: { args: "object" },
