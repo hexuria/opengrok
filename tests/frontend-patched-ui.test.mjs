@@ -194,6 +194,35 @@ whenFrontend("model combobox: labels, groups, filter, stale pin, typed id", asyn
     assert.doesNotMatch(mountEffectBody, /probeAgentModel|runProbe/, "mounting must not fire a probe");
     assert.doesNotMatch(runProbeBody, /close\(/, "a probe must not close the list (kept open so the result is visible)");
     assert.doesNotMatch(testButtonBody, /close\(/, "the Test button must not close the list either");
+
+    /*
+     * The line under the picker used to restate the label from the field two
+     * pixels above it ("Running on xAI: grok-4.6 · subscription. 11 others…").
+     * What a person is deciding on is the price, so the multiplier leads
+     * (operator's call, 2026-09-08) - qualified "on input", because measured
+     * live that is exactly what shownX is: 0.8 for grok-4.6 while its output
+     * is 2.4 and its cache read 0.2.
+     */
+    const { modelNote } = loaded;
+    assert.equal(modelNote("0.8", 11), "Points ×0.8 on input · 11 others the gateway advertises");
+    assert.equal(modelNote("2", 1), "Points ×2 on input · 1 other the gateway advertises", "one other is not \"1 others\"");
+    assert.equal(modelNote("0.08", 0), "Points ×0.08 on input", "nothing else on offer, nothing else to say");
+    // Two thirds of the catalogue price below 1x, so the common case is a short
+    // decimal, and shownX is interpolated as sent - no rounding happens here.
+    assert.equal(modelNote("0.112", 3), "Points ×0.112 on input · 3 others the gateway advertises");
+    // Null points is legitimate and reachable: a model with no reference price
+    // of its own, or a deployment with no reference set at all. It says so, in
+    // the Usage modal's words, and never prints "×undefined" or an empty line.
+    for (const missing of [null, undefined, ""]) {
+      assert.equal(modelNote(missing, 11), "No points reference set · 11 others the gateway advertises");
+      assert.equal(modelNote(missing, 0), "No points reference set", "and never collapses to nothing");
+    }
+    assert.match(combobox, /setNote\(modelNote\(shownX\(result, model\), models\.filter\(\(id\) => id !== model\)\.length\)\)/, "the picker builds its note through the shared helper");
+    assert.doesNotMatch(combobox, /Running on \$\{labelOf\(model\)\}/, "and no longer restates the label the field already shows");
+    assert.match(combobox, /title=\{hover\(cat, current \?\? ""\) \|\| undefined\}/, "the per-token breakdown moves to the note's title");
+    // The chip beside the field is gone; the multiplier reads in the note, and
+    // the field gets back the column width every field above it has.
+    assert.doesNotMatch(combobox, /sand-lp-x/, "no multiplier chip stealing the field's width");
   } finally {
     await cleanup();
   }
@@ -420,6 +449,90 @@ whenFrontend("usage short numbers, money, table, summary, cap room", async () =>
   } finally {
     await cleanup();
   }
+});
+
+whenFrontend("agent settings pane: the patched rows spend the app's own type scale", async () => {
+  /*
+   * The Model picker, Usage and Auto-review sit in the same 320px pane as the
+   * app's own Name / Label / Description / Notifications rows, and each was
+   * built separately with sizes of its own - 10, 10.5, 11, 11.5, 12.5, 12.5px
+   * - while three rules meant to match the pane silently did not. This holds
+   * the whole pane to one scale, read out of the app's surface rather than
+   * written down here, so if the app's rows move the patched ones must too.
+   */
+  const view = await readFrontend("frontend/src/recovered/features/agent-info/settings/view.css");
+  const css = await readFrontend("frontend/src/production/patched-ui/patched-ui.css");
+
+  const ruleOf = (source, selector) => {
+    const idx = source.indexOf(`${selector} {`);
+    assert.ok(idx >= 0, `${selector} is still in the app's own stylesheet`);
+    return source.slice(idx, source.indexOf("}", idx));
+  };
+  const sizeOf = (rule) => [/font-size:\s*([0-9.]+)px/.exec(rule)?.[1], /line-height:\s*([0-9.]+)px/.exec(rule)?.[1]];
+  const heading = sizeOf(ruleOf(view, ".sand-info-pane__section-heading"));
+  const field = sizeOf(ruleOf(view, ".sand-agent-settings input, .sand-agent-settings textarea"));
+  const cardTitle = sizeOf(ruleOf(view, ".sand-agent-settings__text > span:first-child"));
+  const cardText = sizeOf(ruleOf(view, ".sand-agent-settings__text small"));
+  assert.deepEqual(heading, ["12", "16"], "Name / Label / Description headings");
+  assert.deepEqual(field, ["14", "22"], "the Name and Label fields");
+  assert.deepEqual(cardTitle, ["13", "18"], "the Notifications card title");
+  assert.deepEqual(cardText, ["12", "16"], "\"Get notified when this agent finishes or needs input\"");
+
+  // Those four px pairs are the app's four steps, named.
+  const NAME = { 12: "sm", 13: "base", 14: "lg" };
+  const step = ([size, lh]) => [
+    `font-size:var(--cursor-font-size-${NAME[size]},${size}px)`,
+    `line-height:var(--cursor-line-height-${NAME[size]},${lh}px)`,
+  ];
+
+  const rules = [...css.matchAll(/^(\.sand-lp[^{]*)\{([^}]*)\}/gm)].map((match) => [match[1].trim(), match[2]]);
+  assert.ok(rules.length >= 15, `the picker/usage/auto-review rules are still here (found ${rules.length})`);
+  for (const [selector, body] of rules) {
+    /*
+     * The trap that caused three of these to be the wrong size for months:
+     * `font: 400 12px/16px inherit` looks like it inherits the family and does
+     * not - `inherit` is not a valid <family-name> in the font shorthand, so
+     * the WHOLE declaration is invalid and the browser drops it. The Model
+     * heading fell back to the UA's bold 16px <h4> and the field and note to
+     * the 16px root, silently.
+     */
+    assert.doesNotMatch(body, /(^|;)\s*font:/, `${selector}: no font shorthand — one invalid family and the size is silently gone`);
+    assert.doesNotMatch(body, /font-size:\s*[0-9]/, `${selector}: size comes from a token, not a number`);
+    assert.doesNotMatch(body, /font-family:\s*(system-ui|-apple-system|sans-serif)/, `${selector}: inherit the pane's family, do not name one`);
+  }
+  // A selector can carry more than one rule (geometry in one place, type in
+  // another), so read them all rather than whichever comes first.
+  const bodyOf = (selector) => {
+    const hits = rules.filter(([name]) => name === selector).map(([, body]) => body);
+    assert.ok(hits.length > 0, `${selector} is still a rule`);
+    return hits.join(";");
+  };
+  const takes = (selector, pair, why) => {
+    for (const declaration of step(pair)) assert.ok(bodyOf(selector).includes(declaration), `${selector} takes the ${why} step (${declaration})`);
+  };
+  takes(".sand-lp-model h4", heading, "section-heading");
+  takes(".sand-lp-cb input", field, "text-field");
+  takes(".sand-lp-usage h4,.sand-lp-ar h4", cardTitle, "card-title");
+  takes(".sand-lp-model .lp-model-sub", cardText, "card-description");
+  takes(".sand-lp-model .lp-model-err", cardText, "card-description");
+  takes(".sand-lp-usage .lp-usage-sum", cardText, "card-description");
+  takes(".sand-lp-usage button,.sand-lp-ar button", cardText, "card-description");
+  // The list is the field's own popover: rows are the app's list-row size, the
+  // caption and the furniture the step below.
+  takes(".sand-lp-list .lp-opt", cardTitle, "list-row");
+  for (const selector of [".sand-lp-list .lp-grp", ".sand-lp-list .lp-opt .lp-test", ".sand-lp-list .lp-probe"]) {
+    assert.match(bodyOf(selector), /font-size:var\(--cursor-font-size-xs,11px\);?/, `${selector} is the smallest step, and it is a step`);
+  }
+
+  // The two captions in this pane are one voice: same step, same colour token.
+  // --cursor-text-secondary is exactly the rgba(252,252,252,.6) the app's own
+  // rule hardcodes, and unlike the literal it is right in light mode too.
+  assert.match(ruleOf(view, ".sand-agent-settings__text small"), /color:\s*rgba\(252, 252, 252, \.6\)/);
+  for (const selector of [".sand-lp-model h4", ".sand-lp-model .lp-model-sub", ".sand-lp-usage .lp-usage-sum"]) {
+    assert.match(bodyOf(selector), /color:var\(--cursor-text-secondary\)/, `${selector} is the secondary colour, from the token`);
+  }
+  assert.doesNotMatch(bodyOf(".sand-lp-usage .lp-usage-sum"), /opacity/, "secondary is a colour, not primary held back by opacity");
+  assert.match(bodyOf(".sand-lp-model .lp-model-err"), /color:var\(--sand-text-danger\)/, "and danger is a token too");
 });
 
 whenFrontend("auto-review persist: inherit with nothing deletes the row", async () => {
