@@ -11,6 +11,26 @@ export interface OpenGrokAccountCall {
   readonly query?: Record<string, string>;
 }
 
+const PLAIN_TEXT_REFUSAL_MAX_LENGTH = 240;
+
+/**
+ * A non-JSON refusal body, if it is safe to show as-is.
+ *
+ * The server answers some refusals as a bare plain-text string, not JSON -
+ * 400 "a model is required", 401 "sign in first", 429 "wait a moment before
+ * testing another route" - and those sentences are the one thing a person
+ * needs to see (429 in particular tells them exactly what to do: wait). But
+ * "the body wasn't JSON" also covers an HTML error page from a proxy in
+ * front of the server, or any other body nobody meant as a message, so this
+ * is bounded: short, one line, and not markup.
+ */
+function plainTextRefusal(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed.length === 0 || trimmed.length > PLAIN_TEXT_REFUSAL_MAX_LENGTH) return null;
+  if (trimmed.includes("\n") || trimmed.startsWith("<")) return null;
+  return trimmed;
+}
+
 /**
  * Call one of the server's account-scoped endpoints from the main process.
  *
@@ -64,7 +84,8 @@ export async function callOpenGrokAccountApi(
     const stated = typeof parsed === "object" && parsed != null && typeof (parsed as Record<string, unknown>).error === "string"
       ? String((parsed as Record<string, unknown>).error)
       : "";
-    throw new Error(stated.length > 0 ? stated : `${call.path} failed (${response.status}).`);
+    const plainText = stated.length === 0 ? plainTextRefusal(text) : null;
+    throw new Error(stated.length > 0 ? stated : plainText ?? `${call.path} failed (${response.status}).`);
   }
   return parsed;
 }

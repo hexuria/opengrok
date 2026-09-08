@@ -215,6 +215,11 @@ test("probeAgentModel triad: rpc table, preload bridge, and main-edge handler", 
   assert.ok(probeHandlerStart >= 0 && probeHandlerEnd > probeHandlerStart);
   const probeHandler = mainEdge.slice(probeHandlerStart, probeHandlerEnd);
   assert.doesNotMatch(probeHandler, /for \(|while \(|\.retry|setTimeout|setInterval/, "no retry loop in the server-side probe handler");
+  // A thrown error (429/400/401, or anything else callOpenGrokAccountApi rejects
+  // with) must reach the UI as its own sentence, not a generic wrapper - pinned
+  // here because opengrok-account-call.ts's job is to make error.message worth
+  // showing verbatim (plain-text refusal bodies included).
+  assert.match(probeHandler, /detail: String\(error instanceof Error \? error\.message : error\)/, "the thrown message reaches the UI verbatim");
 });
 
 whenFrontend("usage short numbers, money, table, summary, cap room", async () => {
