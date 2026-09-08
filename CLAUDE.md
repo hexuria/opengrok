@@ -45,6 +45,29 @@ ported code under `source/packages`, and the documentation describing how the
 app was rebuilt. The vendor bytes are gone; the technique is not. Weigh that
 before adding a document that walks through recovering someone else's binary.
 
+## The stack: gateway, server, desktop
+
+The desktop is one of three repositories and cannot do real inference alone:
+`open-ai-gateway` (:29080, holds provider credentials and the catalogue) ->
+`opengrok-server` (:1447, holds coworkers and pins) -> this app, which talks
+only to the server and never to the gateway.
+
+**`RUNBOOK.md` in this repository is the end-to-end setup**, and specifically
+the seams between the three — the failures that belong to no single repo. Read
+it before debugging anything that looks like "the model will not answer". Four
+separate faults produced near-identical symptoms on 2026-09-08 and they are all
+written down there, including the one where the error names the wrong provider
+entirely.
+
+The two that catch people most often:
+
+- `OG_MODEL_DOOR=rig` on the server silently drops the model, so the gateway
+  classifies by prompt and the coworker's pin is ignored. Turns still succeed,
+  which is what makes it hard to see. Use `gateway`.
+- Gateway seats imported without `--shared` are invisible to the per-coworker
+  keys the server mints, so a turn authenticates and then finds no credential
+  of any kind.
+
 ## V1 and V2 side by side
 
 Two apps, two worktrees, two branches. Nothing in the running apps is shared.
