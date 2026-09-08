@@ -270,6 +270,28 @@ whenFrontend("usage short numbers, money, table, summary, cap room", async () =>
     assert.match(t.pool, /^Your pool: 41\.6k of 1m used \(≈ \$0\.20\), set by your admin, resets /);
     const sorted = sortRows([{ model: "a", points: 5, list: 1 }, { model: "b", points: null, list: 9 }, { model: "c", points: 50, list: 0 }]);
     assert.deepEqual(sorted.map((r) => r.model), ["c", "a", "b"]);
+
+    /*
+     * The empty case (no usage in the window, which is the common one right
+     * now) used to render an empty <tbody> with only the totals <tfoot> left
+     * on screen - reading as a data row for a model literally called "5h",
+     * with 0 requests, $0.00, 0 points. The fix: an explicit empty-state
+     * sentence, and the totals row - when it does render - saying "Total"
+     * so it can never be mistaken for one more model row.
+     */
+    const usagePane = await readFrontend("frontend/src/production/patched-ui/AgentUsagePane.tsx");
+    assert.match(usagePane, /No usage in this window\./, "an explicit empty state, not a bare empty table");
+    assert.doesNotMatch(usagePane, /<td>\{windowId\}<\/td>/, "the totals cell must not be the bare window id (reads as a model named \"5h\")");
+    assert.match(usagePane, /Total · \$\{windowLabel\(windowId\)\}/, "the totals row must say \"Total\", not just the window");
+    // The totals row must not render at all when there is nothing to total - a
+    // total of zero rows is noise, not information.
+    const tfootIdx = usagePane.indexOf("<tfoot>");
+    const emptyIdx = usagePane.indexOf("tt.rows.length === 0 ? null : (");
+    assert.ok(emptyIdx >= 0 && emptyIdx < tfootIdx, "the totals row is gated on tt.rows.length === 0, so it never shows alongside the empty state");
+    // The window label on the totals row reuses the exact same mapping the
+    // range tabs use, so "month" never prints raw.
+    const tabsIdx = usagePane.indexOf("{windowLabel(id)}");
+    assert.ok(tabsIdx >= 0, "the tab buttons use the shared label helper too");
   } finally {
     await cleanup();
   }
