@@ -66,5 +66,8 @@ patches/
 research-archives/
 PROVENANCE.md
 docs/
+# Session handoff: disposable working state for the next agent. Deliberately not
+# tracked — it is a scratchpad, not a record, and it must never carry a secret.
+.handoff/
 docq/
 .env

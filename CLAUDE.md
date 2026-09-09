@@ -45,6 +45,17 @@ ported code under `source/packages`, and the documentation describing how the
 app was rebuilt. The vendor bytes are gone; the technique is not. Weigh that
 before adding a document that walks through recovering someone else's binary.
 
+## Resuming work: read `.handoff/STATE.md` first
+
+If you are picking up work rather than starting something new, read `.handoff/STATE.md` before
+anything else. It is gitignored and disposable — the queue, what is half-done, decisions that live
+in nobody's code, and what is pending between the three repos. The other two repos each carry the
+same file at the same path.
+
+It deliberately does NOT restate git history or file lists; those are already true, and a handoff
+that duplicates them goes stale and lies. Verify anything it claims about a *running* process
+before acting on it.
+
 ## The stack: gateway, server, desktop
 
 The desktop is one of three repositories and cannot do real inference alone:
