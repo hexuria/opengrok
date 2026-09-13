@@ -250,9 +250,12 @@ test("release-macos refuses a missing app and incomplete notary credentials with
 
 test("package stays on local signing; release-macos is the distribution entry", async () => {
   const pack = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
+  const bundle = await readFile(path.join(repoRoot, "scripts", "lib", "package-app-bundle.mjs"), "utf8");
   const release = await readFile(path.join(repoRoot, "scripts", "release-macos.mjs"), "utf8");
-  assert.match(pack, /signAppBundle\(/);
+  assert.match(pack, /assembleReconstructedAppBundle/);
+  assert.match(bundle, /signAppBundle\(/);
   assert.doesNotMatch(pack, /signAppBundleForDistribution/);
+  assert.doesNotMatch(bundle, /signAppBundleForDistribution/);
   assert.match(release, /releaseMacosApp/);
   assert.doesNotMatch(release, /notarytool/);
 });

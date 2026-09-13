@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const read = (relative) => readFile(path.join(repoRoot, relative), "utf8");
+const read = async (relative) => (await readFile(path.join(repoRoot, relative), "utf8")).replaceAll("\r\n", "\n");
 
 test("the ported spring curve keeps every stop from 0.27", async () => {
   const motion = await read("frontend/src/recovered/ui/sand-motion.css");

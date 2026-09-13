@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { gzipSync } from "node:zlib";
+import { create as tarCreate } from "tar";
+
 import { build } from "esbuild";
+
+import { buildZip } from "./zip-fixture.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -19,7 +23,8 @@ async function load(entry) {
 }
 
 // The archive reader lists zip, tar and gzip members without inflating anything but the gzip wrapper —
-// the way a desktop file manager peeks inside. Built with the system zip/tar so the fixtures are real.
+// the way a desktop file manager peeks inside. Fixtures are built in-process so Windows runners
+// do not need Info-ZIP `zip` / gzip on PATH.
 test("zip, tar.gz and .gz archives list their members with sizes", async () => {
   const work = await mkdtemp(path.join(os.tmpdir(), "grok-archive-fixture-"));
   const { loaded, cleanup } = await load("frontend/src/recovered/features/conversation/workspace/file-viewer.tsx");
@@ -28,9 +33,15 @@ test("zip, tar.gz and .gz archives list their members with sizes", async () => {
     await writeFile(path.join(work, "src/main.rs"), "fn main() {}\n");
     await writeFile(path.join(work, "src/deep/notes.md"), "# hi\n".repeat(300));
     await writeFile(path.join(work, "README.md"), "read me\n");
-    execFileSync("zip", ["-q", "-r", "bundle.zip", "src", "README.md"], { cwd: work });
-    execFileSync("tar", ["-czf", "bundle.tar.gz", "src", "README.md"], { cwd: work });
-    execFileSync("gzip", ["-k", "README.md"], { cwd: work });
+    await writeFile(path.join(work, "bundle.zip"), buildZip([
+      { name: "src/", directory: true },
+      { name: "src/deep/", directory: true },
+      { name: "src/main.rs", data: "fn main() {}\n" },
+      { name: "src/deep/notes.md", data: "# hi\n".repeat(300) },
+      { name: "README.md", data: "read me\n" },
+    ]));
+    await tarCreate({ gzip: true, file: path.join(work, "bundle.tar.gz"), cwd: work, portable: true }, ["src", "README.md"]);
+    await writeFile(path.join(work, "README.md.gz"), gzipSync(await readFile(path.join(work, "README.md"))));
     const zip = await loaded.listArchiveEntries("bundle.zip", new Uint8Array(await readFile(path.join(work, "bundle.zip"))));
     // macOS zip/tar add AppleDouble "._" sidecars for extended attributes; they are real members, just not ours to assert on.
     const ours = (entry) => !entry.directory && !/(^|\/)\._/u.test(entry.path);

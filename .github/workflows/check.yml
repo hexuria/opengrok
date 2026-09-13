@@ -20,15 +20,31 @@ concurrency:
 # artifact.
 #
 # The fetch is required, not best-effort: if it fails the run stops with a
-# clear message rather than a wall of TS2307. Note that GitHub withholds
-# secrets from forked pull requests, so a fork PR fails at that step by
-# design.
+# clear message rather than a wall of TS2307.
+#
+# GitHub withholds Actions secrets from `pull_request` on a fork
+# (https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions#using-secrets-in-a-workflow).
+# `STOW_DEPLOY_KEY` is already wired into the stow checkout below; push and
+# same-repo PRs see it. Fork PRs cannot clone hexuria/opengrok-stow. Do not
+# switch this workflow to `pull_request_target`: restoring the archive and
+# then running the PR's tests would let a fork exfiltrate the recovered tree.
+# Those jobs are skipped; open the PR from a hexuria branch, or use the push
+# CI on that branch.
 #
 # `publication:check` stays out: it diffs the working tree against a
 # clean-history export, which the staged material would confound. It remains
 # a local pre-flight.
 jobs:
+  fork-stow-notice:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fork PRs cannot restore the private stow
+        run: |
+          echo "::notice::Fork pull_request events do not receive STOW_DEPLOY_KEY, so this workflow cannot clone hexuria/opengrok-stow. Open the PR from a hexuria branch, or rely on that branch's push CI. pull_request_target is not used: it would restore the recovered tree and then run the PR's tests."
+
   check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:
@@ -37,6 +53,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Fetch the recovered material
         uses: actions/checkout@v7
@@ -46,6 +64,7 @@ jobs:
           # check needs their contents; the inventory test treats an
           # unmaterialised pointer as absent.
           ssh-key: ${{ secrets.STOW_DEPLOY_KEY }}
+          persist-credentials: false
           path: .stow-material
 
       - name: Restore it into the working tree

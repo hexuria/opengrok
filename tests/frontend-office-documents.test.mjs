@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +6,8 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { build } from "esbuild";
+
+import { buildZip } from "./zip-fixture.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -45,8 +46,12 @@ test("zip package reads stored and deflated members, including the ODF mimetype 
     await mkdir(path.join(work, "META-INF"), { recursive: true });
     await writeFile(path.join(work, "mimetype"), "application/vnd.oasis.opendocument.text");
     await writeFile(path.join(work, "content.xml"), `<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"><office:body><office:text>${"<text:p xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\">hello</text:p>".repeat(40)}</office:text></office:body></office:document-content>`);
-    execFileSync("zip", ["-q", "-X", "-0", "doc.odt", "mimetype"], { cwd: work });
-    execFileSync("zip", ["-q", "-X", "-r", "doc.odt", "content.xml", "META-INF"], { cwd: work });
+    const contentXml = await readFile(path.join(work, "content.xml"));
+    await writeFile(path.join(work, "doc.odt"), buildZip([
+      { name: "mimetype", data: "application/vnd.oasis.opendocument.text", method: 0 },
+      { name: "content.xml", data: contentXml, method: 8 },
+      { name: "META-INF/", directory: true },
+    ]));
     const bytes = new Uint8Array(await readFile(path.join(work, "doc.odt")));
     assert.equal(new TextDecoder().decode(bytes.subarray(38, 38 + 39)), "application/vnd.oasis.opendocument.text");
     const pkg = new loaded.ZipPackage(bytes);

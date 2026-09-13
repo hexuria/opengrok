@@ -108,7 +108,7 @@ test("electron native rebuild inventory is public ABI packages, not 0.18 private
   assert.ok(!manifest.copied.includes("whichlang-node"));
   assert.ok(!manifest.copied.includes("@anysphere/tree-chunk-napi"));
   assert.ok(!manifest.nodeFiles.some(file => file.includes("cursor-proclist")));
-  assert.match(electronNativeDepsRoot(), /electron-deps\/146\/[0-9a-f]{16}\//);
+  assert.match(electronNativeDepsRoot().split(path.sep).join("/"), /electron-deps\/146\/[0-9a-f]{16}\//);
   assert.doesNotMatch(electronNativeDepsRoot(), /app\.asar\.unpacked/);
   const packaged = packagedElectronRuntimePackages();
   assert.ok(packaged.copied.has("better-sqlite3"));

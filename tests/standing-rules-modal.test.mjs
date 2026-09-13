@@ -9,6 +9,15 @@ import * as patch from "../scripts/lib/router-renderer-patch.mjs";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = patch.COMPONENT_SOURCE;
 
+test("closing Standing rules must not dismiss Settings in the same turn", () => {
+  const modal = src.slice(src.indexOf("function RStandingRules("), src.indexOf("function RRemoteControl("));
+  assert.match(modal, /queueMicrotask\(onClose\)/, "unmount is deferred so the pointer/Escape that closed the child cannot hit Settings");
+  assert.match(modal, /addEventListener\("keydown",onKey,true\)/, "Escape is taken on window capture, ahead of Settings' document listener");
+  assert.match(modal, /stopImmediatePropagation/);
+  assert.match(src, /onOpenChange:function\(v\)\{if\(!v\)queueMicrotask\(onClose\)\}/);
+  assert.ok(src.includes("queueMicrotask(function(){e(i=>({...i,managing:!1}))})"));
+});
+
 test("the rules list lives in the app's own dialog, not a hand-rolled one", () => {
   // Os is the same Dialog primitive that renders the Settings modal, and Te
   // its scroll pane. Reusing them is what makes the modal match the app in

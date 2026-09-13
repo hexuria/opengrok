@@ -140,12 +140,12 @@ function RTranscribe({keys:s,onSaved:e}){
   return a.jsxs("div",{children:[
     a.jsx(ie,{description:"Dictation through Google's gemini-3.5-transcribe with your own AI Studio key (the free tier works). When off, dictation uses the Cursor account or a local whisper-cpp install.",label:"Gemini transcription",variant:"card",children:a.jsx(Ne,{label:"Gemini transcription",isChecked:!!t.geminiEnabled,size:"sm",onToggle:v=>{void g(v)}})}),
     t.geminiEnabled?a.jsx(ie,{divided:!0,description:u?"A key is saved. Paste a new one to replace it.":"From aistudio.google.com → Get API key.",label:"Google API key",variant:"card",children:a.jsxs("div",{className:"sand-9f619 sand-78zum5 sand-6s0dn4 sand-h8yej3",style:{width:360,flexWrap:"wrap",gap:8},children:[a.jsx("input",{"aria-label":"GEMINI_API_KEY",className:RRouterInputClass,disabled:o,onChange:c=>i(c.currentTarget.value),onInput:c=>i(c.currentTarget.value),placeholder:u?"Replace saved key":"Paste Google AI Studio key",style:{fontSize:13,height:34,minWidth:0,padding:"0 10px",width:270},type:"password",value:r}),a.jsx(oe,{disabled:o,onClick:f,shape:"rectangular",size:"sm",variant:"secondary",children:o?"Saving…":"Save"}),p?a.jsx(se,{as:"span",color:"red",size:"sm",children:p}):null]})}):null,
-    t.geminiEnabled?a.jsx(ie,{divided:!0,description:"English is always understood — add the other language(s) you speak (like Filipino) and mixed speech keeps both.",label:"Languages",variant:"card",children:a.jsxs("div",{style:{position:"relative",width:360,maxWidth:"100%"},children:[
+    t.geminiEnabled?a.jsx(ie,{divided:!0,description:"English is always understood — add the other language(s) you speak (like Filipino) and mixed speech keeps both.",label:"Languages",variant:"card",children:a.jsxs("div",{style:{position:"relative",width:360,maxWidth:"100%",overflow:"visible"},children:[
       a.jsxs("div",{style:{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",minHeight:38,padding:"5px 8px",boxSizing:"border-box",background:"var(--cursor-bg-secondary,#292929)",border:"1px solid var(--cursor-stroke-tertiary,#3a3a3a)",borderRadius:8},children:[
         ...langs.map(c=>{const d=RLangOptions.find(h=>h.code===c);return a.jsxs("span",{style:{display:"inline-flex",alignItems:"center",gap:5,padding:"2px 9px",fontSize:12,lineHeight:"18px",borderRadius:999,background:"var(--cursor-bg-tertiary,#3a3a3a)",color:"var(--cursor-text-primary,#ececec)",whiteSpace:"nowrap"},children:[d?d.label:c,a.jsx("button",{"aria-label":"Remove "+c,disabled:langBusy,onClick:()=>removeLang(c),style:{all:"unset",cursor:"pointer",fontSize:13,lineHeight:"14px",opacity:.65},type:"button",children:"×"})]},c)}),
         a.jsx("input",{"aria-label":"Filter languages",disabled:langBusy,onChange:c=>{setLangQuery(c.currentTarget.value);setLangOpen(!0)},onInput:c=>{setLangQuery(c.currentTarget.value);setLangOpen(!0)},onFocus:()=>setLangOpen(!0),onBlur:()=>setTimeout(()=>setLangOpen(!1),150),onKeyDown:c=>{if(c.key==="Enter"&&customLang)addLang(langQuery.trim());if(c.key==="Escape")setLangOpen(!1);if(c.key==="Backspace"&&langQuery.length===0&&langs.length>0)removeLang(langs[langs.length-1])},placeholder:langs.length===0?"Search languages…":"Add…",style:{flex:"1 0 80px",minWidth:56,fontSize:13,background:"transparent",border:"none",outline:"none",color:"var(--cursor-text-primary,#ececec)"},value:langQuery})
       ]}),
-      langOpen&&(langMatches.length>0||customLang)?a.jsxs("div",{style:{marginTop:6,maxHeight:180,overflowY:"auto",background:"var(--cursor-bg-secondary,#292929)",border:"1px solid var(--cursor-stroke-tertiary,#3a3a3a)",borderRadius:8},children:[
+      langOpen&&(langMatches.length>0||customLang)?a.jsxs("div",{style:{position:"absolute",zIndex:"var(--sand-layer-wall)",left:0,right:0,top:"100%",marginTop:6,maxHeight:180,overflowY:"auto",background:"var(--cursor-bg-secondary,#292929)",border:"1px solid var(--cursor-stroke-tertiary,#3a3a3a)",borderRadius:8},children:[
         ...langMatches.slice(0,12).map(c=>a.jsxs("button",{onMouseDown:d=>{d.preventDefault();addLang(c.code)},style:{display:"flex",width:"100%",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 10px",fontSize:13,background:"transparent",border:"none",cursor:"pointer",color:"var(--cursor-text-primary,#ececec)",textAlign:"left",boxSizing:"border-box"},type:"button",children:[a.jsx("span",{children:c.label}),a.jsx("span",{style:{opacity:.55,fontSize:12},children:c.code})]},c.code)),
         customLang?a.jsx("button",{onMouseDown:d=>{d.preventDefault();addLang(langQuery.trim())},style:{display:"block",width:"100%",padding:"7px 10px",fontSize:13,background:"transparent",border:"none",cursor:"pointer",color:"var(--cursor-text-primary,#ececec)",textAlign:"left",boxSizing:"border-box"},type:"button",children:'Add "'+langQuery.trim()+'"'}):null
       ]}):null
@@ -229,6 +229,21 @@ function RStandingRules({open,onClose,allow,deny,onDelete,onAdd,busy,error}){
   const[draft,setDraft]=de.useState("");
   // Reopening should not inherit the last search, tab, or add draft.
   de.useLayoutEffect(function(){if(open){setTab("allow");setFilter("");setDraft("")}},[open]);
+  // Nested Os shares Settings' Escape and can click-through to the parent
+  // overlay on close. Window-capture runs before document listeners; delaying
+  // the unmount keeps the same pointer event from dismissing Settings too.
+  de.useEffect(function(){
+    if(!open)return;
+    var onKey=function(ev){
+      if(ev.key!=="Escape")return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if(typeof ev.stopImmediatePropagation==="function")ev.stopImmediatePropagation();
+      queueMicrotask(onClose);
+    };
+    window.addEventListener("keydown",onKey,true);
+    return function(){window.removeEventListener("keydown",onKey,true)};
+  },[open,onClose]);
   const rules=tab==="allow"?allow:deny;
   const add=function(){const pattern=draft.trim();if(!pattern||busy||!onAdd)return;onAdd(tab,pattern);setDraft("")};
   const needle=filter.trim().toLowerCase();
@@ -244,11 +259,11 @@ function RStandingRules({open,onClose,allow,deny,onDelete,onAdd,busy,error}){
     var btn=ev.currentTarget.querySelector('[data-tab="'+next+'"]');if(btn)btn.focus()};
   const tabButton=(id,label,count)=>a.jsx(oe,{role:"tab","aria-selected":tab===id,"aria-controls":panelId,"data-tab":id,tabIndex:tab===id?0:-1,onClick:function(){setTab(id)},
     shape:"rectangular",size:"sm",variant:tab===id?"primary":"secondary",children:label+" ("+count+")"});
-  return a.jsx(Os,{"aria-label":"Standing rules",open:!!open,onOpenChange:function(v){if(!v)onClose()},size:"md",
+  return a.jsx(Os,{"aria-label":"Standing rules",open:!!open,onOpenChange:function(v){if(!v)queueMicrotask(onClose)},size:"md",
     children:a.jsxs("div",{style:{display:"flex",flexDirection:"column",padding:20,gap:12,minWidth:0},children:[
       a.jsxs("div",{className:"sand-9f619 sand-78zum5",style:{alignItems:"center",justifyContent:"space-between",gap:8},children:[
         a.jsx(se,{as:"span",size:"md",children:"Standing rules"}),
-        a.jsx($e,{icon:"close","aria-label":"Close standing rules",onClick:onClose,shape:"square",size:"xs",variant:"ghost"})]}),
+        a.jsx($e,{icon:"close","aria-label":"Close standing rules",onClick:function(ev){if(ev&&ev.stopPropagation)ev.stopPropagation();queueMicrotask(onClose)},shape:"square",size:"xs",variant:"ghost"})]}),
       a.jsx(se,{as:"p",color:"secondary",size:"sm",children:"Commands you Always or Never. A rule is a word-boundary prefix: git covers git push. Add one here, or delete one to be asked again."}),
       a.jsxs("div",{className:"sand-9f619 sand-78zum5",role:"tablist","aria-label":"Rule kind",onKeyDown:onTablistKey,style:{gap:8},children:[
         tabButton("allow","Allow",allow.length),
@@ -337,7 +352,7 @@ function RRemoteControl(){
       description:RStandingSummary(s.allow.length,s.deny.length),
       children:a.jsx(oe,{onClick:function(){e(i=>({...i,managing:!0,error:null}))},
         shape:"rectangular",size:"sm",variant:"secondary",children:"Manage…"})}),
-    a.jsx(RStandingRules,{open:s.managing,onClose:function(){e(i=>({...i,managing:!1}))},allow:s.allow,deny:s.deny,onDelete:removeRule,onAdd:addRule,busy:s.busy,error:s.error}),
+    a.jsx(RStandingRules,{open:s.managing,onClose:function(){queueMicrotask(function(){e(i=>({...i,managing:!1}))})},allow:s.allow,deny:s.deny,onDelete:removeRule,onAdd:addRule,busy:s.busy,error:s.error}),
     a.jsx(ie,{divided:!0,variant:"card",label:"Turn off",
       description:s.confirming==="off"
         ?"This computer stops being reachable. Standing rules stay, and turning it on again uses the same computer."
