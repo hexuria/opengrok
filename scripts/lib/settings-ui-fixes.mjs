@@ -64,6 +64,20 @@ html:has(.sand-settings-dialog) .ui-menu-popup:not(#\\#):not(#\\#) {
   z-index: var(--sand-layer-wall) !important;
   pointer-events: auto !important;
 }
+.sand-settings-card__row:has(.sand-settings-suggestions),
+.sand-settings-chips {
+  position: relative;
+  overflow: visible;
+}
+.sand-settings-suggestions:not(#\\#):not(#\\#) {
+  position: absolute;
+  z-index: var(--sand-layer-wall);
+  left: 0;
+  right: 0;
+  top: 100%;
+  max-height: 180px;
+  overflow-y: auto;
+}
 `;
 
 export const OVERLAY_STACK_HELPER = `const __sandOverlayDialogs: unknown[] = [];
@@ -329,6 +343,16 @@ export function patchInFlowLanguageList(source) {
   if (createElement && !/position:\s*["']absolute["']/.test(createElement[1])) {
     const floated = `style:{position:"absolute",zIndex:"var(--sand-layer-wall)",left:0,right:0,top:"100%",${createElement[1].trim()}}`;
     return `${source.slice(0, createElement.index)}${floated}${source.slice(createElement.index + createElement[0].length)}`;
+  }
+  // V2 patched-ui: classed suggestion list, not an inline maxHeight:180 box.
+  if (
+    source.includes('className="sand-settings-suggestions"') &&
+    !/sand-settings-suggestions"\s+style=\{\{position:"absolute"/.test(source)
+  ) {
+    return source.replace(
+      'className="sand-settings-suggestions"',
+      'className="sand-settings-suggestions" style={{position:"absolute",zIndex:"var(--sand-layer-wall)",left:0,right:0,top:"100%",maxHeight:180,overflowY:"auto"}}',
+    );
   }
   return source;
 }

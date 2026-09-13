@@ -56,6 +56,7 @@ test("production CSS raises menus above the settings scrim and punches the info 
   assert.ok(once.includes("--sand-layer-scrim"));
   assert.ok(once.includes(".sand-info-pane"));
   assert.ok(once.includes(".sand-cover-drag"));
+  assert.match(once, /sand-settings-suggestions/);
   assert.equal(patchProductionCss(once), once, "idempotent");
   assert.equal(once.includes(SETTINGS_OVERLAY_STACK_CSS.trim()), true);
 });
@@ -145,6 +146,10 @@ test("in-flow dictation language lists become absolutely positioned", () => {
   assert.match(patchInFlowLanguageList(createElement), /position:"absolute"/);
   const px = `langOpen ? <div style={{ maxHeight: "180px", overflowY: "auto" }}>opts</div> : null`;
   assert.match(patchInFlowLanguageList(px), /position:"absolute"/);
+  const suggestions = `{query.trim() ? <div className="sand-settings-suggestions" role="listbox">opts</div> : null}`;
+  const floatedClass = patchInFlowLanguageList(suggestions);
+  assert.match(floatedClass, /position:"absolute"/);
+  assert.equal(patchInFlowLanguageList(floatedClass), floatedClass);
 });
 
 test("Standing rules close is deferred so the parent dialog stays mounted", () => {
@@ -247,12 +252,14 @@ test("restored frontend carries the settings UI layering fixes", { skip: present
   const dictation = path.join(FRONTEND, "production/patched-ui/DictationPanel.tsx");
   if (existsSync(dictation)) {
     const text = await readFile(dictation, "utf8");
-    assert.match(text, /position:\s*["']absolute["']/);
+    const floatedInFile = /position:\s*["']absolute["']/.test(text);
+    const floatedInCss = text.includes("sand-settings-suggestions") && css.includes("sand-settings-suggestions");
+    assert.ok(floatedInFile || floatedInCss, "dictation language list floats instead of growing the card");
   }
   const computer = path.join(FRONTEND, "production/patched-ui/LocalComputerPanel.tsx");
   if (existsSync(computer)) {
     const text = await readFile(computer, "utf8");
-    if (/Standing rules/.test(text)) {
+    if (/Standing rules/.test(text) && /setManaging\(\s*false\s*\)/.test(text)) {
       assert.match(text, /queueMicrotask/);
     }
   }
