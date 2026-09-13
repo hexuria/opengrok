@@ -24,6 +24,24 @@ export interface ForeverBoxStatus {
   [key: string]: unknown;
 }
 
+/**
+ * A URL the forever-box pane can actually load. Empty string, whitespace, and
+ * non-http(s) values are how a dead noVNC iframe used to appear: the renderer
+ * treated "" as "we have a screen" and `new URL("")` threw in the quality patch.
+ */
+export function presentBoxScreenUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
 export function proxifyBoxVncUrl(vncUrl: string, vncProxy: VncProxyDescriptor): string {
   let parsed: URL;
   try {
@@ -31,6 +49,11 @@ export function proxifyBoxVncUrl(vncUrl: string, vncProxy: VncProxyDescriptor): 
   } catch {
     return vncUrl;
   }
+  // Guest noVNC (ascii hosted, grok-box :6080) authenticates with `password=`.
+  // Cursor's in-box proxy uses `network_token`. Rewriting a password URL through
+  // the pod proxy would load the wrong desktop — including loopback:6080, which
+  // is both grok-box's published viewer and SAND_BOX_PRIMARY_NOVNC_PORT.
+  if (parsed.searchParams.has("password")) return vncUrl;
   if (!LOOPBACK_HOSTS.has(parsed.hostname) || !parsed.pathname.endsWith("/vnc.html")) return vncUrl;
   const port = Number.parseInt(parsed.port, 10);
   if (port === SAND_BOX_PRIMARY_NOVNC_PORT) return vncProxy.primaryUrl;
@@ -48,9 +71,21 @@ function forkDisplayToken(parsed: URL): string | undefined {
   return token != null && token.length > 0 ? token : undefined;
 }
 
+function presentOrProxify(vncUrl: unknown, vncProxy: VncProxyDescriptor | null): string | null {
+  const present = presentBoxScreenUrl(vncUrl);
+  if (present == null) return null;
+  return vncProxy == null ? present : proxifyBoxVncUrl(present, vncProxy);
+}
+
 export function proxifyForeverBoxStatus<T extends ForeverBoxStatus>(status: T, vncProxy: VncProxyDescriptor | null): T {
-  if (vncProxy == null) return status;
-  const proxified = { ...status, vncUrl: status.vncUrl != null ? proxifyBoxVncUrl(status.vncUrl, vncProxy) : status.vncUrl };
-  if (status.windows == null) return proxified as T;
-  return { ...proxified, windows: status.windows.map((window) => ({ ...window, vncUrl: proxifyBoxVncUrl(window.vncUrl, vncProxy) })) } as T;
+  const vncUrl = presentOrProxify(status.vncUrl, vncProxy);
+  if (status.windows == null) return { ...status, vncUrl } as T;
+  return {
+    ...status,
+    vncUrl,
+    windows: status.windows.map((window) => ({
+      ...window,
+      vncUrl: presentOrProxify(window.vncUrl, vncProxy) ?? window.vncUrl,
+    })),
+  } as T;
 }

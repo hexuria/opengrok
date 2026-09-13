@@ -1067,3 +1067,86 @@ test("a lost gateway bearer is rebound from the refresh credential, not the brow
   const preload = await readFile(path.join(repoRoot, "source/electron-preload/preload.ts"), "utf8");
   assert.match(preload, /rebindOpenGrokGateway: \(\) => edge\("rebindOpenGrokGateway"\)/);
 });
+
+test("OpenGrok listings name grok-box without dropping ascii, local-docker, or windows365", async () => {
+  const { loaded, cleanup } = await loadSignIn();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    computers: [
+      { id: "grok-box", label: "Self-hosted grok-box", kind: "grok-box", state: "available", configured: true, active: true },
+      { id: "ascii", label: "box.ascii.dev", kind: "ascii", state: "not-configured", configured: false },
+      { id: "local-docker", label: "Local VM (on the server)", kind: "local-docker", state: "available", configured: true },
+      { id: "windows365", label: "Windows 365", kind: "windows365", state: "not-configured", configured: false },
+    ],
+    activeKind: "grok-box",
+    sharingMode: "per-account",
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const listed = await loaded.listOpenGrokComputers("http://server.test:1447", "token");
+    assert.deepEqual(listed.computers.map((row) => row.kind), ["grok-box", "ascii", "local-docker", "windows365"]);
+    assert.equal(listed.activeKind, "grok-box");
+    assert.equal(listed.sharingMode, "per-account");
+    assert.equal(listed.computers[0].active, true);
+  } finally {
+    globalThis.fetch = realFetch;
+    await cleanup();
+  }
+
+  const kindsDir = await mkdtemp(path.join(os.tmpdir(), "opengrok-kinds-"));
+  try {
+    const outfile = path.join(kindsDir, "opengrok-computers.mjs");
+    await build({
+      entryPoints: [path.join(repoRoot, "source/shared/opengrok-computers.ts")],
+      outfile, bundle: true, format: "esm", platform: "node",
+    });
+    const kinds = await import(pathToFileURL(outfile).href);
+    assert.deepEqual([...kinds.OPENGROK_COMPUTER_KINDS], ["local-docker", "ascii", "windows365", "grok-box"]);
+    assert.equal(kinds.openGrokComputerKindLabel("grok-box"), "grok-box");
+    assert.equal(kinds.openGrokComputerKindLabel("ascii"), "box (Linux)");
+    assert.equal(kinds.openGrokComputerHasScreen("grok-box"), true);
+    assert.equal(kinds.openGrokComputerHasScreen("ascii"), true);
+    assert.equal(kinds.openGrokComputerHasScreen("local-docker"), false);
+    assert.equal(kinds.isOpenGrokComputerKind("grok-box"), true);
+    assert.equal(kinds.isOpenGrokComputerKind("box"), false, "local screen-switcher 'box' is not a server kind");
+  } finally {
+    await rm(kindsDir, { recursive: true, force: true });
+  }
+
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const component = eval(/const COMPONENT_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  assert.match(component, /"grok-box":"grok-box"/);
+  assert.match(component, /"ascii":"box \(Linux\)"/);
+  assert.match(component, /"local-docker":"Local VM"/);
+  assert.match(component, /"windows365":"Windows 365"/);
+  assert.match(component, /ROpenGrokKind\[c\.kind\]\|\|\(c\.kind\?String\(c\.kind\):""\)/, "an unknown server kind still has a name");
+});
+
+test("a grok-box screen URL is shown; a blank vncUrl is treated as still arriving", async () => {
+  const src = await readFile(path.join(repoRoot, "scripts", "lib", "router-renderer-patch.mjs"), "utf8");
+  const chrome = eval(/export const MAIN_CHROME_SOURCE = ([\s\S]*?);\n\n/.exec(src)[1]);
+  const place = new Function(`${chrome}\nreturn RBoxOpenPlaceholder;`)();
+
+  const grokBoxUrl = "http://192.168.1.10:6080/vnc.html?password=secret8";
+  const shown = place({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote", vncUrl: grokBoxUrl,
+    status: { state: "running", agentId: "cw_grok_box" },
+    retryStatus: () => { throw new Error("must not re-ask once the grok-box screen is here"); },
+    ensure: () => {},
+  }, "local copy");
+  assert.equal(shown.emptyMessage, undefined);
+  assert.equal(shown.isEmptyLoading, false);
+
+  const blank = place({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote", vncUrl: "",
+    status: { state: "running", agentId: "cw_blank" }, retryStatus: () => {}, ensure: () => {},
+  }, "local copy");
+  assert.match(blank.emptyMessage, /Starting the desktop/i, "empty string is not a screen");
+  assert.equal(blank.isEmptyLoading, true);
+
+  const ascii = place({
+    isStatusKnown: true, isStatusUnavailable: false, phase: "remote",
+    vncUrl: "https://box-6080.on.ascii.dev/vnc.html?password=lVRE33hB&_token=0e202f85",
+    status: { state: "running", agentId: "cw_ascii" }, retryStatus: () => {}, ensure: () => {},
+  }, "local copy");
+  assert.equal(ascii.emptyMessage, undefined);
+});

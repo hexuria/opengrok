@@ -178,7 +178,7 @@ a.jsx(oe,{disabled:!changed||s.url.trim().length===0||s.busy,onClick:save,shape:
 a.jsx(se,{as:"span",color:connected?"primary":"secondary",size:"sm",children:detail})]}),
 s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 
-const ROpenGrokErrorCopy={no_org_key:["No computer set up yet","An admin can add box.ascii.dev for your organisation on the server’s admin dashboard."],invalid_key:["The box.ascii.dev key was rejected","It may be wrong, expired, or revoked. An admin can replace it on the dashboard."],quota_exceeded:["No capacity left at box.ascii.dev","Your organisation’s account is out of boxes or credit."],provider_unreachable:["Could not reach box.ascii.dev","The server could not get through. This usually clears on its own."],provider_error:["box.ascii.dev refused the request","The provider answered with a failure."],not_supported:["Not available on this server","This deployment does not offer the computer that was asked for."],unknown:["A computer could not be set up","The server did not say why."]};
+const ROpenGrokErrorCopy={no_org_key:["No computer set up yet","An admin can add a computer for your organisation on the server’s admin dashboard."],invalid_key:["The computer credential was rejected","It may be wrong, expired, or revoked. An admin can replace it on the dashboard."],quota_exceeded:["No capacity left for this computer","Your organisation’s account is out of boxes or credit."],provider_unreachable:["Could not reach the computer provider","The server could not get through. This usually clears on its own."],provider_error:["The computer provider refused the request","The provider answered with a failure."],not_supported:["Not available on this server","This deployment does not offer the computer that was asked for."],unknown:["A computer could not be set up","The server did not say why."]};
 function ROpenGrokReset({mode,onDone}){
   const[s,e]=de.useState({asking:!1,busy:!1,note:null,error:null});
   if(mode==="per-org")return a.jsx(ie,{divided:!0,description:"This computer belongs to your whole organisation. An admin can reset it from your server’s admin dashboard.",label:"Reset",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:"Admin only"})});
@@ -418,7 +418,7 @@ function RLocalComputer(){
       label:"Allow administrator (sudo) commands",variant:"card",
       extraCopy:RRowNote(s.sudoBusy?(RSudoBioLabel(s.sudoBiometric)?"Waiting for "+RSudoBioLabel(s.sudoBiometric)+"\u2026":"Waiting for your password\u2026"):s.sudoError,s.sudoBusy?"secondary":"red"),
       children:a.jsx(Ne,{label:"Allow administrator (sudo) commands",isChecked:s.sudoEnabled,isDisabled:s.sudoBusy,size:"sm",onToggle:()=>setSudo(s.sudoEnabled?"off":"on")})}):null]})}
-const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365"};
+const ROpenGrokKind={"local-docker":"Local VM","ascii":"box (Linux)","windows365":"Windows 365","grok-box":"grok-box"};
 function ROpenGrokComputers(){const[s,e]=de.useState({computers:null,signedIn:!1,error:null,computerError:null,activeKind:null,sharingMode:null});
 const load=()=>window.desktop.agent.listOpenGrokComputers().then(r=>{if(r==null)return;e({computers:r.computers||[],signedIn:!!r.signedIn,error:r.error||null,computerError:r.computerError||null,activeKind:r.activeKind||null,sharingMode:r.sharingMode||null})}).catch(err=>e(i=>({...i,error:String(err&&err.message||err)})));
 de.useEffect(()=>{load();const onChange=()=>load();window.addEventListener("sand-opengrok-changed",onChange);const id=setInterval(load,3e4);return()=>{clearInterval(id);window.removeEventListener("sand-opengrok-changed",onChange)}},[]);
@@ -447,8 +447,8 @@ function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.val
 export const MAIN_CHROME_SOURCE = String.raw`
 const RAgentIssueCopy={
   no_org_key:"No computer is set up for your organisation, so this bot has none.",
-  invalid_key:"Your organisation\u2019s box.ascii.dev key was rejected, so this bot has no computer.",
-  quota_exceeded:"Your organisation has no capacity left at box.ascii.dev, so this bot has no computer.",
+  invalid_key:"Your organisation\u2019s computer credential was rejected, so this bot has no computer.",
+  quota_exceeded:"Your organisation has no capacity left for this computer, so this bot has none.",
   provider_unreachable:"The computer provider could not be reached, so this bot has no computer yet.",
   provider_error:"The computer provider refused, so this bot has no computer.",
   not_supported:"This server does not offer the computer this bot asked for.",
@@ -591,7 +591,7 @@ function RBoxOpenPlaceholder(view,localMessage){
   }
   const running=st==="running";
   const starting=RBoxIsStarting(st);
-  const screenExpected=running&&!RBoxHasNoScreen(view)&&view.vncUrl==null;
+  const screenExpected=running&&!RBoxHasNoScreen(view)&&RBoxScreenUrl(view)==null;
   // The status only refreshes on window focus. A box that is starting, or a screen that is still
   // arriving, is never noticed unless we ask again - so ask, every few seconds, for a bounded while.
   if((starting||screenExpected)&&view&&typeof view.retryStatus==="function"){
@@ -614,6 +614,15 @@ function RBoxOpenPlaceholder(view,localMessage){
     :stalled?"This computer did not come up. The bot can still be asked to use it, which wakes it too."
     :stated;
   return{emptyMessage:message,isEmptyLoading:waking||starting||screenExpected};
+}
+function RBoxScreenUrl(view){
+  try{
+    const u=view&&view.vncUrl;
+    if(typeof u!=="string")return null;
+    const t=u.trim();
+    if(t.length===0)return null;
+    return t;
+  }catch{return null}
 }
 function RBoxHasNoScreen(view){
   try{return view!=null&&view.phase==="local"}catch{return!1}
@@ -646,7 +655,7 @@ async function RSkipLoginWall(){RRememberLoginWallSkip();try{sessionStorage.setI
 function RInstallFirstRunLogins(){if(RLoginWallSkipped()){try{if(sessionStorage.getItem("sand-open-router-settings")==="1"){sessionStorage.removeItem("sand-open-router-settings");ROpenRouterSettings()}}catch{}}const hide=()=>{if(!RLoginWallSkipped())return;document.querySelectorAll(".sand-onboarding").forEach(n=>n.style.setProperty("display","none","important"))};hide();new MutationObserver(hide).observe(document.documentElement,{childList:!0,subtree:!0})}
 RInstallTurnStop();
 RInstallAgentIssues();
-function RInstallScreenSwitcher(){const labels={"local-docker":"Local Docker VM","grok-vm":"Grok VM","windows-365":"Windows 365",box:"box (Linux VM)"};const mount=s=>{if(!s||s.querySelector("[data-computer-screen-switcher]"))return;const e=document.createElement("div");e.className="sand-computer-screen-switcher";e.setAttribute("data-computer-screen-switcher","1");const t=async()=>{try{const n=window.desktop.agent.getProviderComputers?await window.desktop.agent.getProviderComputers():await window.desktop.agent.getInferenceRouter(),r=n.computers??n,i=Array.isArray(r.activated)?r.activated:[],o=r.selectedScreen??i[0]??null;e.replaceChildren();if(i.length<=1){e.style.display="none";if(i[0])s.setAttribute("data-active-computer-screen",i[0]);return}e.style.display="";{const l=document.createElement("div");l.setAttribute("role","tablist");l.setAttribute("aria-label","Computer screen");i.forEach(c=>{const d=document.createElement("button");d.type="button";d.setAttribute("role","tab");d.setAttribute("data-computer-screen",c);d.setAttribute("aria-selected",c===o?"true":"false");d.textContent=labels[c]??c;d.addEventListener("click",()=>{void window.desktop.agent.setComputerScreen(c).then(()=>{window.dispatchEvent(new CustomEvent("sand-computer-screen-changed",{detail:{screen:c}}));void t()})});l.append(d)});e.append(l)}if(o)s.setAttribute("data-active-computer-screen",o)}catch{}};s.prepend(e);void t();window.addEventListener("sand-router-provider-changed",t);window.addEventListener("sand-computer-screen-changed",t)};const scan=()=>{const target=document.querySelector(".sand-computer-preview")??document.querySelector(".sand-info-pane")??document.querySelector("[aria-label='Conversation details']");if(target)mount(target)};scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0})}
+function RInstallScreenSwitcher(){const labels={"local-docker":"Local Docker VM","grok-vm":"Grok VM","windows-365":"Windows 365",box:"box (Linux VM)","grok-box":"grok-box"};const mount=s=>{if(!s||s.querySelector("[data-computer-screen-switcher]"))return;const e=document.createElement("div");e.className="sand-computer-screen-switcher";e.setAttribute("data-computer-screen-switcher","1");const t=async()=>{try{const n=window.desktop.agent.getProviderComputers?await window.desktop.agent.getProviderComputers():await window.desktop.agent.getInferenceRouter(),r=n.computers??n,i=Array.isArray(r.activated)?r.activated:[],o=r.selectedScreen??i[0]??null;e.replaceChildren();if(i.length<=1){e.style.display="none";if(i[0])s.setAttribute("data-active-computer-screen",i[0]);return}e.style.display="";{const l=document.createElement("div");l.setAttribute("role","tablist");l.setAttribute("aria-label","Computer screen");i.forEach(c=>{const d=document.createElement("button");d.type="button";d.setAttribute("role","tab");d.setAttribute("data-computer-screen",c);d.setAttribute("aria-selected",c===o?"true":"false");d.textContent=labels[c]??c;d.addEventListener("click",()=>{void window.desktop.agent.setComputerScreen(c).then(()=>{window.dispatchEvent(new CustomEvent("sand-computer-screen-changed",{detail:{screen:c}}));void t()})});l.append(d)});e.append(l)}if(o)s.setAttribute("data-active-computer-screen",o)}catch{}};s.prepend(e);void t();window.addEventListener("sand-router-provider-changed",t);window.addEventListener("sand-computer-screen-changed",t)};const scan=()=>{const target=document.querySelector(".sand-computer-preview")??document.querySelector(".sand-info-pane")??document.querySelector("[aria-label='Conversation details']");if(target)mount(target)};scan();new MutationObserver(scan).observe(document.documentElement,{childList:!0,subtree:!0})}
 if(typeof document!=="undefined"){const RBootProviderChrome=()=>{RInstallFirstRunLogins();RInstallScreenSwitcher()};if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",RBootProviderChrome);else RBootProviderChrome()}
 `;
 

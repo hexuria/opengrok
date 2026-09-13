@@ -1,6 +1,7 @@
 import { isSandInferenceProvider, type SandInferenceProvider } from "./inference-router.js";
 import { isSandBoxRuntime, type SandBoxRuntime } from "./box-runtime.js";
 
+/** Local screen-switcher kinds. OpenGrok server kinds (ascii, grok-box, …) live in opengrok-computers.ts. */
 export const PROVIDER_COMPUTER_KINDS = ["local-docker", "grok-vm", "windows-365", "box"] as const;
 export type ProviderComputerKind = (typeof PROVIDER_COMPUTER_KINDS)[number];
 
