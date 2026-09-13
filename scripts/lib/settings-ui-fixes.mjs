@@ -66,8 +66,10 @@ html:has(.sand-settings-dialog) .ui-menu-popup:not(#\\#):not(#\\#) {
 }
 `;
 
-export const OVERLAY_STACK_HELPER = `const __sandOverlayDialogs = [];
+export const OVERLAY_STACK_HELPER = `/** @type {unknown[]} */
+const __sandOverlayDialogs = [];
 let __sandOverlayQuietUntil = 0;
+/** @param {unknown} id */
 function __sandOverlayRegister(id) {
   __sandOverlayDialogs.push(id);
   return () => {
@@ -76,9 +78,11 @@ function __sandOverlayRegister(id) {
     __sandOverlayQuietUntil = Date.now() + 80;
   };
 }
+/** @param {unknown} id */
 function __sandOverlayIsTop(id) {
   return __sandOverlayDialogs[__sandOverlayDialogs.length - 1] === id;
 }
+/** @param {unknown} id */
 function __sandOverlayCanDismiss(id) {
   if (Date.now() < __sandOverlayQuietUntil) return false;
   return __sandOverlayIsTop(id);
@@ -176,6 +180,13 @@ function overlayOpenExpression(paramText) {
   return "open";
 }
 
+function overlayCloseExpression(paramText) {
+  if (/\bprops\b/.test(paramText) && !/\bonClose\b/.test(paramText)) return "props.onClose";
+  if (/\bonClose\b/.test(paramText)) return "onClose";
+  if (/\bprops\b/.test(paramText)) return "props.onClose";
+  return "onClose";
+}
+
 function overlayHookName(source, name) {
   const namedImport = new RegExp(String.raw`import\s+(?:[\w*]+\s*,\s*)?\{[^}]*\b${name}\b[^}]*\}\s*from\s*["']react["']`);
   if (namedImport.test(source)) return name;
@@ -253,21 +264,22 @@ export function patchOverlayPrimitives(source) {
 
   const useRef = overlayHookName(withHelper, "useRef");
   const useEffect = overlayHookName(withHelper, "useEffect");
-  const openExpr = overlayOpenExpression(overlayParamText(withHelper, bodyIndex));
+  const paramText = overlayParamText(withHelper, bodyIndex);
+  const openExpr = overlayOpenExpression(paramText);
+  const closeExpr = overlayCloseExpression(paramText);
   const register = `
   const __sandOverlayId = ${useRef}(null);
   const __sandOverlayOpen = ${openExpr};
   ${useEffect}(() => {
     if (!__sandOverlayOpen) return undefined;
     const unregister = __sandOverlayRegister(__sandOverlayId);
-    const onKey = (event) => {
+    const onKey = (/** @type {KeyboardEvent} */ event) => {
       if (event.key !== "Escape") return;
       if (!__sandOverlayIsTop(__sandOverlayId)) return;
       event.preventDefault();
       event.stopPropagation();
       if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-      if (typeof onClose === "function") onClose();
-      else if (typeof props !== "undefined" && props && typeof props.onClose === "function") props.onClose();
+      if (typeof ${closeExpr} === "function") ${closeExpr}();
     };
     window.addEventListener("keydown", onKey, true);
     return () => {

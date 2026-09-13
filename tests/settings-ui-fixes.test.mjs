@@ -104,6 +104,10 @@ export function OverlayDialog({ open, onClose, closeOnBackdrop = true }) {
   assert.match(once, /__sandOverlayIsTop/);
   assert.match(once, /__sandOverlayCanDismiss/);
   assert.match(once, /useRef/);
+  assert.match(once, /@type \{unknown\[\]\}/);
+  assert.match(once, /@type \{KeyboardEvent\}/);
+  assert.match(once, /typeof onClose === "function"\) onClose\(\)/);
+  assert.doesNotMatch(once, /typeof props/);
   assert.match(once, /event\.key === "Escape" && __sandOverlayIsTop\(__sandOverlayId\)/);
   assert.match(once, /event\.target === event\.currentTarget && __sandOverlayCanDismiss\(__sandOverlayId\)/);
   assert.equal(patchOverlayPrimitives(once), once, "idempotent");
@@ -119,6 +123,8 @@ export function OverlayDialog(props) {
   const patchedProps = patchOverlayPrimitives(propsStyle);
   parses(patchedProps);
   assert.match(patchedProps, /props\.open/);
+  assert.match(patchedProps, /typeof props\.onClose === "function"\) props\.onClose\(\)/);
+  assert.doesNotMatch(patchedProps, /typeof onClose === "function"\) onClose\(\)/);
 });
 
 test("in-flow dictation language lists become absolutely positioned", () => {
