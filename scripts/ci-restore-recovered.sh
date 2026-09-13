@@ -34,8 +34,10 @@ test -d "$archive/docs" || { echo "archive is missing docs/" >&2; exit 1; }
 cp -Rn "$archive/docs/." docs/ 2>/dev/null || true
 
 # Settings overlay stacking, nested-dialog dismiss, dictation list float.
+# Message ⋯ more-menu chrome (opaque panel, not toolbar chips).
 # frontend/ is restored from stow; these transforms are owned by this repo.
 node "$(cd "$(dirname "$0")" && pwd)/lib/settings-ui-fixes.mjs"
+node "$(cd "$(dirname "$0")" && pwd)/lib/message-more-menu-fix.mjs"
 
 printf 'restored %s proto files, frontend/, manifests/, patches/, research-archives/, docs\n' \
   "$(find source/packages -path '*generated*' -name '*.ts' | wc -l | tr -d ' ')"

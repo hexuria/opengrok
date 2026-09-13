@@ -7,6 +7,8 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
+import { applyMessageMoreMenuFix } from "../scripts/lib/message-more-menu-fix.mjs";
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FRONTEND = path.join(repoRoot, "frontend");
 const PATCHED = path.join(FRONTEND, "src/production/patched-ui/index.ts");
@@ -795,6 +797,7 @@ whenFrontend("layout estimator matches live y7n", async () => {
 });
 
 whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, hosts", async () => {
+  await applyMessageMoreMenuFix(repoRoot);
   const surface = await readFrontend("frontend/src/recovered/features/settings/overlay/desktop-surface.tsx");
   assert.match(surface, /PATCHED_SETTINGS_SECTIONS/);
   assert.match(surface, /DictationPanel/);
@@ -1006,6 +1009,10 @@ whenFrontend("React ports are wired: Computer/Dictation/Usage, panes, rail, host
   assert.match(view, /\.sand-message-more-menu \{[^}]*background: var\(--cursor-bg-elevated\);/);
   assert.doesNotMatch(view, /\.sand-message-hover-actions__button \{[^}]*#20231f/);
   assert.doesNotMatch(view, /\.sand-message-more-menu \{[^}]*#20231f/);
+  // The ⋯ menu reuses the toolbar chip class; production.css restyles those rows
+  // as an opaque Grok Bot menu without touching the 24×24 chips.
+  assert.match(productionCss, /sand-message-more-menu-fix/);
+  assert.match(productionCss, /\.sand-message-more-menu:not\(#\\#\):not\(#\\#\) \{[^}]*--sand-bg-elevated/);
   assert.match(sidebar, /rosterNavAgentsFromUnpinned\(unpinned, sections\)/);
   assert.match(sidebar, /listedUnpinned\.map/);
   const math = await readFrontend("frontend/src/recovered/features/conversation/workspace/math.tsx");
