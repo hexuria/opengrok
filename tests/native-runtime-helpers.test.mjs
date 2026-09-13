@@ -25,6 +25,13 @@ async function loadModule(sourcePath, name) {
   return { module, dispose: () => rm(temporary, { recursive: true, force: true }) };
 }
 
+function samePath(left, right) {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const a = realpathSync(left);
+  const b = realpathSync(right);
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 function darwinRuntime(mod, dir, extra = {}) {
   return new mod.SandOnePasswordCliRuntime({
     installRoot: path.join(dir, "managed"),
@@ -67,7 +74,6 @@ test("inspect without a launcher still selects a codesigned system op", async ()
       const opPath = path.join(dir, "op");
       writeFileSync(opPath, "#!/bin/sh\n");
       chmodSync(opPath, 0o755);
-      const resolvedOp = realpathSync(opPath);
       const spawned = [];
       const runtime = darwinRuntime(loaded.module, dir, {
         systemPaths: [opPath],
@@ -75,10 +81,10 @@ test("inspect without a launcher still selects a codesigned system op", async ()
           spawned.push({ file, args: [...args] });
           if (file === "/usr/bin/codesign") {
             assert.ok(args.includes(`-R=${loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT}`));
-            assert.equal(args.at(-1), resolvedOp);
+            assert.ok(samePath(args.at(-1), opPath));
             return { stdout: "", stderr: "" };
           }
-          assert.equal(file, resolvedOp);
+          assert.ok(samePath(file, opPath));
           assert.deepEqual([...args], ["--version"]);
           return { stdout: "2.35.0\n", stderr: "" };
         },
@@ -91,7 +97,7 @@ test("inspect without a launcher still selects a codesigned system op", async ()
       assert.equal(inspection.selected?.signature, "verified");
       assert.equal(inspection.detail, "System CLI ready");
       assert.equal(spawned[0]?.file, "/usr/bin/codesign");
-      assert.equal(spawned[1]?.file, resolvedOp);
+      assert.ok(samePath(spawned[1]?.file, opPath));
       assert.match(loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT, /2BUA8C4S2C/);
       assert.doesNotMatch(loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT, /DCNK4UB866/);
       assert.equal(loaded.module.SAND_OP_LAUNCHER_CODESIGN_REQUIREMENT, undefined);

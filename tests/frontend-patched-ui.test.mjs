@@ -47,7 +47,7 @@ async function loadPatched() {
   return { loaded, cleanup: () => rm(temporary, { recursive: true, force: true }) };
 }
 
-const readFrontend = (relative) => readFile(path.join(repoRoot, relative), "utf8");
+const readFrontend = async (relative) => (await readFile(path.join(repoRoot, relative), "utf8")).replaceAll("\r\n", "\n");
 
 whenFrontend("settings registry: Computer, Dictation, Usage always visible", async () => {
   const { loaded, cleanup } = await loadPatched();

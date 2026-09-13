@@ -30,7 +30,7 @@ async function load(entry) {
   return { loaded, cleanup: () => rm(temporary, { recursive: true, force: true }) };
 }
 
-const readFrontend = (relative) => readFile(path.join(repoRoot, relative), "utf8");
+const readFrontend = async (relative) => (await readFile(path.join(repoRoot, relative), "utf8")).replaceAll("\r\n", "\n");
 
 /*
  * The shell used to route an account with no bots into a five-screen first-run
