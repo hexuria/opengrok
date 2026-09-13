@@ -9,6 +9,7 @@ import { build as viteBuild } from "vite";
 
 import { auditRendererClosure, rendererClosureSnapshot } from "./audit-renderer-closure.mjs";
 import { auditUiProvenance } from "./audit-ui-provenance.mjs";
+import { applySettingsUiFixes } from "./lib/settings-ui-fixes.mjs";
 import {
   copyKatexRuntimeAssets,
   copyRuntimeAssets,
@@ -172,6 +173,7 @@ export async function buildProductionRenderer({ outputRoot }) {
   if (!existsSync(path.join(repoRoot, rendererProductionEntrypoint))) {
     throw new Error(`Vite renderer build requires ${rendererProductionEntrypoint} (restore frontend/ from stow)`);
   }
+  await applySettingsUiFixes(repoRoot);
   const rendererRoot = path.join(outputRoot, rendererProductionOutput);
   const [bootstrap, graph, evidence] = await Promise.all([
     validateBootstrapEvidence(),
