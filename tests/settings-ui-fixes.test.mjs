@@ -24,11 +24,17 @@ import {
 const FRONTEND = path.join(repoRoot, "frontend/src");
 const present = existsSync(FRONTEND);
 
-const parses = (source) => acorn.parse(source, { ecmaVersion: "latest", sourceType: "module" });
+const stripTypes = (source) =>
+  source
+    .replaceAll(": unknown[]", "")
+    .replaceAll(": unknown", "")
+    .replaceAll(": KeyboardEvent", "");
+
+const parses = (source) => acorn.parse(stripTypes(source), { ecmaVersion: "latest", sourceType: "module" });
 
 test("the overlay stack only lets the top dialog dismiss", () => {
   const api = new Function(
-    `${OVERLAY_STACK_HELPER}; return { __sandOverlayRegister, __sandOverlayIsTop, __sandOverlayCanDismiss };`,
+    `${stripTypes(OVERLAY_STACK_HELPER)}; return { __sandOverlayRegister, __sandOverlayIsTop, __sandOverlayCanDismiss };`,
   )();
   const parent = {};
   const child = {};
@@ -104,8 +110,9 @@ export function OverlayDialog({ open, onClose, closeOnBackdrop = true }) {
   assert.match(once, /__sandOverlayIsTop/);
   assert.match(once, /__sandOverlayCanDismiss/);
   assert.match(once, /useRef/);
-  assert.match(once, /@type \{unknown\[\]\}/);
-  assert.match(once, /@type \{KeyboardEvent\}/);
+  assert.match(once, /__sandOverlayDialogs: unknown\[\]/);
+  assert.match(once, /id: unknown/);
+  assert.match(once, /event: KeyboardEvent/);
   assert.match(once, /typeof onClose === "function"\) onClose\(\)/);
   assert.doesNotMatch(once, /typeof props/);
   assert.match(once, /event\.key === "Escape" && __sandOverlayIsTop\(__sandOverlayId\)/);

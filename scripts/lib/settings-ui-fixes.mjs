@@ -66,11 +66,9 @@ html:has(.sand-settings-dialog) .ui-menu-popup:not(#\\#):not(#\\#) {
 }
 `;
 
-export const OVERLAY_STACK_HELPER = `/** @type {unknown[]} */
-const __sandOverlayDialogs = [];
+export const OVERLAY_STACK_HELPER = `const __sandOverlayDialogs: unknown[] = [];
 let __sandOverlayQuietUntil = 0;
-/** @param {unknown} id */
-function __sandOverlayRegister(id) {
+function __sandOverlayRegister(id: unknown) {
   __sandOverlayDialogs.push(id);
   return () => {
     const index = __sandOverlayDialogs.lastIndexOf(id);
@@ -78,12 +76,10 @@ function __sandOverlayRegister(id) {
     __sandOverlayQuietUntil = Date.now() + 80;
   };
 }
-/** @param {unknown} id */
-function __sandOverlayIsTop(id) {
+function __sandOverlayIsTop(id: unknown) {
   return __sandOverlayDialogs[__sandOverlayDialogs.length - 1] === id;
 }
-/** @param {unknown} id */
-function __sandOverlayCanDismiss(id) {
+function __sandOverlayCanDismiss(id: unknown) {
   if (Date.now() < __sandOverlayQuietUntil) return false;
   return __sandOverlayIsTop(id);
 }
@@ -273,7 +269,7 @@ export function patchOverlayPrimitives(source) {
   ${useEffect}(() => {
     if (!__sandOverlayOpen) return undefined;
     const unregister = __sandOverlayRegister(__sandOverlayId);
-    const onKey = (/** @type {KeyboardEvent} */ event) => {
+    const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (!__sandOverlayIsTop(__sandOverlayId)) return;
       event.preventDefault();
