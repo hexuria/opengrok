@@ -14,7 +14,7 @@ export interface VncProxyDescriptor {
 }
 
 export interface ForeverBoxWindowStatus {
-  vncUrl: string;
+  vncUrl: string | null;
   [key: string]: unknown;
 }
 
@@ -85,7 +85,7 @@ export function proxifyForeverBoxStatus<T extends ForeverBoxStatus>(status: T, v
     vncUrl,
     windows: status.windows.map((window) => ({
       ...window,
-      vncUrl: presentOrProxify(window.vncUrl, vncProxy) ?? window.vncUrl,
+      vncUrl: presentOrProxify(window.vncUrl, vncProxy),
     })),
   } as T;
 }

@@ -61,6 +61,13 @@ test("a grok-box noVNC URL is not rewritten through the Cursor pod proxy", async
     const localDocker = "http://127.0.0.1:6080/vnc.html";
     assert.equal(mod.proxifyForeverBoxStatus({ vncUrl: localDocker }, cursorProxy).vncUrl, cursorProxy.primaryUrl,
       "Cursor's own loopback viewer still goes through the pod proxy");
+
+    const blankWindow = mod.proxifyForeverBoxStatus({ vncUrl: "", windows: [{ windowIndex: 0, vncUrl: "" }] }, null);
+    assert.equal(blankWindow.vncUrl, null);
+    assert.equal(blankWindow.windows[0].vncUrl, null, "an empty per-window viewer is missing, not a screen");
+
+    const guestWindow = mod.proxifyForeverBoxStatus({ vncUrl: lan, windows: [{ windowIndex: 0, vncUrl: lan }] }, cursorProxy);
+    assert.equal(guestWindow.windows[0].vncUrl, lan);
   } finally {
     await cleanup();
   }
