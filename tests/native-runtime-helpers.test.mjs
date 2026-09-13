@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -25,11 +25,38 @@ async function loadModule(sourcePath, name) {
   return { module, dispose: () => rm(temporary, { recursive: true, force: true }) };
 }
 
+// Windows realpath can return 8.3 names, `\\?\` prefixes, or mixed separators.
+function stripWindowsNamespace(value) {
+  if (/^\\\\\?\\unc\\/i.test(value)) return `\\\\${value.slice(8)}`;
+  if (value.startsWith("\\\\?\\")) return value.slice(4);
+  return value;
+}
+
+function canonicalizePath(value) {
+  const stripped = stripWindowsNamespace(value);
+  let resolved;
+  try {
+    resolved = realpathSync(stripped);
+  } catch {
+    resolved = path.resolve(stripped);
+  }
+  resolved = stripWindowsNamespace(resolved);
+  if (process.platform === "win32") {
+    return path.win32.normalize(resolved).replaceAll("/", "\\").toLowerCase();
+  }
+  return resolved;
+}
+
 function samePath(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;
-  const a = realpathSync(left);
-  const b = realpathSync(right);
-  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+  if (canonicalizePath(left) === canonicalizePath(right)) return true;
+  try {
+    const a = statSync(stripWindowsNamespace(left));
+    const b = statSync(stripWindowsNamespace(right));
+    return a.ino !== 0 && a.ino === b.ino && a.dev === b.dev;
+  } catch {
+    return false;
+  }
 }
 
 function darwinRuntime(mod, dir, extra = {}) {
@@ -41,6 +68,23 @@ function darwinRuntime(mod, dir, extra = {}) {
     runProcess: extra.runProcess,
   });
 }
+
+test("samePath equates realpath, mixed separators, and Windows long-path prefixes", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "grok-same-path-"));
+  try {
+    const file = path.join(dir, "op");
+    writeFileSync(file, "x");
+    const real = realpathSync(file);
+    assert.ok(samePath(file, real));
+    assert.ok(samePath(real.replaceAll("\\", "/"), file));
+    if (process.platform === "win32") {
+      const prefixed = real.startsWith("\\\\?\\") ? real : `\\\\?\\${real}`;
+      assert.ok(samePath(prefixed, file));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("inspect without a launcher reports missing/invalid instead of throwing", async () => {
   const loaded = await loadModule("source/electron-main/onepassword/onepassword-cli-runtime.ts", "op");
@@ -79,13 +123,8 @@ test("inspect without a launcher still selects a codesigned system op", async ()
         systemPaths: [opPath],
         runProcess: async (file, args) => {
           spawned.push({ file, args: [...args] });
-          if (file === "/usr/bin/codesign") {
-            assert.ok(args.includes(`-R=${loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT}`));
-            assert.ok(samePath(args.at(-1), opPath));
-            return { stdout: "", stderr: "" };
-          }
-          assert.ok(samePath(file, opPath));
-          assert.deepEqual([...args], ["--version"]);
+          // Assert after inspect: a throw here is swallowed as state "invalid".
+          if (file === "/usr/bin/codesign") return { stdout: "", stderr: "" };
           return { stdout: "2.35.0\n", stderr: "" };
         },
       });
@@ -97,7 +136,10 @@ test("inspect without a launcher still selects a codesigned system op", async ()
       assert.equal(inspection.selected?.signature, "verified");
       assert.equal(inspection.detail, "System CLI ready");
       assert.equal(spawned[0]?.file, "/usr/bin/codesign");
+      assert.ok(spawned[0]?.args.includes(`-R=${loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT}`));
+      assert.ok(samePath(spawned[0]?.args.at(-1), opPath));
       assert.ok(samePath(spawned[1]?.file, opPath));
+      assert.deepEqual([...(spawned[1]?.args ?? [])], ["--version"]);
       assert.match(loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT, /2BUA8C4S2C/);
       assert.doesNotMatch(loaded.module.ONEPASSWORD_CODESIGN_REQUIREMENT, /DCNK4UB866/);
       assert.equal(loaded.module.SAND_OP_LAUNCHER_CODESIGN_REQUIREMENT, undefined);
