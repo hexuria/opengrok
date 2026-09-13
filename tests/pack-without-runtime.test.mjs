@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { assertElectronNativeDeps, electronNativeDepsRoot } from "../scripts/build-electron-natives.mjs";
 import { buildAsar } from "../scripts/lib/build-asar.mjs";
 import { cachedRuntimeApp, sourceAppDir } from "../scripts/lib/config.mjs";
 import { resolveRuntimeApp } from "../scripts/lib/runtime.mjs";
@@ -20,9 +21,22 @@ async function pathExists(target) {
   }
 }
 
+async function haveElectronNativeCache() {
+  try {
+    await assertElectronNativeDeps(electronNativeDepsRoot());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 test("buildAsar stages without a 0.18 Grok Bot.app", async t => {
   if (!(await pathExists(path.join(sourceAppDir, "package.json")))) {
     t.skip("src/app is missing; stow restore is required to pack");
+    return;
+  }
+  if (!process.env.ELECTRON_HEADERS_DIR && !(await haveElectronNativeCache())) {
+    t.skip("ELECTRON_HEADERS_DIR is required to rebuild natives when the Electron deps cache is empty");
     return;
   }
 
