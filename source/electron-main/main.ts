@@ -189,6 +189,7 @@ export interface MainBrowserWindowOptions {
   readonly height: number;
   readonly minWidth: number;
   readonly minHeight: number;
+  readonly show?: boolean;
   readonly title: string;
   readonly icon?: string;
   readonly backgroundColor: string;
@@ -307,6 +308,7 @@ export function startElectronMain(deps: ElectronMainDependencies): ElectronMainR
     const icon = deps.app.isPackaged ? undefined : deps.devAppIcon;
     const window = deps.createBrowserWindow({
       ...placement.windowOptions,
+      show: false,
       title: deps.appName,
       ...(icon == null ? {} : { icon }),
       backgroundColor,
@@ -330,6 +332,7 @@ export function startElectronMain(deps: ElectronMainDependencies): ElectronMainR
       services?.mainEdge.emit("window-state", state);
     });
     deps.windowStatePersistence.applySandWindowPlacement(window, placement);
+    window.show();
     attachWindowFocusForwarding(window, syncWindowFocused);
     services.onWindowCreated?.(window);
     hostChords.attachChordForwarding(window.webContents);
