@@ -1,0 +1,279 @@
+/*
+ * Chrome only. The message bubbles are styled by COLLECTION_BUBBLE_CSS from
+ * source/shared/collections/collection-render.ts, which the HTML exporter
+ * inlines verbatim, so a saved file and this window cannot drift apart.
+ */
+
+:root {
+  color-scheme: light dark;
+  /* The chat window's own colours, sampled from it: both bubbles are greys, the
+     person's a lighter grey than the agent's. No accent hue anywhere. */
+  --sand-col-bg: #fff;
+  --sand-col-fg: #0d0d0d;
+  --sand-col-side-bg: #f4f4f4;
+  --sand-col-border: rgba(0, 0, 0, .1);
+  --sand-col-hover: rgba(0, 0, 0, .05);
+  --sand-col-active: rgba(0, 0, 0, .08);
+  --sand-col-agent-bg: #ededed;
+  --sand-col-agent-fg: #0d0d0d;
+  --sand-col-user-bg: #d6d6d6;
+  --sand-col-user-fg: #0d0d0d;
+  --sand-col-code-bg: rgba(0, 0, 0, .06);
+  --sand-col-chip-border: rgba(0, 0, 0, .2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sand-col-bg: #070707;
+    --sand-col-fg: #fcfcfc;
+    --sand-col-side-bg: #131313;
+    --sand-col-border: rgba(255, 255, 255, .1);
+    --sand-col-hover: rgba(255, 255, 255, .06);
+    --sand-col-active: rgba(119, 119, 119, .32);
+    --sand-col-agent-bg: #262626;
+    --sand-col-agent-fg: #fcfcfc;
+    --sand-col-user-bg: #5a5a5a;
+    --sand-col-user-fg: #fcfcfc;
+    --sand-col-code-bg: rgba(255, 255, 255, .08);
+    --sand-col-chip-border: rgba(255, 255, 255, .22);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--sand-col-bg);
+  color: var(--sand-col-fg);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sand-col-app { display: flex; height: 100vh; }
+
+.sand-col-side {
+  width: 232px;
+  flex: 0 0 232px;
+  background: var(--sand-col-side-bg);
+  border-right: 1px solid var(--sand-col-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sand-col-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 12px 10px;
+}
+
+.sand-col-side-title { font-weight: 700; font-size: 13px; letter-spacing: .01em; }
+
+.sand-col-list { overflow-y: auto; padding: 0 8px 12px; }
+
+.sand-col-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.sand-col-row:hover { background: var(--sand-col-hover); }
+.sand-col-row[aria-current="true"] { background: var(--sand-col-active); font-weight: 600; }
+.sand-col-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sand-col-row-count { font-size: 11px; opacity: .55; font-variant-numeric: tabular-nums; }
+
+.sand-col-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.sand-col-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--sand-col-border);
+}
+
+.sand-col-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  outline: none;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.sand-col-title[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  background: var(--sand-col-hover);
+}
+
+.sand-col-topbar-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+.sand-col-ghost {
+  font: 600 11.5px system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--sand-col-chip-border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  opacity: .82;
+}
+
+.sand-col-ghost:hover { opacity: 1; }
+.sand-col-ghost:disabled { opacity: .32; cursor: default; }
+.sand-col-danger { color: #d34b3e; border-color: #d34b3e; }
+
+.sand-col-status {
+  padding: 8px 18px;
+  font-size: 12px;
+  opacity: .75;
+  border-bottom: 1px solid var(--sand-col-border);
+}
+
+.sand-col-thread { flex: 1; overflow-y: auto; }
+.sand-col-thread .sand-col-bubble { -webkit-user-select: text; user-select: text; }
+
+/* Icon buttons: the same idiom as the chat's own toolbars — inline SVG, a label for
+   screen readers and a tooltip, no icon font and nothing fetched. */
+.sand-col-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.sand-col-icon:hover:not(:disabled) { background: var(--sand-col-hover); }
+.sand-col-icon:disabled { opacity: .35; cursor: default; }
+.sand-col-icon.sand-col-danger { color: #e5484d; }
+.sand-col-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sand-col-menu-wrap { position: relative; display: inline-flex; }
+.sand-col-menu {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  z-index: 20;
+  min-width: 128px;
+  padding: 4px;
+  border: 1px solid var(--sand-col-border);
+  border-radius: 10px;
+  background: var(--sand-col-side-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sand-col-menu[hidden] { display: none; }
+.sand-col-menu button {
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: 500 13px system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+}
+.sand-col-menu button:hover { background: var(--sand-col-hover); }
+/* The name is a heading until you double-click it. */
+.sand-col-title-field {
+  flex: 1;
+  min-width: 0;
+  font: 600 15px system-ui, -apple-system, sans-serif;
+  color: inherit;
+  background: var(--sand-col-hover);
+  border: 1px solid var(--sand-col-border);
+  border-radius: 8px;
+  padding: 5px 9px;
+}
+.sand-col-title-field[hidden] { display: none; }
+
+/* One field that turns what you type into chips, above the thread. */
+.sand-col-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--sand-col-border);
+}
+.sand-col-chips { display: contents; }
+.sand-col-chip-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--sand-col-border);
+  background: var(--sand-col-hover);
+  font: 500 12px system-ui, -apple-system, sans-serif;
+}
+.sand-col-chip-token button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  font: 500 13px system-ui, sans-serif;
+  opacity: .7;
+}
+.sand-col-chip-token button:hover { opacity: 1; }
+.sand-col-filter-input {
+  flex: 1;
+  min-width: 160px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 400 13px system-ui, -apple-system, sans-serif;
+  padding: 4px 2px;
+  outline: none;
+}
+.sand-col-filter-count { font: 500 12px system-ui, sans-serif; opacity: .55; }
+/* A collection's own group and tags, editable in place. */
+.sand-col-meta { display: flex; gap: 8px; padding: 6px 16px 10px; border-bottom: 1px solid var(--sand-col-border); }
+.sand-col-meta[hidden] { display: none; }
+.sand-col-meta-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: 400 12.5px system-ui, -apple-system, sans-serif;
+  padding: 4px 8px;
+}
+.sand-col-meta-input:hover { border-color: var(--sand-col-border); }
+.sand-col-meta-input:focus { border-color: var(--sand-col-border); background: var(--sand-col-hover); outline: none; }
+/* Sidebar sections, one per group. */
+.sand-col-section-head {
+  padding: 12px 10px 4px;
+  font: 600 10.5px system-ui, -apple-system, sans-serif;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .5;
+}
+.sand-col-empty-list { padding: 14px 12px; font-size: 12.5px; opacity: .55; }
