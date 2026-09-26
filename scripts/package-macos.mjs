@@ -8,6 +8,7 @@ import {
   reconstructedProductUrl
 } from "./lib/config.mjs";
 import { buildFidelityReconstructedAsar } from "./clean-build.mjs";
+import { buildReconstructedAsar } from "./clean-build.mjs";
 import { signAppBundle } from "./lib/codesign.mjs";
 import { verifyOfficialMacReference, verifyReconstructedMacPackage } from "./lib/macos-package-verification.mjs";
 import { run } from "./lib/process.mjs";
@@ -17,10 +18,17 @@ if (process.platform !== "darwin") {
   throw new Error("The reconstructed macOS application can only be packaged on macOS.");
 }
 
-// Keep the checksum-pinned shipped renderer as the polished UI authority. Small
-// reconstructed UI extensions are installed by the clean preload, leaving the
-// original renderer chunks byte-for-byte intact.
-const { builtAsar, builtAsarUnpacked, runtimeApp } = await buildFidelityReconstructedAsar();
+// Default is the Vite ProductionRenderer (same as the v2 reconstructed app).
+// GROK_BOT_CLEAN_RENDERER=0 restores the checksum-pinned 0.18 renderer.
+const useCleanRenderer = process.env.GROK_BOT_CLEAN_RENDERER !== "0";
+const { builtAsar, builtAsarUnpacked, runtimeApp } = useCleanRenderer
+  ? await buildReconstructedAsar()
+  : await buildFidelityReconstructedAsar();
+if (useCleanRenderer) {
+  console.log("Renderer mode: clean-source ProductionRenderer");
+} else {
+  console.log("Renderer mode: checksum-pinned upstream 0.18.0 payload");
+}
 // Keep the signed release audit separate from the reconstructed package audit:
 // the official app is reference-only and is never used as the runtime payload.
 await verifyOfficialMacReference({ runtimeApp });
