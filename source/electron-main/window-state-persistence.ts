@@ -171,7 +171,10 @@ export function createWindowStatePersistence(deps: {
     placement: SandWindowPlacement,
   ): void => {
     if (placement.bounds != null) window.setContentBounds(placement.bounds);
-    attachWindowStatePersistence(window, placement.bounds ?? placement.persistedNormalBounds);
+    // Persist the on-screen bounds we actually applied. The rejected
+    // persistedNormalBounds are the disconnected-display coords that made
+    // launch look like a quit.
+    attachWindowStatePersistence(window, placement.bounds);
     if (placement.maximize) window.maximize();
   };
 
