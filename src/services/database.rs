@@ -434,6 +434,12 @@ pub enum MessagePart {
         /// `{"tool", "arguments", "result", "ok"}` as `StepSpec::to_value` writes it.
         spec: String,
     },
+    /// A document the turn's `opengrok.officeDoc` frames named, as the `OfficeDocSpec::to_value`
+    /// JSON the card parsed — thin on purpose: the bytes and pages stay on the server and are
+    /// fetched again, only the card's identity is kept.
+    OfficeDoc {
+        spec: String,
+    },
     /// What the coworker thought on the way, as its "Thought" row showed it.
     Reasoning(String),
 }
@@ -443,6 +449,7 @@ impl MessagePart {
         match self {
             Self::Text(_) => "text",
             Self::Screenshot { .. } => "screenshot",
+            Self::OfficeDoc { .. } => "officedoc",
             Self::Ui { .. } => "ui",
             Self::Step { .. } => "step",
             Self::Reasoning(_) => "reasoning",
@@ -455,34 +462,46 @@ impl MessagePart {
         match self {
             Self::Text(text) | Self::Reasoning(text) => text.clone(),
             Self::Screenshot { caption, .. } => caption.clone(),
-            Self::Ui { spec } | Self::Step { spec, .. } => spec.clone(),
+            Self::Ui { spec } | Self::Step { spec, .. } | Self::OfficeDoc { spec } => spec.clone(),
         }
     }
 
     fn call_id(&self) -> Option<String> {
         match self {
-            Self::Text(_) | Self::Ui { .. } | Self::Reasoning(_) => None,
+            Self::Text(_) | Self::Ui { .. } | Self::Reasoning(_) | Self::OfficeDoc { .. } => None,
             Self::Screenshot { call_id, .. } | Self::Step { call_id, .. } => Some(call_id.clone()),
         }
     }
 
     fn image(&self) -> Option<Vec<u8>> {
         match self {
-            Self::Text(_) | Self::Ui { .. } | Self::Step { .. } | Self::Reasoning(_) => None,
+            Self::Text(_)
+            | Self::Ui { .. }
+            | Self::Step { .. }
+            | Self::Reasoning(_)
+            | Self::OfficeDoc { .. } => None,
             Self::Screenshot { image, .. } => Some(image.clone()),
         }
     }
 
     fn width(&self) -> Option<i64> {
         match self {
-            Self::Text(_) | Self::Ui { .. } | Self::Step { .. } | Self::Reasoning(_) => None,
+            Self::Text(_)
+            | Self::Ui { .. }
+            | Self::Step { .. }
+            | Self::Reasoning(_)
+            | Self::OfficeDoc { .. } => None,
             Self::Screenshot { width, .. } => Some(i64::from(*width)),
         }
     }
 
     fn height(&self) -> Option<i64> {
         match self {
-            Self::Text(_) | Self::Ui { .. } | Self::Step { .. } | Self::Reasoning(_) => None,
+            Self::Text(_)
+            | Self::Ui { .. }
+            | Self::Step { .. }
+            | Self::Reasoning(_)
+            | Self::OfficeDoc { .. } => None,
             Self::Screenshot { height, .. } => Some(i64::from(*height)),
         }
     }
@@ -522,6 +541,7 @@ impl PartRow {
                 _ => Some(MessagePart::Text(text)),
             },
             "ui" => Some(MessagePart::Ui { spec: text }),
+            "officedoc" => Some(MessagePart::OfficeDoc { spec: text }),
             "step" => Some(MessagePart::Step {
                 call_id: self.call_id.unwrap_or_default(),
                 spec: text,

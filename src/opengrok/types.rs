@@ -559,6 +559,44 @@ pub struct SentAttachment {
     pub message_id: String,
 }
 
+/// An office document's session row as `GET /office/docs/{id}` answers it (opengrok-server
+/// `detail` in `crates/opengrok-server/src/office_routes.rs`, gol/betteroffice): identity,
+/// kind, version, the proposals still pending — everything the document window needs except
+/// the bytes and pages, which are routes of their own.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeDocDetail {
+    pub doc_id: String,
+    pub path: String,
+    pub kind: String,
+    pub version: u64,
+    #[serde(default)]
+    pub content_sha256: String,
+    #[serde(default)]
+    pub proposals: Vec<OfficeProposal>,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+/// One pending proposal on an office document, as `GET /office/docs/{id}` summarizes it: the
+/// change count instead of the diffs themselves — the window lists what is waiting, the
+/// model's `office_review` is what reads the diffs.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeProposal {
+    pub id: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub changes: u64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ArtifactListing {

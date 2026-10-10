@@ -244,6 +244,9 @@ fn ledger() -> Vec<(Slot, &'static str)> {
         // `PluginNeedsSpec::from_event`: the card a tagged plugin that needs something answers
         // the turn with (#360).
         super::gen_ui::PLUGIN_NEEDS_CUSTOM,
+        // `OfficeDocSpec::from_custom`: the document card and the window's tab an `office_*`
+        // tool's frame drives (gol/betteroffice).
+        super::gen_ui::OFFICE_DOC_CUSTOM,
         // `UiSpec::from_custom` reads a CUSTOM with no name as a widget that names itself.
         "",
     ]
@@ -541,7 +544,13 @@ const CLIENT_IGNORES: &[(Slot, &str, &str)] = &[
 /// arm waiting for them in [`check_frame`];
 /// [`every_word_read_ahead_of_its_recording_is_matched_and_not_sent_yet`] fails until it does,
 /// and meanwhile holds that arm to the frames [`frames_read_ahead`] writes in the agreed shape.
-const WORDS_NOT_RECORDED_YET: &[(Slot, &str, &str)] = &[];
+const WORDS_NOT_RECORDED_YET: &[(Slot, &str, &str)] = &[(
+    Slot::CustomName,
+    "opengrok.officeDoc",
+    "An `office_*` tool's thin frame (opengrok-server `office_desk.rs` `frame`,
+    gol/betteroffice): the server's manifest gains it when record-wire.sh runs on the office
+    branch.",
+)];
 
 /// Fixtures this app still reads wrongly, with the words their check fails with and why. The
 /// check has to fail with those words: one that passes means the drift is fixed and the entry
@@ -700,7 +709,25 @@ const REST_NOT_READ: &[(&str, &str, &str)] = &[
 ///
 /// Only routes built ahead of a recording are listed. Routes this app asks that no test on the
 /// server drives are a different gap, and not this list's.
-const REST_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[];
+const REST_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[
+    (
+        "GET__office_docs__id_",
+        "/office/docs/{id}",
+        "The document window's session fetch (opengrok-server `office_routes.rs`,
+        gol/betteroffice): the server's recorder gains its fixtures when record-wire.sh runs on
+        the office branch.",
+    ),
+    (
+        "GET__office_docs__id__bytes",
+        "/office/docs/{id}/bytes",
+        "The document's bytes as the box has them, for the window (same recording).",
+    ),
+    (
+        "GET__office_docs__id__pages__page_.png",
+        "/office/docs/{id}/pages/{page}.png",
+        "One rendered page/slide/used-range for the document window (same recording).",
+    ),
+];
 
 /// Routes this app asks with this Mac's machine token (`local_exec.rs` `MachineCredential`)
 /// rather than the person's session, so they never pass through `send_json_within`: a 401 on one
@@ -1883,6 +1910,7 @@ fn custom(frame: &Value) -> Check {
         CREDENTIAL_OFFER_SAVE => offer_save(frame),
         INFERENCE_SOURCE_CUSTOM => inference_source_frame(frame),
         super::gen_ui::PLUGIN_NEEDS_CUSTOM => plugin_needs_frame(frame),
+        super::gen_ui::OFFICE_DOC_CUSTOM => office_doc_frame(frame),
         name if is_excused(CLIENT_IGNORES, Slot::CustomName, name) => ignored(frame),
         name => Err(format!(
             "no check for a CUSTOM {name:?}: say here what this app does with one"
@@ -1928,6 +1956,28 @@ fn plugin_needs_frame(frame: &Value) -> Check {
     must!(
         PluginNeedsSpec::from_event(frame).is_some(),
         "the card should come from the frame alone"
+    );
+    Ok(())
+}
+
+/// A document a turn is working on (`opengrok.officeDoc`, gol/betteroffice): one card carrying
+/// the frame's own id, path, kind and version, and the window's ledger holding the same doc as
+/// the turn's live one.
+fn office_doc_frame(frame: &Value) -> Check {
+    let value = &frame["value"];
+    let doc_id = str_at(value, "docId");
+    let (_, parts) = assembled(&[frame]).snapshot();
+    let [ChatPart::OfficeDoc(card)] = parts.as_slice() else {
+        return Err(format!(
+            "the frame should paint one document card, got {parts:?}"
+        ));
+    };
+    must!(
+        card.doc_id == doc_id
+            && card.path == str_at(value, "path")
+            && card.kind == str_at(value, "kind")
+            && card.version == value["version"].as_u64().unwrap_or(u64::MAX),
+        "the card should carry the frame's own identity and version: {card:?} from {value}"
     );
     Ok(())
 }
@@ -6496,7 +6546,55 @@ fn a_coworker_rows_effort_has_a_reading_in_the_ledger() {
 /// holds every entry of [`WORDS_NOT_RECORDED_YET`] to these, so a word added there comes with
 /// its frames here, and leaves with it when the recording brings the real ones.
 #[allow(clippy::type_complexity)]
-const FRAMES_READ_AHEAD: &[(Slot, &str, fn() -> Vec<(Value, bool)>)] = &[];
+const FRAMES_READ_AHEAD: &[(Slot, &str, fn() -> Vec<(Value, bool)>)] =
+    &[(Slot::CustomName, "opengrok.officeDoc", office_doc_frames)];
+
+/// The `opengrok.officeDoc` frames opengrok-server's `office_desk.rs` `frame` writes, until the
+/// recording brings real ones: the full mutation shape reads, and one without its identity does
+/// not — a frame that cannot name a document is no card.
+fn office_doc_frames() -> Vec<(Value, bool)> {
+    use serde_json::json;
+    vec![
+        (
+            json!({
+                "type": "CUSTOM",
+                "name": "opengrok.officeDoc",
+                "value": {
+                    "docId": "odoc_1",
+                    "path": "~/office/report.docx",
+                    "kind": "docx",
+                    "version": 3,
+                    "artifactId": null,
+                    "changed": {"type": "edited", "proposalId": "p_1"}
+                }
+            }),
+            true,
+        ),
+        (
+            json!({
+                "type": "CUSTOM",
+                "name": "opengrok.officeDoc",
+                "value": {
+                    "docId": "odoc_1",
+                    "path": "~/office/deck.pptx",
+                    "kind": "pptx",
+                    "version": 4,
+                    "artifactId": "art_9",
+                    "changed": {"type": "exported", "exportPath": "~/office/deck-final.pptx"}
+                }
+            }),
+            true,
+        ),
+        (
+            json!({
+                "type": "CUSTOM",
+                "name": "opengrok.officeDoc",
+                "value": {"kind": "docx", "version": 1}
+            }),
+            false,
+        ),
+    ]
+}
 
 /// A note off the account's events stream as the recording keeps one (opengrok-server #351,
 /// recorded at 9a2b011): its `id:`, its `event:` name and its one line of `data:`, held whole as

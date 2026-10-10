@@ -212,9 +212,62 @@ fn deed_from_tool(name: &str, args: Option<&str>) -> Option<String> {
         }
         "bar_chart" | "bar-chart" | "barchart" | "show_bar_chart" | "show-bar-chart"
         | "render_bar_chart" | "render-bar-chart" => "drew you a chart".into(),
+        other if other.starts_with("office_") => office_deed(other, field("path").as_deref()),
         other => format!("used {other}"),
     };
     Some(deed)
+}
+
+/// The past-tense deed of an `office_*` call (opengrok-server `office_desk.rs`,
+/// gol/betteroffice). `file` is the `path` basename; session verbs carry only an `odoc_`
+/// handle nobody can read, so they say "a document".
+fn office_deed(name: &str, file: Option<&str>) -> String {
+    let file = || {
+        file.map(|name| name.to_string())
+            .unwrap_or_else(|| "a document".into())
+    };
+    match name.strip_prefix("office_").unwrap_or(name) {
+        "files" => "looked for documents".into(),
+        "create" => format!("created {}", file()),
+        "open" => format!("opened {}", file()),
+        "outline" => format!("read the outline of {}", file()),
+        "grep" => format!("searched inside {}", file()),
+        "read" | "cells" => format!("read {}", file()),
+        "render" => format!("rendered {}", file()),
+        "verify" => format!("checked {}", file()),
+        "propose" | "propose_cells" => format!("drafted edits to {}", file()),
+        "review" => format!("reviewed edits to {}", file()),
+        "accept" => format!("applied edits to {}", file()),
+        "reject" => format!("rejected edits to {}", file()),
+        "export" => format!("exported {}", file()),
+        "close" => format!("closed {}", file()),
+        _ => "worked on a document".into(),
+    }
+}
+
+/// The same call in the strip's present tense: "Creating report.docx".
+fn office_label(name: &str, file: Option<&str>) -> String {
+    let file = || {
+        file.map(|name| name.to_string())
+            .unwrap_or_else(|| "a document".into())
+    };
+    match name.strip_prefix("office_").unwrap_or(name) {
+        "files" => "Looking for documents".into(),
+        "create" => format!("Creating {}", file()),
+        "open" => format!("Opening {}", file()),
+        "outline" => format!("Reading the outline of {}", file()),
+        "grep" => format!("Searching inside {}", file()),
+        "read" | "cells" => format!("Reading {}", file()),
+        "render" => format!("Rendering {}", file()),
+        "verify" => format!("Checking {}", file()),
+        "propose" | "propose_cells" => format!("Drafting edits to {}", file()),
+        "review" => format!("Reviewing edits to {}", file()),
+        "accept" => format!("Applying edits to {}", file()),
+        "reject" => format!("Rejecting edits to {}", file()),
+        "export" => format!("Exporting {}", file()),
+        "close" => format!("Closing {}", file()),
+        _ => "Working on a document".into(),
+    }
 }
 
 pub fn activity_from_agui(event: &Value, tool_args: Option<&str>) -> ActivityTick {
@@ -402,6 +455,7 @@ pub(crate) fn describe_tool(name: &str, args: Option<&str>) -> String {
         "request_user_form" | "request-user-form" | "user-form" => {
             super::user_form::WAITING_FOR_YOU.into()
         }
+        other if other.starts_with("office_") => office_label(other, path.and_then(file_basename)),
         "" => "Working".into(),
         other => format!("Using {other}"),
     }
@@ -427,6 +481,8 @@ pub(crate) fn describe_arguments(name: &str, args: &str) -> Option<String> {
         "Read" | "ExternalRead" | "BoxRead" | "readToolCall" | "read_file" | "write_file" => {
             field("path")
         }
+        // The session verbs carry `document` (an `odoc_` handle); the file verbs carry `path`.
+        other if other.starts_with("office_") => field("path").or_else(|| field("document")),
         _ => None,
     };
     said.or_else(|| serde_json::to_string_pretty(&parsed).ok())

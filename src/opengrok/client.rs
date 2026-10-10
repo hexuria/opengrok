@@ -763,6 +763,71 @@ impl OpenGrokClient {
         }
     }
 
+    /// `GET /office/docs/{id}`: an office document's session as the document window wants it —
+    /// kind, version and the proposals still pending (opengrok-server `detail` in
+    /// `crates/opengrok-server/src/office_routes.rs`, gol/betteroffice). A 404 is the server's
+    /// own word that the doc is gone — a reset box, another account's — not a client guess.
+    pub async fn office_doc(
+        &self,
+        id: &str,
+    ) -> Result<crate::opengrok::OfficeDocDetail, OpenGrokError> {
+        let response = self
+            .send_json::<()>(reqwest::Method::GET, &format!("/office/docs/{id}"), None)
+            .await?;
+        Self::json_or_error(response).await
+    }
+
+    /// `GET /office/docs/{id}/pages/{page}.png`: one rendered page/slide/used-range, one-based
+    /// like the `office_render` tool's `page`. `None` on a 404 — past the last page, or a doc
+    /// the box no longer has — rather than an error the pager would have to read twice.
+    pub async fn office_doc_page(
+        &self,
+        id: &str,
+        page: u32,
+    ) -> Result<Option<Vec<u8>>, OpenGrokError> {
+        let response = self
+            .send_json::<()>(
+                reqwest::Method::GET,
+                &format!("/office/docs/{id}/pages/{page}.png"),
+                None,
+            )
+            .await?;
+        match response.status().as_u16() {
+            404 => Ok(None),
+            _ if response.status().is_success() => {
+                let bytes = response
+                    .bytes()
+                    .await
+                    .map_err(|e| OpenGrokError::transport(&e))?;
+                Ok((!bytes.is_empty()).then(|| bytes.to_vec()))
+            }
+            _ => Err(Self::read_error(response).await),
+        }
+    }
+
+    /// `GET /office/docs/{id}/bytes`: the document's bytes as the box has them now, for Save a
+    /// copy. `None` on a 404, the same "gone" the page route reports.
+    pub async fn office_doc_bytes(&self, id: &str) -> Result<Option<Vec<u8>>, OpenGrokError> {
+        let response = self
+            .send_json::<()>(
+                reqwest::Method::GET,
+                &format!("/office/docs/{id}/bytes"),
+                None,
+            )
+            .await?;
+        match response.status().as_u16() {
+            404 => Ok(None),
+            _ if response.status().is_success() => {
+                let bytes = response
+                    .bytes()
+                    .await
+                    .map_err(|e| OpenGrokError::transport(&e))?;
+                Ok((!bytes.is_empty()).then(|| bytes.to_vec()))
+            }
+            _ => Err(Self::read_error(response).await),
+        }
+    }
+
     /// Delete one of the person's site logins on the server. A row the server no longer has
     /// counts as deleted.
     pub async fn delete_site_login(&self, id: &str) -> Result<(), OpenGrokError> {
@@ -6526,6 +6591,58 @@ mod tests {
             "so this machine can put its own copy out of sight"
         );
         assert!(thread.runs.is_empty(), "and it is not offered again");
+    }
+
+    /// The document window's two fetches (opengrok-server `office_routes.rs`, gol/betteroffice):
+    /// the session's detail as JSON, and a page as PNG bytes — a 404 page being the pager's
+    /// honest end-of-document rather than a failure.
+    #[tokio::test]
+    async fn an_office_doc_detail_and_its_pages_are_fetched_by_doc_id() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/office/docs/odoc_1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "docId": "odoc_1",
+                "path": "~/office/deck.pptx",
+                "kind": "pptx",
+                "version": 3,
+                "contentSha256": "ab",
+                "proposals": [{"id": "p1", "author": "model", "note": "retitle", "status": "pending", "changes": 2}],
+                "createdAt": 1,
+                "updatedAt": 2,
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/office/docs/odoc_1/pages/1.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x50]))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/office/docs/odoc_1/pages/9.png"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = OpenGrokClient::new(&server.uri()).unwrap();
+        let detail = client.office_doc("odoc_1").await.expect("the row");
+        assert_eq!(detail.kind, "pptx");
+        assert_eq!(detail.version, 3);
+        assert_eq!(detail.proposals.len(), 1);
+        assert_eq!(detail.proposals[0].changes, 2);
+        assert_eq!(
+            client
+                .office_doc_page("odoc_1", 1)
+                .await
+                .expect("the page")
+                .as_deref(),
+            Some(&[0x89, 0x50][..])
+        );
+        assert_eq!(
+            client.office_doc_page("odoc_1", 9).await.expect("the end"),
+            None,
+            "past the last page is None, not an error"
+        );
     }
 
     /// A server that answers with nothing where a list would be is still a thread that reads.

@@ -69,6 +69,9 @@
 //! #360) holding `plugin-needs-use-{message}-{account}` (label = the account, value = how it was
 //! added), `plugin-needs-remember-{message}`, `plugin-needs-open-{message}-{plugin}` and
 //! `plugin-needs-again-{message}`, each disabled once the card is not the thread's last turn,
+//! `office-card-{message}-{doc}` (an `opengrok.officeDoc` card, gol/betteroffice) holding
+//! `office-open-{message}-{doc}` (opens the document window on that doc), and in the window
+//! `office-tab-{doc}`, `office-page-prev`, `office-page-next` and `office-follow`,
 //! `user-form-use-saved-{key}-{login}` (one per saved account for the card's site; a sign-in
 //! that asks for the name and the password on two pages is two cards, each with a row per
 //! password login, and on the password page the login picked on the name page in that thread

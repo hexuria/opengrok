@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::client::LocalExecMode;
 use super::credential::SaveLoginSpec;
@@ -42,6 +42,9 @@ pub enum ChatPart {
     /// The whole answer to a message whose tagged plugins need something first: which account,
     /// an account at all, or an install (`opengrok.pluginNeeds`, #360). No model was asked.
     PluginNeeds(PluginNeedsSpec),
+    /// A document the turn is working on (`opengrok.officeDoc`): its card in the feed is the
+    /// window's anchor — click it and the document window is on it.
+    OfficeDoc(OfficeDocSpec),
 }
 
 /// The CUSTOM a turn answers with, instead of asking the model, when a plugin its message tagged
@@ -123,6 +126,85 @@ impl PluginNeedsSpec {
             needs,
             send_again: true,
         })
+    }
+}
+
+/// The CUSTOM an `office_*` tool emits for every document it opens or touches: thin by design
+/// (opengrok-server `frame` in `crates/opengrok-server/src/office_desk.rs`, gol/betteroffice) —
+/// id, path, kind, version, which change — and the document window pulls bytes and rendered
+/// pages through `GET /office/docs/{id}/…` rather than receiving them here.
+pub const OFFICE_DOC_CUSTOM: &str = "opengrok.officeDoc";
+
+/// One office document a turn is working on, as its newest `opengrok.officeDoc` frame
+/// described it. The card in the feed and a tab in the document window both read this.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OfficeDocSpec {
+    /// The session handle, `odoc_…`: what the fetch routes take.
+    pub doc_id: String,
+    /// The file's path on the Bot's computer.
+    pub path: String,
+    /// `docx`, `xlsx` or `pptx` (the server's `Kind::extension`).
+    pub kind: String,
+    /// The session's mutation count: every applied change bumps it, so a card holding an
+    /// older number is stale and a held page is worth refetching.
+    pub version: u64,
+    /// The artifact an `office_export` attached to the reply, when the change was one.
+    pub artifact_id: Option<String>,
+    /// What the last frame says changed (`{"type": "created"|"edited"|…}`), kept whole so the
+    /// window can still read fields a later card stops painting.
+    pub changed: Value,
+}
+
+impl OfficeDocSpec {
+    /// The document a `opengrok.officeDoc` frame carries; `None` for any other frame or one
+    /// missing its identity (a frame without a doc id or path names nothing).
+    pub fn from_custom(name: &str, value: &Value) -> Option<Self> {
+        if name != OFFICE_DOC_CUSTOM {
+            return None;
+        }
+        Self::from_value(value)
+    }
+
+    /// The same shape out of storage: [`saved_parts`] keeps it as `to_value` wrote it.
+    pub fn from_value(value: &Value) -> Option<Self> {
+        Some(Self {
+            doc_id: value.get("docId")?.as_str()?.to_string(),
+            path: value.get("path")?.as_str()?.to_string(),
+            kind: value.get("kind")?.as_str()?.to_string(),
+            version: value.get("version")?.as_u64()?,
+            artifact_id: value
+                .get("artifactId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            changed: value.get("changed").cloned().unwrap_or(Value::Null),
+        })
+    }
+
+    /// The frame's own shape, for the stored copy a reopened thread reads back.
+    pub fn to_value(&self) -> Value {
+        json!({
+            "docId": self.doc_id,
+            "path": self.path,
+            "kind": self.kind,
+            "version": self.version,
+            "artifactId": self.artifact_id,
+            "changed": self.changed,
+        })
+    }
+
+    /// The file's name as the card and the tab say it: the path's last segment.
+    pub fn file_name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+
+    /// The kind's badge word.
+    pub fn kind_label(&self) -> String {
+        self.kind.to_uppercase()
+    }
+
+    /// The last change's `type` word, for the card's subline.
+    pub fn changed_type(&self) -> Option<&str> {
+        self.changed.get("type").and_then(Value::as_str)
     }
 }
 
@@ -1014,6 +1096,11 @@ pub struct TurnAssembler {
     /// Calls whose arguments are all in and whose answer has not come, by call id: the clock
     /// each call's row reads its time from ([`StepSpec::took_ms`]).
     clocks: std::collections::HashMap<String, CallClock>,
+    /// The newest `opengrok.officeDoc` frame per document, by doc id: what the document window
+    /// follows across the turn — the committed part carries the card, this carries the truth.
+    office_docs: std::collections::BTreeMap<String, OfficeDocSpec>,
+    /// The document the newest frame touched: the tab the window paints live.
+    office_latest: Option<String>,
 }
 
 /// A call waiting for its answer.
@@ -1291,6 +1378,21 @@ impl TurnAssembler {
                 } else if let Some(handoff) = ComputerHandoffSpec::from_event(event) {
                     self.flush_text();
                     self.push_user_form(handoff.as_escalated_form());
+                } else if let Some(spec) =
+                    OfficeDocSpec::from_custom(name, event.get("value").unwrap_or(&Value::Null))
+                {
+                    self.flush_text();
+                    // One card per document, kept where the document first appeared in the
+                    // reply and rewritten by each frame: ten edits in a turn are ten versions
+                    // of one card, not ten cards.
+                    match self.committed.iter_mut().find(|part| {
+                        matches!(part, ChatPart::OfficeDoc(existing) if existing.doc_id == spec.doc_id)
+                    }) {
+                        Some(part) => *part = ChatPart::OfficeDoc(spec.clone()),
+                        None => self.committed.push(ChatPart::OfficeDoc(spec.clone())),
+                    }
+                    self.office_latest = Some(spec.doc_id.clone());
+                    self.office_docs.insert(spec.doc_id.clone(), spec);
                 } else {
                     let value = event.get("value").cloned().unwrap_or(Value::Null);
                     if let Some(spec) = UiSpec::from_custom(name, &value) {
@@ -1642,6 +1744,18 @@ impl TurnAssembler {
         self.latest_shot.as_ref()
     }
 
+    /// The documents this turn's `opengrok.officeDoc` frames have named so far, by doc id —
+    /// the set the document window's tab strip shows, and which of them is newest says which
+    /// tab is live.
+    pub fn office_docs(&self) -> &std::collections::BTreeMap<String, OfficeDocSpec> {
+        &self.office_docs
+    }
+
+    /// The doc id the newest `opengrok.officeDoc` frame touched.
+    pub fn office_latest(&self) -> Option<&str> {
+        self.office_latest.as_deref()
+    }
+
     fn close_tool(&mut self, tool: OpenTool) {
         let Ok(value) = serde_json::from_str::<Value>(&tool.args) else {
             return;
@@ -1726,7 +1840,8 @@ impl TurnAssembler {
             | ChatPart::SaveLogin(_)
             | ChatPart::Step(_)
             | ChatPart::Reasoning(_)
-            | ChatPart::PluginNeeds(_) => true,
+            | ChatPart::PluginNeeds(_)
+            | ChatPart::OfficeDoc(_) => true,
         });
         self.committed.push(ChatPart::Ui(spec));
         self.completed_ui.retain(|tool| tool.name != name);
@@ -2113,7 +2228,8 @@ fn plain_text(parts: &[ChatPart]) -> String {
             | ChatPart::SaveLogin(_)
             | ChatPart::Step(_)
             | ChatPart::Reasoning(_)
-            | ChatPart::PluginNeeds(_) => push_run(&mut out, std::mem::take(&mut run)),
+            | ChatPart::PluginNeeds(_)
+            | ChatPart::OfficeDoc(_) => push_run(&mut out, std::mem::take(&mut run)),
         }
     }
     push_run(&mut out, run);
@@ -2689,6 +2805,127 @@ mod tests {
         older.push_event(&json!({"type": "RUN_STARTED", "runId": "r1", "threadId": "cw_1"}));
         older.push_event(&text("Hi."));
         assert_eq!(older.reply_source(), None, "a server before reply sources");
+    }
+
+    /// The frame an `office_*` tool emits (opengrok-server `office_desk.rs` `frame`,
+    /// gol/betteroffice), as the stream carries it.
+    fn office_frame(doc_id: &str, path: &str, kind: &str, version: u64) -> Value {
+        json!({
+            "type": "CUSTOM",
+            "name": OFFICE_DOC_CUSTOM,
+            "value": {
+                "docId": doc_id,
+                "path": path,
+                "kind": kind,
+                "version": version,
+                "artifactId": null,
+                "changed": {"type": "edited"},
+            }
+        })
+    }
+
+    /// A document frame becomes one card in the reply and one entry for the window: the card
+    /// says what the file is, the map says which doc the turn touched last.
+    #[test]
+    fn an_office_doc_frame_is_a_card_and_the_windows_doc() {
+        let mut turn = TurnAssembler::default();
+        turn.push_event(&office_frame("odoc_1", "~/office/report.docx", "docx", 1));
+        let (_, parts) = turn.snapshot();
+        let spec = OfficeDocSpec {
+            doc_id: "odoc_1".into(),
+            path: "~/office/report.docx".into(),
+            kind: "docx".into(),
+            version: 1,
+            artifact_id: None,
+            changed: json!({"type": "edited"}),
+        };
+        assert_eq!(parts, vec![ChatPart::OfficeDoc(spec.clone())]);
+        assert_eq!(turn.office_docs().get("odoc_1"), Some(&spec));
+        assert_eq!(turn.office_latest(), Some("odoc_1"));
+    }
+
+    /// Every frame for the same document rewrites its card in place rather than dealing another
+    /// one — ten edits in a turn are ten versions of one card — and the window's entry keeps the
+    /// newest word on it.
+    #[test]
+    fn office_doc_frames_rewrite_the_card_in_place() {
+        let mut turn = TurnAssembler::default();
+        turn.push_event(&office_frame("odoc_1", "deck.pptx", "pptx", 1));
+        turn.push_event(&text("Adjusted the title."));
+        turn.push_event(&office_frame("odoc_1", "deck.pptx", "pptx", 2));
+        let (plain, parts) = turn.snapshot();
+        let docs: Vec<_> = parts
+            .iter()
+            .filter(|part| matches!(part, ChatPart::OfficeDoc(_)))
+            .collect();
+        assert_eq!(docs.len(), 1, "one card for one document, {parts:?}");
+        let ChatPart::OfficeDoc(spec) = &parts[0] else {
+            panic!("the card sits where the document first appeared");
+        };
+        assert_eq!(spec.version, 2);
+        assert_eq!(
+            parts.get(1),
+            Some(&ChatPart::Text("Adjusted the title.".into())),
+            "the words after it stay after it"
+        );
+        assert!(plain.contains("Adjusted the title."));
+        assert_eq!(turn.office_docs().get("odoc_1").map(|s| s.version), Some(2));
+    }
+
+    /// Two documents are two cards in the order they were first touched, and the tab the window
+    /// paints live is whichever the newest frame named.
+    #[test]
+    fn two_documents_are_two_cards_and_the_latest_frame_picks_the_live_one() {
+        let mut turn = TurnAssembler::default();
+        turn.push_event(&office_frame("odoc_1", "a.docx", "docx", 1));
+        turn.push_event(&office_frame("odoc_2", "b.xlsx", "xlsx", 1));
+        turn.push_event(&office_frame("odoc_1", "a.docx", "docx", 2));
+        let (_, parts) = turn.snapshot();
+        let ids: Vec<_> = parts
+            .iter()
+            .filter_map(|part| match part {
+                ChatPart::OfficeDoc(spec) => Some(spec.doc_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, vec!["odoc_1", "odoc_2"]);
+        assert_eq!(turn.office_latest(), Some("odoc_1"));
+    }
+
+    /// The stored card reads back as the frame it was written from: a thread reopened from the
+    /// local store shows the document card without waiting on a replay.
+    #[test]
+    fn an_office_doc_spec_round_trips_through_storage() {
+        let spec = OfficeDocSpec {
+            doc_id: "odoc_7".into(),
+            path: "~/office/q3.xlsx".into(),
+            kind: "xlsx".into(),
+            version: 4,
+            artifact_id: Some("art_2".into()),
+            changed: json!({"type": "exported", "exportPath": "~/office/q3-final.xlsx"}),
+        };
+        let back = OfficeDocSpec::from_value(&spec.to_value());
+        assert_eq!(back.as_ref(), Some(&spec));
+        assert_eq!(spec.file_name(), "q3.xlsx");
+        assert_eq!(spec.kind_label(), "XLSX");
+        assert_eq!(spec.changed_type(), Some("exported"));
+    }
+
+    /// A CUSTOM that merely shares the name's prefix is not a document, and a document frame
+    /// missing its identity is dropped rather than painted as a card that opens nothing.
+    #[test]
+    fn only_a_whole_office_doc_frame_is_a_card() {
+        let mut turn = TurnAssembler::default();
+        turn.push_event(&json!({
+            "type": "CUSTOM", "name": "opengrok.officeDoc.draft",
+            "value": {"docId": "odoc_1", "path": "a.docx", "kind": "docx", "version": 1}
+        }));
+        turn.push_event(&json!({
+            "type": "CUSTOM", "name": OFFICE_DOC_CUSTOM,
+            "value": {"kind": "docx", "version": 1}
+        }));
+        assert!(turn.snapshot().1.is_empty());
+        assert!(turn.office_docs().is_empty());
     }
 
     /// A replay opens a run with the person's own messages, and the frame that says which door
