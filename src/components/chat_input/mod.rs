@@ -101,6 +101,9 @@ pub fn file_mime(path: &Path) -> Option<&'static str> {
         "heic" => "image/heic",
         "svg" => "image/svg+xml",
         "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "md" | "markdown" => "text/markdown",
         "csv" => "text/csv",
         "html" | "htm" => "text/html",
@@ -141,6 +144,12 @@ pub fn file_caveat(files: &[DraftFile]) -> Option<String> {
     let mut lines = Vec::new();
     if pdf {
         lines.push("The bot sees a PDF's name, not its text yet.");
+    }
+    if files.iter().any(|file| {
+        file.mime
+            .starts_with("application/vnd.openxmlformats-officedocument.")
+    }) {
+        lines.push("A Word, Excel or PowerPoint file is worked on in the bot's own computer.");
     }
     if video {
         lines.push("The bot sees a video's name, not the video.");
@@ -2692,6 +2701,18 @@ mod tests {
             ("notes.md", Some("text/markdown")),
             ("data.json", Some("text/plain")),
             ("clip.mov", Some("video/quicktime")),
+            (
+                "report.docx",
+                Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            ),
+            (
+                "book.xlsx",
+                Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            ),
+            (
+                "deck.pptx",
+                Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            ),
             ("archive.zip", None),
             ("noextension", None),
         ] {
