@@ -2132,15 +2132,33 @@ fn route_traffic_icon(
     theme: &gpui_kit::component::Theme,
     cx: &App,
 ) -> impl IntoElement {
-    // Two different pictures, so the state is readable at a glance: the route arrows in green
-    // while traffic is routed through this desktop, a plain globe when it goes out on its own.
-    let enabled = app.read(cx).egress_tunnel_enabled;
-    let (icon, color) = if enabled {
-        ("icons/route-traffic.svg", theme.success)
-    } else {
-        ("icons/globe.svg", theme.muted_foreground)
+    // Three states, so intent is never mistaken for plumbing: green route arrows while this
+    // box's tunnel is live; the same arrows in the warning colour when routing is on but THIS
+    // box was created without the tunnel's published port (Docker cannot add one after
+    // create — the next reset or update carries it); a plain globe when routing is off.
+    // `theme.accent` is a near-white background token — an icon painted with it is invisible
+    // on the pane, so the pending state uses `warning` instead.
+    let (enabled, provisioned) = {
+        let state = app.read(cx);
+        (state.egress_tunnel_enabled, state.box_egress_provisioned())
     };
-    let tip = reroute_tip(enabled);
+    let (icon, color, tip) = if !enabled {
+        (
+            "icons/globe.svg",
+            theme.muted_foreground,
+            reroute_tip(false),
+        )
+    } else if provisioned {
+        ("icons/route-traffic.svg", theme.success, reroute_tip(true))
+    } else {
+        (
+            "icons/route-traffic.svg",
+            theme.warning,
+            "Routing traffic through this desktop is on — this computer was created before \
+             it was, so its own traffic still goes out on its own. Reset or update the \
+             computer (the buttons beside this one) to route it.",
+        )
+    };
     div()
         .id("route-traffic-this-computer")
         .debug_selector(|| "route-traffic-this-computer".into())

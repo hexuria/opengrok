@@ -6098,10 +6098,20 @@ pub struct AppState {
     /// The document the newest frame touched: which tab the window paints live, and which a
     /// "Follow" click rejoins. A card's Open picks it too.
     pub office_active: Option<String>,
-    /// The one document window: tabs for `office_docs`, newest doc live. Brought forward on
-    /// Open rather than stacked.
+    /// One document window per document, keyed by doc_id: a deck the turn touches never
+    /// shares a frame with another file, so a runaway creator's -v2/-v3 names can never pass
+    /// as one document's history on a tab strip. Brought forward on Open; a handle whose
+    /// window was closed fails to update and a fresh one opens.
     #[cfg(target_os = "macos")]
-    office_window: Option<WindowHandle<crate::components::office_doc::OfficeDocWindow>>,
+    office_windows: std::collections::HashMap<
+        String,
+        WindowHandle<crate::components::office_doc::OfficeDocWindow>,
+    >,
+    /// Each open document window's pager as it draws it — `(page, learned end)`. The agent
+    /// snapshot cannot read inside a second window's root entity, so the window publishes
+    /// here on every change; the tree exposes it as `office-page-*` nodes the driver can
+    /// click and assert.
+    pub office_pager: HashMap<String, (u32, Option<u32>)>,
     /// The transcript cards' page images, keyed by doc and the card's version: a card shows
     /// the page the document was dealt at, so an edit's card and an export's card can hold
     /// different pages of the same file.
@@ -6109,6 +6119,9 @@ pub struct AppState {
     /// A thumbnail fetch per (doc, version), deduped — a card that repaints before its page
     /// lands asks once, not twice.
     office_thumb_fetching: HashSet<(String, u64)>,
+    /// Thumbnail keys whose fetch already failed — the card keeps its badge row, and the
+    /// same dead request is not re-issued on every later notify.
+    office_thumb_failed: HashSet<(String, u64)>,
     /// Update / Reset ask first: the dialog over the app, until Confirm or Cancel.
     pub computer_confirm: Option<ComputerAction>,
     /// The network-permission dialog for the open bot's own computer is on screen.
@@ -6732,8 +6745,10 @@ impl AppState {
             office_active: None,
             office_thumbs: HashMap::new(),
             office_thumb_fetching: HashSet::new(),
+            office_thumb_failed: HashSet::new(),
             #[cfg(target_os = "macos")]
-            office_window: None,
+            office_windows: std::collections::HashMap::new(),
+            office_pager: HashMap::new(),
         }
     }
 
@@ -6794,6 +6809,10 @@ impl AppState {
                         state.account = Some(account);
                         state.auth_status = AuthStatus::SignedIn;
                         state.auth_error = None;
+                        // A fresh session: requests that 401'd before may answer now —
+                        // the thumb gate and the dead thumb rows reset with the credentials.
+                        state.office_thumb_failed.clear();
+                        state.office_thumbs.clear();
                         state.note_server_answered(cx);
                         state.watch_time_zone(cx);
                         state.start_local_exec(cx);
@@ -7467,10 +7486,11 @@ impl AppState {
         .detach();
     }
 
+    /// The globe's click: host intent, always recorded — a box created after this carries
+    /// the tunnel even when the one on screen cannot (`Docker cannot publish a port after
+    /// create`). Blocking the intent because the CURRENT box lacks the port made the icon
+    /// look alive while swallowing the click entirely.
     pub fn set_egress_tunnel_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        if enabled && !self.box_egress_provisioned() {
-            return;
-        }
         self.egress_tunnel_enabled = enabled;
         cx.notify();
         let Some(client) = self.opengrok.clone() else {
@@ -13893,10 +13913,10 @@ impl AppState {
         self.show_coworker_screen(false, cx);
     }
 
-    /// The documents a live turn's `opengrok.officeDoc` frames name, folded into the window's
-    /// set: a doc first seen joins the tab strip in place, a doc already there takes the
-    /// frame's newer version, and the turn's newest document becomes the live tab (D14: the
-    /// strip stays put, the live marker moves). A new document opens the window on it — D12's
+    /// The documents a live turn's `opengrok.officeDoc` frames name, folded into the app's
+    /// set: a doc first seen joins it in place, a doc already there takes the frame's newer
+    /// version, and the turn's newest document becomes the live one — its own window marks
+    /// it while no other file shares that frame. A new document opens its window — D12's
     /// "the pane follows the work" — and a version bump on a watched one is all `cx.notify`.
     fn fold_office_docs(
         &mut self,
@@ -13931,8 +13951,8 @@ impl AppState {
         if let Some(id) = latest {
             self.office_active = Some(id.to_string());
         }
-        if joined {
-            self.open_office_window(cx);
+        if joined && let Some(id) = self.office_active.clone() {
+            self.open_office_window_for(&id, cx);
         }
         cx.notify();
     }
@@ -13958,7 +13978,7 @@ impl AppState {
             }
         }
         self.office_active = Some(doc_id.to_string());
-        self.open_office_window(cx);
+        self.open_office_window_for(doc_id, cx);
         self.office_doc_show(doc_id, page, cx);
         cx.notify();
     }
@@ -13975,7 +13995,9 @@ impl AppState {
             return;
         };
         let key = (spec.doc_id.clone(), spec.version);
-        if self.office_thumbs.contains_key(&key) || !self.office_thumb_fetching.insert(key.clone())
+        if self.office_thumbs.contains_key(&key)
+            || self.office_thumb_failed.contains(&key)
+            || !self.office_thumb_fetching.insert(key.clone())
         {
             return;
         }
@@ -13985,21 +14007,31 @@ impl AppState {
                 .office_doc_page(&doc_id, 1, Some(version))
                 .await
                 .ok()
-                .flatten();
+                .flatten()
+                .map(|page| page.bytes);
             if png.is_none() {
                 png = client
                     .office_doc_page(&doc_id, 1, None)
                     .await
                     .ok()
-                    .flatten();
+                    .flatten()
+                    .map(|page| page.bytes);
             }
             let _ = this.update(cx, |this, cx| {
                 this.office_thumb_fetching.remove(&key);
-                if let Some(png) = png {
-                    this.office_thumbs.insert(
-                        key,
-                        Arc::new(gpui_kit::Image::from_bytes(gpui_kit::ImageFormat::Png, png)),
-                    );
+                match png {
+                    Some(png) => {
+                        this.office_thumbs.insert(
+                            key,
+                            Arc::new(gpui_kit::Image::from_bytes(gpui_kit::ImageFormat::Png, png)),
+                        );
+                    }
+                    // A failure is an answer too: remembered so the next card render does
+                    // not ask again — a dead session once ran this loop twenty thousand
+                    // times a minute.
+                    None => {
+                        this.office_thumb_failed.insert(key);
+                    }
                 }
                 cx.notify();
             });
@@ -14015,65 +14047,111 @@ impl AppState {
             .cloned()
     }
 
-    /// The window's half of a card's Open: pin that doc at that page. macOS-only like the
-    /// window itself — the field the method updates only exists there.
+    /// The window's half of a card's Open: pin that doc at that page, in that doc's own
+    /// window. macOS-only like the window itself — the field the method updates only exists
+    /// there.
     fn office_doc_show(&mut self, doc_id: &str, page: u32, cx: &mut Context<Self>) {
         #[cfg(target_os = "macos")]
-        if let Some(window) = self.office_window {
+        if let Some(window) = self.office_windows.get(doc_id) {
             let _ = window.update(cx, |view, _window, cx| view.show_doc(doc_id, page, cx));
         }
         let _ = (doc_id, page, cx);
     }
 
     /// The document window's version combobox, toggled — a driver's reach for the chip's
-    /// click. The window holds no semantic nodes of its own, so the action arrives here.
+    /// click. The window holds no semantic nodes of its own, so the action arrives here at
+    /// the active doc's window.
     #[cfg(feature = "agent")]
     pub fn office_doc_version_picker_toggle(&mut self, cx: &mut Context<Self>) {
         #[cfg(target_os = "macos")]
-        if let Some(window) = self.office_window {
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
             let _ = window.update(cx, |view, window, cx| view.toggle_picker(window, cx));
         }
         let _ = cx;
+    }
+
+    /// A driver's page turn on the active document window — the chevrons' click, as a
+    /// step so `next` and `prev` share the pager's own clamp.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_page_step(&mut self, delta: i64, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
+            let _ = window.update(cx, |view, _window, cx| view.step_page(delta, cx));
+        }
+        let _ = (delta, cx);
+    }
+
+    /// A driver's jump straight to a page on the active document window — show_doc's
+    /// half of a card Open without the card.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_page_go(&mut self, page: u32, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
+            let _ = window.update(cx, |view, _window, cx| {
+                view.show_doc(&doc_id, page, cx);
+            });
+        }
+        let _ = (page, cx);
     }
 
     /// The pick the combobox's Enter performs — a driver's reach for a row click.
     #[cfg(feature = "agent")]
     pub fn office_doc_version_pick(&mut self, version: u64, cx: &mut Context<Self>) {
         #[cfg(target_os = "macos")]
-        if let Some(window) = self.office_window {
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
             let _ = window.update(cx, |view, _window, cx| view.pick_version(version, cx));
         }
         let _ = (version, cx);
     }
 
-    /// The document window: one for the app, tabbed across `office_docs`. Already open comes
-    /// forward; a handle whose window was closed fails to update and a fresh one opens.
-    pub fn open_office_window(&mut self, cx: &mut Context<Self>) {
+    /// That document's own window: one per doc_id, so two files are never tabs in one frame
+    /// again. Already open comes forward; a handle whose window was closed fails to update
+    /// and a fresh one opens.
+    pub fn open_office_window_for(&mut self, doc_id: &str, cx: &mut Context<Self>) {
         #[cfg(target_os = "macos")]
         {
-            if let Some(existing) = self.office_window
+            if let Some(existing) = self.office_windows.get(doc_id)
                 && existing
                     .update(cx, |_, window, _| window.activate_window())
                     .is_ok()
             {
                 return;
             }
+            self.office_windows.remove(doc_id);
+            // A handle that would not answer is a window that is gone: the pager it last
+            // published goes with it, or the tree would keep offering dead chevrons.
+            self.office_pager.remove(doc_id);
+            let title = self
+                .office_docs
+                .iter()
+                .find(|doc| doc.doc_id == doc_id)
+                .map(|doc| doc.file_name().to_string())
+                .unwrap_or_else(|| "Document".into());
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin: point(px(96.), px(96.)),
                     size: size(px(980.), px(820.)),
                 })),
                 window_min_size: Some(size(px(560.), px(420.))),
-                // The title bar is ours: the tab strip is the title bar's row, as the screen
-                // window's strip is.
+                // The title bar is ours: the document's name is the title bar's row, as the
+                // screen window's strip is.
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Documents".into()),
+                    title: Some(title.into()),
                     appears_transparent: true,
                     traffic_light_position: Some(point(px(12.), px(14.))),
                 }),
                 ..WindowOptions::default()
             };
             let app = cx.entity();
+            let owner = doc_id.to_string();
             let (docs, live, client) = (
                 self.office_docs.clone(),
                 self.office_active.clone(),
@@ -14083,6 +14161,7 @@ impl AppState {
                 cx.new(|cx| {
                     crate::components::office_doc::OfficeDocWindow::new(
                         app,
+                        owner.clone(),
                         docs.clone(),
                         live.clone(),
                         client.clone(),
@@ -14092,7 +14171,9 @@ impl AppState {
                 })
             });
             match opened {
-                Ok(handle) => self.office_window = Some(handle),
+                Ok(handle) => {
+                    self.office_windows.insert(doc_id.to_string(), handle);
+                }
                 Err(error) => {
                     eprintln!("NativeChat office: could not open the document window: {error}")
                 }
