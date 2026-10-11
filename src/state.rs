@@ -5552,9 +5552,6 @@ pub struct AppState {
     pub login_bots: Option<(String, Option<HashSet<String>>)>,
     /// The Bot being given a computer of its own from a login card, while the server makes it.
     pub own_computer_changing: Option<String>,
-    /// The open Bot's screen is being switched (its own, or the shared one), while the server
-    /// answers.
-    pub own_screen_changing: bool,
     /// What the server said when it could not give a Bot its own computer.
     pub own_computer_refusal: Option<String>,
     /// The person's "share my logins with all my Bots" switch, as the server last said; None
@@ -6440,7 +6437,6 @@ impl AppState {
             site_login_shares: HashMap::new(),
             login_bots: None,
             own_computer_changing: None,
-            own_screen_changing: false,
             own_computer_refusal: None,
             logins_for_all_bots: None,
             logins_for_all_bots_changing: false,
@@ -21009,62 +21005,6 @@ impl AppState {
                 state.saved_login_checks.insert(bot, check);
                 if let Some((card_key, login_id)) = then {
                     state.pick_saved_login(card_key, login_id, cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// The open Bot's screen switch on its Computer pane: `Some(on its own screen)` when its
-    /// computer is shared by several Bots (the person's, or the org's), `None` when there is
-    /// nothing to switch: a computer of its own is its own screen already, a group's computer is
-    /// its members' shared desk, and a server before own screens does not say.
-    pub fn own_screen_offer(&self) -> Option<bool> {
-        let computer = self.coworker_computer.as_ref()?;
-        let shared = matches!(
-            computer.share_scope,
-            Some(crate::opengrok::BoxShareScope::User | crate::opengrok::BoxShareScope::Org)
-        );
-        let screen = computer.screen.as_deref()?;
-        shared.then_some(screen == "own")
-    }
-
-    /// Put the open Bot on a screen of its own on the computer it shares, or back on the shared
-    /// screen (#376). The computer is read again after, so its screen is the one shown.
-    pub fn set_own_screen(&mut self, own: bool, cx: &mut Context<Self>) {
-        let (Some(client), Some(bot)) = (self.opengrok.clone(), self.active_coworker_id.clone())
-        else {
-            return;
-        };
-        if self.own_screen_changing {
-            return;
-        }
-        self.own_screen_changing = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = client.set_own_screen(&bot, own).await;
-            let _ = this.update(cx, |state, cx| {
-                state.own_screen_changing = false;
-                match result {
-                    Ok(now_own) => {
-                        if state.active_coworker_id.as_deref() == Some(bot.as_str())
-                            && let Some(computer) = state.coworker_computer.as_mut()
-                        {
-                            computer.screen = Some(if now_own { "own" } else { "shared" }.into());
-                        }
-                        state.refresh_coworker_computer_quietly(cx);
-                    }
-                    Err(error) => {
-                        state.notify_error(
-                            Some(bot.clone()),
-                            "Computer",
-                            &error.message,
-                            None,
-                            None,
-                            cx,
-                        );
-                    }
                 }
                 cx.notify();
             });
@@ -36684,48 +36624,6 @@ mod tests {
         assert_eq!(state.logins_for_all_bots, None);
         assert!(!state.logins_for_all_bots_changing);
         assert_ne!(state.logins_for_all_bots_generation, asked);
-    }
-
-    /// The screen switch is offered on a computer several Bots share, checked while the open Bot
-    /// is on its own screen; not on a computer of its own, a group's, or from a server that does
-    /// not say which screen a Bot is on.
-    #[test]
-    fn the_own_screen_switch_is_offered_on_a_shared_computer_only() {
-        let mut state = AppState::new();
-        let computer = |extra: serde_json::Value| {
-            let mut body = serde_json::json!({ "agentId": "cw_1", "state": "running" });
-            for (key, value) in extra.as_object().expect("an object") {
-                body[key] = value.clone();
-            }
-            serde_json::from_value::<crate::opengrok::CoworkerComputer>(body).expect("a computer")
-        };
-        assert_eq!(state.own_screen_offer(), None, "no computer read yet");
-        for (extra, offered) in [
-            (
-                serde_json::json!({ "shareScope": "user", "screen": "shared" }),
-                Some(false),
-            ),
-            (
-                serde_json::json!({ "shareScope": "user", "screen": "own" }),
-                Some(true),
-            ),
-            (
-                serde_json::json!({ "shareScope": "org", "screen": "own" }),
-                Some(true),
-            ),
-            (
-                serde_json::json!({ "shareScope": "dedicated", "screen": "shared" }),
-                None,
-            ),
-            (
-                serde_json::json!({ "shareScope": "group", "screen": "shared" }),
-                None,
-            ),
-            (serde_json::json!({ "shareScope": "user" }), None),
-        ] {
-            state.coworker_computer = Some(computer(extra.clone()));
-            assert_eq!(state.own_screen_offer(), offered, "{extra}");
-        }
     }
 
     /// Only the newest read of `/models` lands. Several are asked in a row and need not answer

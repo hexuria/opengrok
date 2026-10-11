@@ -1981,7 +1981,6 @@ fn box_chrome(
                     .tooltip(|window, cx| Tooltip::new("Tools for this Bot").build(window, cx)),
                 )
                 .child(route_traffic_icon(app.clone(), theme, cx))
-                .children(own_screen_icon(app.clone(), theme, cx))
                 .child(network_policy_icon(app.clone(), network_policy, theme)),
         )
         .child(
@@ -2073,58 +2072,6 @@ fn network_policy_icon(
                 .size(px(16.))
                 .text_color(color),
         )
-}
-
-/// The open Bot's own screen on the computer it shares with other Bots, or the shared screen
-/// (#376). Only on a shared computer: a computer of its own is its own screen already. Lit in
-/// the accent while the Bot is on a screen of its own; the tooltip says what a click does.
-fn own_screen_icon(
-    app: Entity<AppState>,
-    theme: &gpui_kit::component::Theme,
-    cx: &App,
-) -> Option<impl IntoElement> {
-    let state = app.read(cx);
-    let own = state.own_screen_offer()?;
-    let changing = state.own_screen_changing;
-    let tip = if own {
-        "On its own screen: what it does there is not on your other Bots' screen. Click to go back to the shared screen"
-    } else {
-        "On the shared screen: your other Bots see what it does. Click to give it a screen of its own"
-    };
-    let color = if own {
-        theme.primary
-    } else {
-        theme.muted_foreground
-    };
-    Some(
-        div()
-            .id("computer-own-screen")
-            .debug_selector(|| "computer-own-screen".into())
-            .size(px(28.))
-            .rounded(px(8.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .when(own, |this| this.bg(theme.primary.opacity(0.12)))
-            .when(!changing, |this| {
-                this.cursor_pointer()
-                    .hover(|s| s.bg(rgb(0x777777).opacity(0.2)))
-                    .on_mouse_down(MouseButton::Left, {
-                        let app = app.clone();
-                        move |_, _, cx| {
-                            app.update(cx, |state, cx| state.set_own_screen(!own, cx));
-                        }
-                    })
-            })
-            .when(changing, |this| this.opacity(0.5))
-            .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
-            .child(
-                Icon::default()
-                    .path("icons/monitor.svg")
-                    .size(px(16.))
-                    .text_color(color),
-            ),
-    )
 }
 
 fn route_traffic_icon(

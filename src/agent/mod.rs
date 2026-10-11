@@ -223,10 +223,7 @@
 //! Beside it, only then, `computer-get` (Get a computer: asks the server again; dead while an
 //! ask is with the server). The overview row is `computer-recipes`, `computer-plugins`,
 //! `computer-tools`, `route-traffic-this-computer`, `network-policy`, `computer-update`,
-//! `computer-reset`, in that order, for every computer whoever it is shared with (#175, R-A);
-//! and on a computer several Bots share, `computer-own-screen` (a switch, checked while the open
-//! Bot works on a screen of its own: `PUT /coworkers/{id}/computer/screen`, #376; disabled while
-//! the server answers; absent on a computer of its own, a group's, or a server that does not say).
+//! `computer-reset`, in that order, for every computer whoever it is shared with (#175, R-A).
 //! `route-traffic-this-computer` (a switch: the host-wide reroute, `PUT /ag-ui/host-settings`, so it
 //! applies to all the person's computers) and `network-policy` (disabled until the server sends
 //! a rule; otherwise this computer's own rule, `PUT /coworkers/{id}/computer/egress-policy`, which opens the dialog that

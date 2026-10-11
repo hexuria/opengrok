@@ -2360,36 +2360,6 @@ impl OpenGrokClient {
     /// `PUT /coworkers/{id}/own-computer` `{on}`: this Bot gets a computer of its own while the
     /// account's others keep sharing (opengrok-server `put_own_computer`, `agui/ceiling.rs`).
     /// Making the computer can take a while, so it is given the computer's own patience.
-    /// `PUT /coworkers/{id}/computer/screen` `{own}`: this Bot works on a screen of its own on the
-    /// computer it shares, with its own browser, or goes back to the shared screen. Answers
-    /// whether it is on its own screen now (opengrok-server `put_own_screen` in
-    /// `crates/opengrok-server/src/agui/ceiling.rs`, gol/own-screen, #376). A Bot with a
-    /// computer of its own is refused, in the server's words.
-    pub async fn set_own_screen(
-        &self,
-        coworker_id: &str,
-        own: bool,
-    ) -> Result<bool, OpenGrokError> {
-        #[derive(Deserialize)]
-        struct Answered {
-            screen: String,
-        }
-        let path = format!("/coworkers/{}/computer/screen", path_segment(coworker_id));
-        let body = json!({ "own": own });
-        let response = self
-            .send_json_within(
-                reqwest::Method::PUT,
-                &path,
-                Some(&body),
-                Some(std::time::Duration::from_secs(60)),
-                None,
-            )
-            .await?;
-        Self::json_or_error::<Answered>(response)
-            .await
-            .map(|answered| answered.screen == "own")
-    }
-
     pub async fn set_own_computer(&self, coworker_id: &str, on: bool) -> Result<(), OpenGrokError> {
         let path = format!("/coworkers/{}/own-computer", path_segment(coworker_id));
         let body = json!({ "on": on });
@@ -4563,12 +4533,6 @@ pub struct CoworkerComputer {
     /// said nothing. [`Self::why_no_computer`] is when the pane shows it.
     #[serde(rename = "computerError", default)]
     pub computer_error: Option<ComputerError>,
-    /// Which screen of the computer this Bot works on: `own` once it was told to use a screen of
-    /// its own on the computer it shares, else `shared` (opengrok-server `coworker_screen` in
-    /// `crates/opengrok-server/src/agui/provision.rs`, gol/own-screen, #376). `None` from a
-    /// server before own screens, which hides the switch.
-    #[serde(default)]
-    pub screen: Option<String>,
 }
 
 /// Why the server could not give a Bot a computer: a stable code, the sentence a person reads,
@@ -13486,34 +13450,6 @@ mod tests {
         assert!(!check.usable);
         assert_eq!(check.reason.as_deref(), Some("shared-computer"));
         client.set_own_computer("cw_1", true).await.unwrap();
-    }
-
-    /// A Bot is put on a screen of its own, and back, with one PUT each; the computer's status says
-    /// which screen it is on, and a server before own screens says nothing.
-    #[tokio::test]
-    async fn a_bot_is_put_on_its_own_screen_and_back() {
-        let server = MockServer::start().await;
-        for (own, word) in [(true, "own"), (false, "shared")] {
-            Mock::given(method("PUT"))
-                .and(path("/coworkers/cw_1/computer/screen"))
-                .and(body_json(json!({ "own": own })))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "screen": word })))
-                .expect(1)
-                .mount(&server)
-                .await;
-        }
-        let client = OpenGrokClient::new(&server.uri()).unwrap();
-        assert!(client.set_own_screen("cw_1", true).await.unwrap());
-        assert!(!client.set_own_screen("cw_1", false).await.unwrap());
-
-        let status: CoworkerComputer = serde_json::from_value(
-            json!({ "agentId": "cw_1", "state": "running", "screen": "own" }),
-        )
-        .unwrap();
-        assert_eq!(status.screen.as_deref(), Some("own"));
-        let older: CoworkerComputer =
-            serde_json::from_value(json!({ "agentId": "cw_1", "state": "running" })).unwrap();
-        assert_eq!(older.screen, None);
     }
 
     /// One plugin skill is switched by plugin and name, and its page reads the text the list

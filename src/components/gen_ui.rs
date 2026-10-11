@@ -54,7 +54,12 @@ pub fn render_screenshots(
         return v_flex()
             .gap(px(6.))
             .child(
+                // The tile is exactly the picture's size: the column would otherwise stretch it
+                // to the feed's width, and the eye, centred on the tile, would sit off the picture.
                 screenshot_tile("image-thumb-0", shots, 0, app)
+                    .self_start()
+                    .w(px(CARD_W))
+                    .h(px(height))
                     .child(
                         img(spec.image.clone())
                             .w(px(CARD_W))
