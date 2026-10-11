@@ -58,11 +58,12 @@ use super::client::{
     AddedToken, AnswerReply, AsyncRunResponse, BotSkillScope, BoxShareScope, ConnectLink,
     ConnectionAttempt, ConnectionKind, ConnectionOwner, ConnectionPin, ConnectionView, Connector,
     CoworkerCeiling, CoworkerComputer, CoworkerSkills, CoworkerUsage, DaemonEnrol, DaemonList,
-    DaemonMachine, LocalExecMode, LocalExecPolicy, OpenGrokClient, PluginCatalog, PluginDetail,
-    PluginInstallation, QueuedApproval, RecipeDetail, RecipeList, RecipeParameterKind,
-    RecipeRunResult, RunBy, RunCause, RunReplay, SKIPPED_FIRING, ScheduleKind, ScheduleRow,
-    ScheduleRun, ScheduleRunStarted, ScheduleRunStatus, SkillDetail, SkillSummary, SkillVersion,
-    StopReply, ThreadReplay, ToolListing, host_egress_tunnel_available, host_egress_tunnel_flag,
+    DaemonMachine, InstallSource, LocalExecMode, LocalExecPolicy, OpenGrokClient, PluginCatalog,
+    PluginDetail, PluginInstallation, QueuedApproval, RecipeDetail, RecipeList,
+    RecipeParameterKind, RecipeRunResult, RunBy, RunCause, RunReplay, SKIPPED_FIRING, ScheduleKind,
+    ScheduleRow, ScheduleRun, ScheduleRunStarted, ScheduleRunStatus, SkillDetail, SkillSummary,
+    SkillVersion, StopReply, ThreadReplay, ToolListing, host_egress_tunnel_available,
+    host_egress_tunnel_flag,
 };
 use super::credential::{CREDENTIAL_OFFER_SAVE, SaveLoginSpec};
 use super::error::{Failure, Unreachable, reads_as_gateway_unreachable};
@@ -719,7 +720,12 @@ const MACHINE_TOKEN_ROUTES: &[&str] = &[
 /// written in the agreed shape. The day a recorded body of the route carries the key, the entry
 /// has gone stale and comes off this list, and
 /// [`every_key_asked_ahead_of_its_recording_is_read_and_not_recorded_yet`] fails until it does.
-const REST_FIELDS_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[];
+const REST_FIELDS_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[(
+    "GET__plugins_installations",
+    "source",
+    "opengrok-server listing the plugins it loaded from its own folder beside the account's \
+     installs, `\"source\": \"server\"`: a recording of a server plugin in the list",
+)];
 
 // ---- the corpus ----
 
@@ -4055,8 +4061,14 @@ fn plugin_installations(_: u16, body: &Value) -> Check {
         let accounts = raw["accounts"]
             .as_array()
             .ok_or("an install should list its accounts")?;
+        // Absent from a server that lists only the account's installs, and read as the account's.
+        let source = match opt_str(raw, "source") {
+            Some("server") => InstallSource::Server,
+            _ => InstallSource::Account,
+        };
         must!(
             install.name == str_at(raw, "name")
+                && install.source == source
                 && install.registry == str_at(raw, "registry")
                 && install.registry_revision == str_at(raw, "registryRevision")
                 && install.repository == str_at(raw, "repository")

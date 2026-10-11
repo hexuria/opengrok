@@ -1963,6 +1963,7 @@ fn your_skills(state: &AppState) -> SkillLibrary<'_> {
         skills: &state.your_skills,
         loading: state.your_skills_loading,
         error: state.your_skills_error.as_deref(),
+        plugin_skills: state.slash_plugin_skills(),
     }
 }
 

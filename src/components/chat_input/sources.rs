@@ -20,7 +20,9 @@
 use gpui_kit::SharedString;
 
 use crate::components::composer_panel::ComposerPanelRow;
-use crate::opengrok::{RecipeParameter, RecipeParameterKind, RecipeSummary, SkillSummary};
+use crate::opengrok::{
+    PluginSkill, RecipeParameter, RecipeParameterKind, RecipeSummary, SkillSummary,
+};
 use crate::state::{ActiveRecipe, AppSettingsTab};
 
 /// What a picked row stands for. The panel only says which row it was; this says what to do
@@ -680,6 +682,9 @@ pub struct SkillLibrary<'a> {
     pub skills: &'a [SkillSummary],
     pub loading: bool,
     pub error: Option<&'a str>,
+    /// The open Bot's plugin skills, listed after the person's own. Only the open Bot's: a
+    /// plugin skill's id names its Bot and the server refuses it on any other.
+    pub plugin_skills: Vec<&'a PluginSkill>,
 }
 
 /// The skills the library holds, as rows of the `/` list.
@@ -694,7 +699,19 @@ pub struct SkillLibrary<'a> {
 /// Rows beat news. A library that has arrived is shown while the next fetch runs, rather than
 /// replaced by a line about fetching.
 fn skill_rows(library: &SkillLibrary<'_>) -> Vec<(ComposerPanelRow, ComposerPick)> {
+    let mut rows = own_skill_rows(library);
+    rows.extend(plugin_skill_rows(&library.plugin_skills));
+    rows
+}
+
+/// The person's own skills, or the one notice that stands where they would be. A notice gives
+/// way to plugin skills: "No skills yet" over a list with skills in it is wrong, and rows beat
+/// news.
+fn own_skill_rows(library: &SkillLibrary<'_>) -> Vec<(ComposerPanelRow, ComposerPick)> {
     if library.skills.is_empty() {
+        if plugin_skill_rows(&library.plugin_skills).next().is_some() {
+            return Vec::new();
+        }
         return vec![match (library.loading, library.error) {
             (true, _) => skill_notice("Loading your skills", "One moment"),
             (false, Some(why)) => skill_notice("Your skills could not be loaded", why),
@@ -732,6 +749,49 @@ fn skill_rows(library: &SkillLibrary<'_>) -> Vec<(ComposerPanelRow, ComposerPick
             )
         })
         .collect()
+}
+
+/// The open Bot's plugin skills, as rows after the person's own: named by the skill, saying
+/// which plugin it is from. One switched off, or from a server that sends no id to name it by,
+/// is not listed — there is nothing it could be picked as.
+fn plugin_skill_rows<'a>(
+    rows: &'a [&'a PluginSkill],
+) -> impl Iterator<Item = (ComposerPanelRow, ComposerPick)> + 'a {
+    rows.iter()
+        .filter(|row| row.on && !row.id.is_empty())
+        .map(|row| {
+            let name = plugin_skill_name(row);
+            let said = row.description.trim();
+            let description = if said.is_empty() {
+                format!("From {}", row.plugin)
+            } else {
+                format!("From {} — {said}", row.plugin)
+            };
+            (
+                ComposerPanelRow::new(
+                    format!("skill:{}", row.id),
+                    "icons/study.svg",
+                    name.clone(),
+                    description,
+                )
+                .label("Skill"),
+                ComposerPick::Token {
+                    kind: TokenKind::Skill,
+                    id: row.id.clone(),
+                    text: name,
+                },
+            )
+        })
+}
+
+/// A plugin skill's name as `/` shows it and the chip says it.
+pub(crate) fn plugin_skill_name(row: &PluginSkill) -> String {
+    let name = row.skill.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.is_empty() {
+        "Untitled skill".to_string()
+    } else {
+        name
+    }
 }
 
 /// The one row a library with nothing in it shows.
@@ -933,6 +993,7 @@ mod tests {
             skills,
             loading: false,
             error: None,
+            plugin_skills: Vec::new(),
         }
     }
 
@@ -1449,12 +1510,14 @@ mod tests {
             skills: &[],
             loading: true,
             error: None,
+            plugin_skills: Vec::new(),
         });
         assert_eq!(waiting.title, "Loading your skills");
         let refused = notice(SkillLibrary {
             skills: &[],
             loading: false,
             error: Some("the server would not say"),
+            plugin_skills: Vec::new(),
         });
         assert!(refused.title.contains("could not be loaded"), "{refused:?}");
         assert_eq!(
@@ -1470,10 +1533,117 @@ mod tests {
                 skills: &library(),
                 loading: true,
                 error: Some("an older refusal"),
+                plugin_skills: Vec::new(),
             },
         );
         assert!(rows.iter().all(|(row, _)| row.id != "skill:none"));
         assert!(rows.iter().any(|(row, _)| row.id == "skill:skl_1"));
+    }
+
+    /// The open Bot's plugin skills, as `GET /coworkers/{id}/plugin-skills` lists them: one on
+    /// with its id, one switched off, and one from a server too old to send an id.
+    fn plugin_rows() -> Vec<crate::opengrok::PluginSkill> {
+        serde_json::from_value(serde_json::json!([
+            {
+                "id": "plugin/cw_1/bir/server/file-tax", "plugin": "bir", "source": "server",
+                "skill": "file-tax", "description": "File a BIR return", "on": true
+            },
+            {
+                "id": "plugin/cw_1/bir/server/amend", "plugin": "bir", "source": "server",
+                "skill": "amend", "description": "Amend a return", "on": false
+            },
+            { "plugin": "demo", "skill": "triage", "description": "Triage", "on": true }
+        ]))
+        .expect("the rows the server sends")
+    }
+
+    /// A plugin skill the open Bot has on is a row of `/` after the person's own, named by the
+    /// skill and saying which plugin it is from; its pick is the id the turn names. One switched
+    /// off, or one with no id to name, is not listed at all.
+    #[test]
+    fn the_slash_list_offers_the_open_bots_plugin_skills_after_your_own() {
+        let yours = library();
+        let plugins = plugin_rows();
+        let rows = SlashSource.rows(
+            &[],
+            &SkillLibrary {
+                skills: &yours,
+                loading: false,
+                error: None,
+                plugin_skills: plugins.iter().collect(),
+            },
+        );
+        let at = |id: &str| rows.iter().position(|(row, _)| row.id == id);
+        let tax = at("skill:plugin/cw_1/bir/server/file-tax").expect("the plugin skill is listed");
+        assert!(
+            at("skill:skl_1").is_some_and(|own| own < tax),
+            "your own come first"
+        );
+        let (row, pick) = &rows[tax];
+        assert_eq!(row.title, "file-tax");
+        assert!(row.selectable);
+        assert!(
+            row.description.contains("From bir") && row.description.contains("File a BIR return"),
+            "{:?}",
+            row.description
+        );
+        assert_eq!(
+            *pick,
+            ComposerPick::Token {
+                kind: TokenKind::Skill,
+                id: "plugin/cw_1/bir/server/file-tax".to_string(),
+                text: "file-tax".to_string(),
+            }
+        );
+        assert!(at("skill:plugin/cw_1/bir/server/amend").is_none(), "off");
+        assert!(
+            rows.iter()
+                .all(|(row, _)| !row.title.as_ref().contains("triage")),
+            "a row with no id cannot be picked, so it is not offered"
+        );
+    }
+
+    /// "No skills yet" only when there is neither: plugin skills alone are a list, not news.
+    #[test]
+    fn no_skills_yet_only_when_there_are_no_plugin_skills_either() {
+        let plugins = plugin_rows();
+        let rows = SlashSource.rows(
+            &[],
+            &SkillLibrary {
+                skills: &[],
+                loading: false,
+                error: None,
+                plugin_skills: plugins.iter().collect(),
+            },
+        );
+        assert!(rows.iter().all(|(row, _)| row.id != "skill:none"));
+        assert!(
+            rows.iter()
+                .any(|(row, _)| row.id == "skill:plugin/cw_1/bir/server/file-tax")
+        );
+        let none = SlashSource.rows(&[], &listed(&[]));
+        assert!(
+            none.iter()
+                .any(|(row, _)| row.id == "skill:none" && row.title == "No skills yet")
+        );
+        // Only rows that cannot be offered is the same as none.
+        let off: Vec<_> = plugins
+            .iter()
+            .filter(|row| !row.on || row.id.is_empty())
+            .collect();
+        let rows = SlashSource.rows(
+            &[],
+            &SkillLibrary {
+                skills: &[],
+                loading: false,
+                error: None,
+                plugin_skills: off,
+            },
+        );
+        assert!(
+            rows.iter()
+                .any(|(row, _)| row.id == "skill:none" && row.title == "No skills yet")
+        );
     }
 
     /// Both reasons when both hold, and the description kept either way: what a skill is for is

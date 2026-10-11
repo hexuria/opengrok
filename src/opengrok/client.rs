@@ -3940,6 +3940,11 @@ pub struct SavedLoginCheck {
 /// from the one-skill read.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PluginSkill {
+    /// The id a turn names to pick this skill (`forwardedProps.skill`),
+    /// `plugin/<bot>/<plugin>/<revision>/<skill>`. A server from before sends none, and a row
+    /// without one cannot be picked.
+    #[serde(default)]
+    pub id: String,
     pub plugin: String,
     pub skill: String,
     #[serde(default)]
@@ -4191,15 +4196,29 @@ pub struct PluginDetail {
 /// `list` in `crates/opengrok-plugin-api/src/lib.rs` on gol/service-accounts, uncommitted). Only
 /// what the app shows is read of the bundle: its manifest and parts; the skill bodies and server
 /// configs stay the server's business.
+///
+/// Beside the account's installs the list carries the plugins the server loaded from its own
+/// folder, `"source": "server"`: listed like an install, never removed from here. Those need not
+/// name a registry, a pinned commit or when they were installed.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInstallation {
     pub name: String,
+    /// Whose install it is. Absent on the account's installs, and on every install from a server
+    /// that lists none of its own.
+    #[serde(default)]
+    pub source: InstallSource,
+    #[serde(default)]
     pub registry: String,
+    #[serde(default)]
     pub registry_revision: String,
+    #[serde(default)]
     pub repository: String,
+    #[serde(default)]
     pub revision: String,
+    #[serde(default)]
     pub installed_at_ms: i64,
+    #[serde(default)]
     pub bundle: InstalledBundle,
     #[serde(default)]
     pub connectors: Vec<String>,
@@ -4209,6 +4228,24 @@ pub struct PluginInstallation {
     pub accounts: Vec<InstalledAccount>,
 }
 
+impl PluginInstallation {
+    /// The server loaded it from its own folder: shown like an install, but not one to uninstall.
+    pub fn from_server(&self) -> bool {
+        self.source == InstallSource::Server
+    }
+}
+
+/// Where an install came from: the person's account installed it from the marketplace, or the
+/// server loaded it itself. A word this app does not know reads as the account's.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallSource {
+    Server,
+    #[default]
+    #[serde(other)]
+    Account,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledAccount {
@@ -4216,7 +4253,7 @@ pub struct InstalledAccount {
     pub connection_id: String,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct InstalledBundle {
     pub manifest: PluginManifest,
     #[serde(default)]
@@ -4224,7 +4261,7 @@ pub struct InstalledBundle {
 }
 
 /// `Manifest` in opengrok-server `crates/opengrok-plugins/src/lib.rs`, the fields a person reads.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct PluginManifest {
     pub name: String,
     #[serde(default)]
@@ -13460,7 +13497,9 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/coworkers/cw_1/plugin-skills"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "skills": [
-                { "plugin": "demo", "skill": "triage", "description": "Triage safely", "on": false }
+                { "plugin": "demo", "skill": "triage", "description": "Triage safely", "on": false },
+                { "id": "plugin/cw_1/bir/server/file-tax", "plugin": "bir", "source": "server",
+                  "skill": "file-tax", "description": "File a BIR return", "on": true }
             ]})))
             .mount(&server)
             .await;
@@ -13483,6 +13522,8 @@ mod tests {
         let client = OpenGrokClient::new(&server.uri()).unwrap();
         let listed = client.plugin_skills("cw_1").await.unwrap();
         assert_eq!(listed[0].skill, "triage");
+        assert_eq!(listed[0].id, "", "a server from before names no id");
+        assert_eq!(listed[1].id, "plugin/cw_1/bir/server/file-tax");
         assert!(!listed[0].on);
         assert_eq!(listed[0].body, None);
         let page = client.plugin_skill("cw_1", "demo", "triage").await.unwrap();
