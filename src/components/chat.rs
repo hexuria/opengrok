@@ -396,6 +396,9 @@ struct ChatRow {
     user_form: Option<UserFormSpec>,
     save_login: Option<SaveLoginSpec>,
     plugin_needs: Option<crate::opengrok::PluginNeedsSpec>,
+    /// A document the turn's `opengrok.officeDoc` frames named: the card that opens the
+    /// document window onto it.
+    office_doc: Option<crate::opengrok::OfficeDocSpec>,
     /// A step, a stretch of steps, or a thought. Its `content` stays
     /// empty: none of it is words, so find, copy and read aloud pass it by.
     run: Option<RunRow>,
@@ -445,6 +448,7 @@ impl ChatRow {
             user_form: None,
             save_login: None,
             plugin_needs: None,
+            office_doc: None,
             run: None,
             source_badge: None,
         }
@@ -457,6 +461,9 @@ impl ChatRow {
         self.id == other.id
             && self.run.as_ref().map(RunRow::is_open) == other.run.as_ref().map(RunRow::is_open)
             && self.turn_total.is_some() == other.turn_total.is_some()
+            // A document card is rewritten by every officeDoc frame: a version bump under the
+            // same id is a different row.
+            && self.office_doc == other.office_doc
     }
 }
 
@@ -799,6 +806,14 @@ fn snapshot_rows(state: &AppState) -> Arc<Vec<ChatRow>> {
                     rows.push(ChatRow {
                         plugin_needs: Some(spec),
                         ..ChatRow::slot(format!("{}-plugin-needs-{ui_n}", msg.id), msg.id.clone())
+                    });
+                    ui_n += 1;
+                }
+                ChatPart::OfficeDoc(spec) => {
+                    flush_text(&mut rows, &mut text_buf, &mut text_n);
+                    rows.push(ChatRow {
+                        office_doc: Some(spec),
+                        ..ChatRow::slot(format!("{}-office-{ui_n}", msg.id), msg.id.clone())
                     });
                     ui_n += 1;
                 }
@@ -1729,6 +1744,23 @@ impl Render for ChatTranscript {
                                     .py(px(6.))
                                     .child(div().w_full().max_w(px(560.)).child(
                                         crate::components::plugin_needs::render_plugin_needs(
+                                            spec,
+                                            &row.source_id,
+                                            app_state.clone(),
+                                            cx,
+                                        ),
+                                    ))
+                                    .into_any_element();
+                            }
+                            if let Some(spec) = &row.office_doc {
+                                return div()
+                                    .id(ElementId::Name(row.id.clone().into()))
+                                    .w_full()
+                                    .flex()
+                                    .justify_start()
+                                    .py(px(6.))
+                                    .child(div().w_full().max_w(px(560.)).child(
+                                        crate::components::office_doc::render_office_doc_card(
                                             spec,
                                             &row.source_id,
                                             app_state.clone(),

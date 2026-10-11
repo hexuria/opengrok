@@ -1349,6 +1349,10 @@ pub enum Command {
     OpenPluginDetail {
         plugin: String,
     },
+    /// An office document card's Open: the document window comes up on that doc.
+    OpenOfficeDoc {
+        doc_id: String,
+    },
     ResendAfterNeeds {
         message_id: String,
     },
@@ -1728,6 +1732,7 @@ impl Command {
             Self::AskSkillPageDelete(open) => state.ask_skill_page_delete(open, cx),
             Self::ConfirmSkillPageDelete => state.confirm_skill_page_delete(cx),
             Self::OpenPluginDetail { plugin } => state.open_plugin_detail(plugin, cx),
+            Self::OpenOfficeDoc { doc_id } => state.open_office_doc(&doc_id, cx),
             Self::ResendAfterNeeds { message_id } => state.resend_after_needs(message_id, cx),
             Self::DeleteSiteLogin { id } => state.delete_site_login(id, cx),
             Self::SetAppSettingsTab(tab) => state.set_app_settings_tab(tab, cx),
@@ -2487,6 +2492,13 @@ struct PluginNeedsSnap {
     spec: crate::opengrok::PluginNeedsSpec,
     answerable: bool,
     remember: bool,
+}
+
+/// A document card in the open thread (gol/betteroffice), for the driver's Open button.
+#[derive(Clone)]
+struct OfficeDocSnap {
+    message_id: String,
+    spec: crate::opengrok::OfficeDocSpec,
 }
 
 #[derive(Clone, Default)]
@@ -3380,6 +3392,20 @@ fn plugin_needs_node(card: &PluginNeedsSnap) -> UiNode {
     node
 }
 
+/// `office-card-<message>-<doc>`: one dialog per document card, holding `office-open-
+/// <message>-<doc>`, the button that brings the document window up on it.
+fn office_doc_node(card: &OfficeDocSnap) -> UiNode {
+    use crate::components::office_doc as ids;
+    UiNode::dialog(
+        format!("office-card-{}-{}", card.message_id, card.spec.doc_id),
+        format!("{} ({})", card.spec.file_name(), card.spec.kind_label()),
+    )
+    .with_child(UiNode::button(
+        ids::card_open_id(&card.message_id, &card.spec.doc_id),
+        "Open",
+    ))
+}
+
 fn save_login_node(offer: &SaveLoginSnap) -> UiNode {
     UiNode::dialog(
         save_login_card_id(&offer.form_entry_id),
@@ -3842,6 +3868,8 @@ pub struct NativeChatHost {
     computer_handoffs: Vec<ComputerHandoffSnap>,
     save_logins: Vec<SaveLoginSnap>,
     plugin_needs: Vec<PluginNeedsSnap>,
+    /// The office document cards in the open thread (gol/betteroffice).
+    office_docs: Vec<OfficeDocSnap>,
     /// The open tool choice dialog: `(tool, title, mode)` (#359).
     tool_mode_dialog: Option<(String, String, String)>,
     site_logins: Vec<SiteLoginSnap>,
@@ -4530,6 +4558,27 @@ impl NativeChatHost {
                     cards
                 })
                 .unwrap_or_default(),
+            office_docs: state
+                .conversations
+                .iter()
+                .find(|conversation| {
+                    Some(&conversation.id) == state.active_conversation_id.as_ref()
+                })
+                .map(|conversation| {
+                    let mut cards = Vec::new();
+                    for message in conversation.messages.iter().filter(|m| !m.hidden) {
+                        for part in &message.parts {
+                            if let ChatPart::OfficeDoc(spec) = part {
+                                cards.push(OfficeDocSnap {
+                                    message_id: message.id.clone(),
+                                    spec: spec.clone(),
+                                });
+                            }
+                        }
+                    }
+                    cards
+                })
+                .unwrap_or_default(),
             site_logins: state
                 .site_logins
                 .iter()
@@ -4890,6 +4939,9 @@ impl NativeChatHost {
         }
         for card in &self.plugin_needs {
             page = page.with_child(plugin_needs_node(card));
+        }
+        for card in &self.office_docs {
+            page = page.with_child(office_doc_node(card));
         }
         if let Some((tool, title, mode)) = &self.tool_mode_dialog {
             let mut dialog =
@@ -5789,6 +5841,19 @@ impl NativeChatHost {
                         }
                     }
                 }
+            }
+        }
+        None
+    }
+
+    /// `office-open-<message>-<doc>` on a document card: open the window on that doc.
+    fn office_doc_command(&self, target: &str) -> Option<Command> {
+        use crate::components::office_doc as ids;
+        for card in &self.office_docs {
+            if target == ids::card_open_id(&card.message_id, &card.spec.doc_id) {
+                return Some(Command::OpenOfficeDoc {
+                    doc_id: card.spec.doc_id.clone(),
+                });
             }
         }
         None
@@ -9107,6 +9172,8 @@ impl NativeChatHost {
             cmd
         } else if let Some(cmd) = self.plugin_needs_command(target) {
             cmd?
+        } else if let Some(cmd) = self.office_doc_command(target) {
+            cmd
         } else if let (Some((tool, ..)), Some(choice)) =
             (&self.tool_mode_dialog, target.strip_prefix("tool-mode-"))
         {
