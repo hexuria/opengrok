@@ -38,7 +38,7 @@ unicode-segmentation = "1.12"
 gpui-fps = "0.6"
 # Pinned to a commit: a git dependency with no rev follows whatever its branch says today, so
 # two builds of the same tree could get two different agents.
-gpui-agent = { git = "https://github.com/hexuria/gpui-agent", rev = "a5877168c718b7f3181ad0e4d690b6d8bf250478", optional = true }
+gpui-agent = { git = "https://github.com/hexuria/gpui-agent", rev = "19d20333b5e5313a98c502002bc2c4a667510fa2", optional = true }
 raw-window-handle = "0.6"
 # Screenshots arrive base64 in AG-UI frames and are decoded once into a gpui Image.
 base64 = "0.23"
