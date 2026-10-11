@@ -1998,7 +1998,7 @@ fn box_chrome(
                             });
                         },
                     )
-                    .when(stale, |this| this.text_color(gpui::blue()))
+                    .when(stale, |this| this.text_color(update_ready_color(theme)))
                     .tooltip(move |window, cx| Tooltip::new(update_tip).build(window, cx)),
                 )
                 .child(
@@ -2211,6 +2211,13 @@ fn pane_header(
                 },
             ))
         })
+}
+
+/// The update icon's colour while there is a newer computer to update to. It was pure blue,
+/// which all but vanished on the dark theme's sidebar; the theme's green reads on both and says
+/// "something good is waiting", as the reroute's green says "on".
+fn update_ready_color(theme: &gpui_kit::component::Theme) -> Hsla {
+    theme.success
 }
 
 /// `icon_btn` that can be greyed out: no hover, no click, until there is something to do.
@@ -2818,6 +2825,25 @@ mod tests {
     // Named imports, not a glob: `use super::*` would pull GPUI's `test` attribute in over the
     // one the test harness wants.
     use super::{AppState, ComputerControls, CoworkerComputer};
+
+    /// The update icon that says a newer computer is waiting has to stand out on the sidebar it
+    /// sits on in both themes (WCAG's 3:1 for a graphic). Pure blue was 1.8:1 on the dark one.
+    #[test]
+    fn the_waiting_update_icon_can_be_seen_on_the_sidebar_in_both_themes() {
+        use crate::components::switch::tests::{contrast, macos_classic};
+        for theme in macos_classic() {
+            let ratio = contrast(super::update_ready_color(&theme), theme.sidebar);
+            assert!(
+                ratio >= 3.0,
+                "{} theme: the update icon is {ratio:.2}:1 on the sidebar",
+                if theme.mode.is_dark() {
+                    "dark"
+                } else {
+                    "light"
+                }
+            );
+        }
+    }
 
     fn recorded(recording: &str) -> CoworkerComputer {
         let fixture: serde_json::Value = serde_json::from_str(recording).expect("the recording");

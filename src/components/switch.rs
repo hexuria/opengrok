@@ -212,7 +212,7 @@ impl RenderOnce for Switch {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::SwitchColors;
     use gpui_kit::component::{Theme, ThemeSet};
     use gpui_kit::{Hsla, Rgba};
@@ -232,13 +232,13 @@ mod tests {
     }
 
     /// How far apart two opaque colours are to the eye, from 1 (the same) to 21.
-    fn contrast(a: Hsla, b: Hsla) -> f32 {
+    pub(crate) fn contrast(a: Hsla, b: Hsla) -> f32 {
         let (a, b) = (luminance(a), luminance(b));
         (a.max(b) + 0.05) / (a.min(b) + 0.05)
     }
 
     /// The app's two themes, as they are shipped.
-    fn macos_classic() -> Vec<Theme> {
+    pub(crate) fn macos_classic() -> Vec<Theme> {
         let set: ThemeSet =
             serde_json::from_str(include_str!("../../themes/macos-classic.json")).unwrap();
         assert_eq!(set.themes.len(), 2, "a light and a dark theme");
