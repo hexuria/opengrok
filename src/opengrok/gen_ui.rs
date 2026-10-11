@@ -437,6 +437,22 @@ fn push_capped(kept: &mut String, seen: &mut usize, delta: &str) {
 
 /// The step for `call_id`, wherever it is in the turn. Searched from the end, where an open
 /// call is.
+/// `office_render` answers `{"document":"odoc_…","page":N,"pageCount":M,…}` — nothing for a
+/// person to read (opengrok-server `office_desk.rs`). As a shot's caption it is
+/// "Page N of M"; any other shape is kept as-is so a surprise still shows.
+fn office_render_caption(result: &str) -> String {
+    let Ok(value) = serde_json::from_str::<Value>(result) else {
+        return result.to_string();
+    };
+    match (
+        value.get("page").and_then(Value::as_u64),
+        value.get("pageCount").and_then(Value::as_u64),
+    ) {
+        (Some(page), Some(count)) => format!("Page {page} of {count}"),
+        _ => result.to_string(),
+    }
+}
+
 fn step_mut<'a>(parts: &'a mut [ChatPart], call_id: &str) -> Option<&'a mut StepSpec> {
     parts.iter_mut().rev().find_map(|part| match part {
         ChatPart::Step(step) if step.call_id == call_id => Some(step),
@@ -1682,10 +1698,17 @@ impl TurnAssembler {
         // Keep every PNG with bytes for the Computer pane / last-screen thumb.
         // Chat row follows `image.visibility` (opengrok-server#139). Untagged
         // frames keep the old heuristic: failure now, last shot at turn-end.
-        if let Some(shot) = event
-            .get("image")
-            .and_then(|image| ScreenshotSpec::from_frame(&call_id, &content, image))
-        {
+        if let Some(shot) = event.get("image").and_then(|image| {
+            // office_render's result is machine JSON ({document,page,pageCount,…}) — as a
+            // caption it reads as a dump. The doc card already names the file, so the
+            // shot's line keeps only which page of how many it drew.
+            let caption = if tool == "office_render" {
+                office_render_caption(&content)
+            } else {
+                content.clone()
+            };
+            ScreenshotSpec::from_frame(&call_id, &caption, image)
+        }) {
             let pin_now = shot.pin_now(ok);
             self.latest_shot = Some(shot.clone());
             if pin_now {
@@ -2918,6 +2941,23 @@ mod tests {
         assert_eq!(spec.file_name(), "q3.xlsx");
         assert_eq!(spec.kind_label(), "XLSX");
         assert_eq!(spec.changed_type(), Some("exported"));
+    }
+
+    /// `office_render`'s JSON answer is machine metadata, not a caption — the shot's line
+    /// reads as a page position instead. A result in any other shape keeps its own words.
+    #[test]
+    fn an_office_render_result_is_a_page_position_not_a_dump() {
+        assert_eq!(
+            office_render_caption(
+                r#"{"document":"odoc_1","page":2,"pageCount":5,"width":1280,"height":720}"#
+            ),
+            "Page 2 of 5"
+        );
+        assert_eq!(
+            office_render_caption(r#"{"document":"odoc_1","page":2}"#),
+            r#"{"document":"odoc_1","page":2}"#
+        );
+        assert_eq!(office_render_caption("not json"), "not json");
     }
 
     /// A CUSTOM that merely shares the name's prefix is not a document, and a document frame

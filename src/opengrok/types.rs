@@ -577,6 +577,11 @@ pub struct OfficeDocDetail {
     pub proposals: Vec<OfficeProposal>,
     #[serde(default)]
     pub versions: Vec<OfficeDocVersion>,
+    /// Whether the session's stored box is still the coworker's live computer — `false` means
+    /// the server answered from a kept snapshot: viewable, but not being written. Absent on a
+    /// server that predates the field reads as live, the older behaviour.
+    #[serde(default)]
+    pub box_live: Option<bool>,
     #[serde(default)]
     pub created_at: i64,
     #[serde(default)]

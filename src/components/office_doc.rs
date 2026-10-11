@@ -105,9 +105,6 @@ pub fn doc_page_prev_id() -> &'static str {
 pub fn doc_page_next_id() -> &'static str {
     "office-page-next"
 }
-pub fn doc_follow_id() -> &'static str {
-    "office-follow"
-}
 /// The version trigger on the active tab — a combobox, so its id carries the doc's like a
 /// tab's does.
 pub fn doc_version_id(doc_id: &str) -> String {
@@ -257,30 +254,75 @@ pub fn render_office_doc_card(
         .into_any_element()
 }
 
-/// One fetched page, and which version of which document it is — a bump on either means the
-/// image on screen is old and the fetch runs again.
-type ShownPage = (String, u64, u32, Arc<gpui_kit::Image>);
+/// A page's cache key: `(version, page)`. The document id is not in it — one window only ever
+/// holds its `owner`, so a key here can never name another file's page.
+type PageKey = (u64, u32);
+
+/// How many rendered pages the window keeps. Past it the oldest-inserted page leaves — the
+/// one on screen never does. At a few hundred KB a PNG, 64 pages is tens of MB at most.
+const PAGE_CACHE_MAX: usize = 64;
+
+/// Insert a fetched page, evicting oldest-inserted past the cap — `protected` (the page on
+/// screen) is never evicted: evicting it would blank the window under the person's eyes.
+/// Generic and free of `&mut self` so the policy runs in a test without a window or an
+/// image pipeline.
+fn cache_page<T>(
+    pages: &mut std::collections::BTreeMap<PageKey, T>,
+    order: &mut std::collections::VecDeque<PageKey>,
+    protected: Option<PageKey>,
+    key: PageKey,
+    image: T,
+) {
+    if !pages.contains_key(&key) {
+        order.push_back(key);
+    }
+    pages.insert(key, image);
+    while pages.len() > PAGE_CACHE_MAX {
+        let Some(oldest) = order.pop_front() else {
+            break;
+        };
+        if Some(oldest) == protected {
+            order.push_back(oldest);
+            continue;
+        }
+        pages.remove(&oldest);
+    }
+}
 
 /// The window. Its state is a cache of AppState's — never `app.read` in `render`, because
 /// `open_window` paints before the lease that opened it ends (the same constraint
 /// `ComputerScreen` documents).
 pub struct OfficeDocWindow {
     app: Entity<AppState>,
+    /// The one document this window exists for: one window holds one file, so a turn that
+    /// touches two files puts each in its own frame — a `-v2`-named sibling can never sit
+    /// beside the original posing as its history (AppState keys `office_windows` on it).
+    owner: String,
     client: Option<OpenGrokClient>,
-    /// The tab strip, first-touched order, as AppState keeps it.
+    /// The tab strip, first-touched order — always a strip of one, `owner`.
     docs: Vec<OfficeDocSpec>,
-    /// The doc the newest frame touched — the live tab while nothing is pinned.
+    /// The doc the newest frame touched, kept only to dot the tab while the turn works on
+    /// it — this window's doc is active whether the turn is on it or not.
     live: Option<String>,
-    /// The tab the person chose by clicking it; `None` follows the live doc.
+    /// Always `owner`: pinning is how a shared strip chose a doc; this strip has one.
     pinned: Option<String>,
     /// The page of the active doc on screen, one-based like the fetch route.
     page: u32,
-    /// `(doc_id, version, page, image)` of what is on screen.
-    shown: Option<ShownPage>,
-    /// A page fetch in flight, deduped on `(doc_id, version, page)`.
-    fetching: Option<(String, u64, u32)>,
-    /// The page the server answered 404 for: Back stops there instead of fetching it again.
-    page_end: Option<u32>,
+    /// `(version, page, image)` of what is on screen — kept painted while the next page
+    /// loads, the way a deck keeps slide N visible until N+1 is ready.
+    shown: Option<(u64, u32, Arc<gpui_kit::Image>)>,
+    /// Pages already fetched, keyed `(version, page)` — a visited or prepared page paints
+    /// on the frame the key says it exists, which is what makes the pager feel like
+    /// PowerPoint instead of a renderer.
+    pages: std::collections::BTreeMap<PageKey, Arc<gpui_kit::Image>>,
+    /// Insertion order for `pages`, so the oldest entry leaves when the cache is full.
+    order: std::collections::VecDeque<PageKey>,
+    /// Page fetches in flight, deduped — the shown page and the next one's prefetch can be
+    /// out at the same time.
+    fetching: std::collections::BTreeSet<PageKey>,
+    /// The last page each version answered, learned from `x-office-pages` or a page that
+    /// came back 404 — Next turns off at it instead of clicking into the deck's error.
+    page_ends: std::collections::BTreeMap<u64, u32>,
     /// The active doc's detail — proposals pending — refetched per version.
     detail: Option<OfficeDocDetail>,
     /// A detail fetch in flight, deduped on `(doc_id, version)`.
@@ -297,6 +339,18 @@ pub struct OfficeDocWindow {
     /// The picker's focus owner — while it holds focus, arrows, Enter and the filter's
     /// typing all land on its `on_key_down`.
     picker_focus: gpui::FocusHandle,
+    /// This window's own handle, kept for `refresh`: the root view is not registered in
+    /// the window's draw-time access tracking, so a `cx.notify` on it queues observers
+    /// without marking the window dirty — the window would then only paint when the OS
+    /// happened to ask. Every mutation here must end by refreshing the window itself.
+    window: gpui::AnyWindowHandle,
+    /// The `(version, page)` fetches that already failed — an error is an answer too, so
+    /// without this the next notify would ask the same question again, forever. A set:
+    /// the shown page and its prefetch can each have an answer.
+    failed: std::collections::BTreeSet<PageKey>,
+    /// The `(doc, version)` whose detail fetch already failed — the page's gate is a
+    /// different key shape, so the detail's retry gets its own.
+    detail_failed: Option<(String, u64)>,
 }
 
 impl OfficeDocWindow {
@@ -307,10 +361,11 @@ impl OfficeDocWindow {
     /// window stuck on "No documents yet" while its `docs` already held the doc.
     pub fn new(
         app: Entity<AppState>,
+        owner: String,
         docs: Vec<OfficeDocSpec>,
         live: Option<String>,
         client: Option<OpenGrokClient>,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         // The read is deferred onto a spawn: this observer can run inside `open_window`'s
@@ -338,20 +393,26 @@ impl OfficeDocWindow {
         .detach();
         let this = Self {
             app,
+            pinned: Some(owner.clone()),
             client,
-            docs,
+            docs: docs.into_iter().filter(|doc| doc.doc_id == owner).collect(),
+            owner,
             live,
-            pinned: None,
             page: 1,
             shown: None,
-            fetching: None,
-            page_end: None,
+            pages: std::collections::BTreeMap::new(),
+            order: std::collections::VecDeque::new(),
+            fetching: std::collections::BTreeSet::new(),
+            page_ends: std::collections::BTreeMap::new(),
             detail: None,
             detail_fetching: None,
             failure: None,
             view_version: None,
             picker: None,
             picker_focus: cx.focus_handle(),
+            window: window.window_handle(),
+            failed: std::collections::BTreeSet::new(),
+            detail_failed: None,
         };
         // The first sync may land before observe's first spawn: open_window draws at once,
         // and the window's first answer to "which doc" should not wait for an event.
@@ -378,6 +439,14 @@ impl OfficeDocWindow {
         self.sync(docs, live, client, cx);
     }
 
+    /// Mark this window dirty and schedule its next frame directly: `cx.notify` on this
+    /// view only reaches the window's invalidator when the draw recorded the entity, and
+    /// the root view is updated rather than read — so a notify alone can leave a change
+    /// invisible until the OS happens to redraw. `window.refresh` is unconditional.
+    fn repaint(&self, cx: &mut Context<Self>) {
+        let _ = self.window.update(cx, |_, window, _| window.refresh());
+    }
+
     /// The state read, deferred past whatever lease was held when it was asked for.
     fn sync(
         &mut self,
@@ -387,38 +456,98 @@ impl OfficeDocWindow {
         cx: &mut Context<Self>,
     ) {
         let before = self.active_doc_id().map(str::to_string);
-        self.docs = docs;
-        self.live = live;
+        // One window, one file: AppState keeps every touched doc, this window keeps its own.
+        self.docs = docs
+            .into_iter()
+            .filter(|doc| doc.doc_id == self.owner)
+            .collect();
+        self.live = live.filter(|id| *id == self.owner);
         self.client = client;
         let after = self.active_doc_id().map(str::to_string);
         if before != after {
             // A different document is live: its page numbering restarts, a page fetched
             // for the old one is not its page, and a version browsed on it is not this
-            // one's history.
+            // one's history. Unreachable while `owner` filters the strip to one doc —
+            // kept so a change of doc can never leak the old one's pages or bounds.
             self.page = 1;
-            self.page_end = None;
+            self.page_ends.clear();
+            self.pages.clear();
+            self.order.clear();
+            self.fetching.clear();
             self.shown = None;
             self.detail = None;
+            self.failed.clear();
+            self.detail_failed = None;
             self.view_version = None;
             self.picker = None;
         }
         self.ensure_surfaces(cx);
         cx.notify();
+        self.repaint(cx);
     }
 
-    /// A card's Open lands here: that document pinned on its tab, on the page the card
-    /// named — the first when the change said nothing about pages. Same resets a tab
-    /// click makes: the old doc's page, version and detail are not this one's.
+    /// A card's Open lands here: this document on the page the card named — the first when
+    /// the change said nothing about pages. Any other doc_id means the caller asked the
+    /// wrong window; the one-window-one-file rule says ignore it rather than repaint.
     pub(crate) fn show_doc(&mut self, doc_id: &str, page: u32, cx: &mut Context<Self>) {
-        self.pinned = Some(doc_id.to_string());
+        if doc_id != self.owner {
+            return;
+        }
         self.page = page.max(1);
-        self.page_end = None;
         self.shown = None;
         self.detail = None;
+        self.failed.clear();
+        self.detail_failed = None;
         self.view_version = None;
         self.picker = None;
         self.ensure_surfaces(cx);
         cx.notify();
+        self.repaint(cx);
+    }
+
+    /// The chevrons' shared turn — `next` is +1 and `prev` is -1 whether the click came
+    /// off the button or off the driver's `office.page.*` verb. A learned end stops the
+    /// pointer the way the disabled button stops a hand; on a server without
+    /// `x-office-pages` a step past the last page still lands on the 404 path, which
+    /// learns the end and steps back.
+    pub(crate) fn step_page(&mut self, delta: i64, cx: &mut Context<Self>) {
+        let end = self
+            .active_doc()
+            .map(|spec| self.shown_version(spec))
+            .and_then(|version| self.page_ends.get(&version).copied());
+        let mut page = (i64::from(self.page) + delta).max(1);
+        if let Some(end) = end {
+            page = page.min(i64::from(end));
+        }
+        let Ok(page) = u32::try_from(page) else {
+            return;
+        };
+        if page != self.page {
+            self.page = page;
+            self.ensure_surfaces(cx);
+            cx.notify();
+            self.repaint(cx);
+        }
+    }
+
+    /// The mirror the agent's tree reads: a document window is a second window, so
+    /// `from_state`'s one read of AppState cannot see its pager. The window publishes
+    /// (page, learned end) on every change — deferred, because some paths that end here
+    /// (the driver's step among them) are already inside an AppState update and a nested
+    /// one would panic.
+    fn publish_pager(&self, cx: &mut Context<Self>) {
+        let end = self
+            .active_doc()
+            .map(|spec| self.shown_version(spec))
+            .and_then(|version| self.page_ends.get(&version).copied());
+        let app = self.app.clone();
+        let owner = self.owner.clone();
+        let page = self.page;
+        cx.defer(move |cx| {
+            app.update(cx, |state, _| {
+                state.office_pager.insert(owner, (page, end));
+            });
+        });
     }
 
     /// The doc the window is on: the pinned tab, else the live one, else the newest in the
@@ -439,56 +568,49 @@ impl OfficeDocWindow {
     /// proposals list. A bump in version invalidates both — the page was rendered from the
     /// old bytes and the proposals list may have changed with them.
     fn ensure_surfaces(&mut self, cx: &mut Context<Self>) {
+        self.publish_pager(cx);
         let Some(client) = self.client.clone() else {
             return;
         };
         let Some(spec) = self.active_doc().cloned() else {
             return;
         };
-        let key = (spec.doc_id.clone(), self.shown_version(&spec), self.page);
-        let shown_current = self.shown.as_ref().is_some_and(|(id, version, page, _)| {
-            id == &key.0 && *version == key.1 && *page == key.2
-        });
-        let end = self.page_end.is_some_and(|end| self.page > end);
-        if !shown_current && !end && self.fetching.as_ref() != Some(&key) {
-            self.fetching = Some(key.clone());
-            let (id, _, page) = key.clone();
-            let at = self.view_version;
-            let page_client = client.clone();
-            cx.spawn(async move |this, cx| {
-                let fetched = page_client.office_doc_page(&id, page, at).await;
-                let _ = this.update(cx, |this, cx| {
-                    if this.fetching.as_ref() == Some(&key) {
-                        this.fetching = None;
-                    }
-                    match fetched {
-                        Ok(Some(png)) => {
-                            this.shown = Some((
-                                key.0,
-                                key.1,
-                                key.2,
-                                Arc::new(gpui_kit::Image::from_bytes(
-                                    gpui_kit::ImageFormat::Png,
-                                    png,
-                                )),
-                            ));
-                            this.failure = None;
-                        }
-                        // Past the last page — remembered so Back can stop instead of asking
-                        // again, and the page pointer steps back onto real content.
-                        Ok(None) => {
-                            this.page_end = Some(key.2.saturating_sub(1).max(1));
-                            if this.page > 1 {
-                                this.page -= 1;
-                            }
-                        }
-                        Err(error) => this.failure = Some(error.message.clone()),
-                    }
-                    this.ensure_surfaces(cx);
-                    cx.notify();
-                });
-            })
-            .detach();
+        let version = self.shown_version(&spec);
+        // A pointer past a bound already learned snaps back onto real content — a deep link
+        // or a fast double-click can land there even though Next greys out at the end.
+        if let Some(end) = self.page_ends.get(&version)
+            && self.page > *end
+        {
+            self.page = (*end).max(1);
+        }
+        let key = (version, self.page);
+        // A page already fetched paints on the spot — this is the whole deck-flip feel.
+        if let Some(image) = self.pages.get(&key).cloned() {
+            if self.shown.as_ref().map(|(v, p, _)| (*v, *p)) != Some(key) {
+                self.shown = Some((key.0, key.1, image));
+            }
+            self.failure = None;
+        }
+        let shown_current = self.shown.as_ref().is_some_and(|(v, p, _)| (*v, *p) == key);
+        // A failure is an answer too: without `failed` the resolve's own notify would ask
+        // the same 401 again — a loop a dead session turned into tens of thousands of hits.
+        if !shown_current && !self.failed.contains(&key) && !self.fetching.contains(&key) {
+            self.fetch_page(&client, key, cx);
+        }
+        // The next page arrives before it is asked for: sequential flips — the pager's
+        // common case — are cache hits. On a server without `x-office-pages` this probe is
+        // also how the bound is learned: its 404 writes `page_ends` instead of surfacing.
+        let next = (version, self.page + 1);
+        let next_known_past = self
+            .page_ends
+            .get(&version)
+            .is_some_and(|end| next.1 > *end);
+        if !next_known_past
+            && !self.pages.contains_key(&next)
+            && !self.failed.contains(&next)
+            && !self.fetching.contains(&next)
+        {
+            self.fetch_page(&client, next, cx);
         }
         // Detail is current when it carries a head at least as new as the spec's: a restored
         // card can name a version behind the server's (the detail then still answers it),
@@ -498,7 +620,8 @@ impl OfficeDocWindow {
             .detail
             .as_ref()
             .is_some_and(|detail| detail.doc_id == dkey.0 && detail.version >= spec.version);
-        if !detail_current && self.detail_fetching.as_ref() != Some(&dkey) {
+        let detail_failed = self.detail_failed.as_ref() == Some(&dkey);
+        if !detail_current && !detail_failed && self.detail_fetching.as_ref() != Some(&dkey) {
             self.detail_fetching = Some(dkey.clone());
             let id = dkey.0.clone();
             let detail_client = client.clone();
@@ -511,43 +634,116 @@ impl OfficeDocWindow {
                     match fetched {
                         Ok(detail) => this.detail = Some(detail),
                         // A gone doc is a 404 the window reads as closed: the tab keeps the
-                        // card's word on it, the detail area says nothing more.
-                        Err(_) => this.detail = None,
+                        // card's word on it, the detail area says nothing more. The window
+                        // still gets told — the failure is painted, not swallowed — and the
+                        // gate stops the same ask from firing on every later notify.
+                        Err(error) => {
+                            this.failure = Some(error.message.clone());
+                            this.detail_failed = Some(dkey.clone());
+                        }
                     }
                     cx.notify();
+                    this.repaint(cx);
                 });
             })
             .detach();
         }
     }
 
-    /// A tab click pins the strip on that doc until Follow rejoins the live one.
+    /// One page fetch: the shown page's ask and the next page's prefetch are the same
+    /// request — what differs is only what its answer may touch. A landing page goes into
+    /// `pages` either way; `shown`, the pointer and `failure` move only when the answer is
+    /// for what the window is still pointing at, so a stale prefetch can never paint over
+    /// the page the person actually turned to.
+    fn fetch_page(&mut self, client: &OpenGrokClient, key: PageKey, cx: &mut Context<Self>) {
+        self.fetching.insert(key);
+        let id = self.owner.clone();
+        let at = self.view_version;
+        let page_client = client.clone();
+        cx.spawn(async move |this, cx| {
+            let fetched = page_client.office_doc_page(&id, key.1, at).await;
+            let _ = this.update(cx, |this, cx| {
+                this.fetching.remove(&key);
+                let current_version = this.active_doc().map(|spec| this.shown_version(spec));
+                let is_current = key.1 == this.page && Some(key.0) == current_version;
+                match fetched {
+                    Ok(Some(fetched_page)) => {
+                        // The served version is the truth of the bytes — a head that moved
+                        // mid-fetch lands under the version it actually is, not the one asked.
+                        let served = fetched_page.version.unwrap_or(key.0);
+                        if let Some(count) = fetched_page.page_count {
+                            this.page_ends.insert(served, count.max(1));
+                        }
+                        let image = Arc::new(gpui_kit::Image::from_bytes(
+                            gpui_kit::ImageFormat::Png,
+                            fetched_page.bytes,
+                        ));
+                        let served_key = (served, key.1);
+                        this.insert_cached(served_key, image.clone());
+                        if key.1 == this.page && current_version == Some(served) {
+                            this.shown = Some((served, key.1, image));
+                            this.failure = None;
+                        }
+                    }
+                    // Past the last page — remembered so the pager can stop instead of
+                    // asking again, and the pointer steps back onto real content when this
+                    // was the page on screen. Page 1 has nowhere to step: a missing first
+                    // page is a missing document, so it counts as failed — otherwise the
+                    // resolve's own notify asks the same 404 again on every repaint.
+                    Ok(None) => {
+                        this.failed.insert(key);
+                        let end = key.1.saturating_sub(1).max(1);
+                        this.page_ends
+                            .entry(key.0)
+                            .and_modify(|bound| *bound = (*bound).min(end))
+                            .or_insert(end);
+                        if is_current {
+                            if this.page > 1 {
+                                this.page -= 1;
+                            } else {
+                                this.failure = Some("the document has no pages".into());
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        this.failed.insert(key);
+                        if is_current {
+                            this.failure = Some(error.message.clone());
+                        }
+                    }
+                }
+                this.ensure_surfaces(cx);
+                cx.notify();
+                this.repaint(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// `pages` is bounded so a long deck cannot grow the window without limit: past
+    /// PAGE_CACHE_MAX the oldest-inserted page leaves — the one on screen never does.
+    fn insert_cached(&mut self, key: PageKey, image: Arc<gpui_kit::Image>) {
+        let protected = self.shown.as_ref().map(|(v, p, _)| (*v, *p));
+        cache_page(&mut self.pages, &mut self.order, protected, key, image);
+    }
+
+    /// A tab click pins the strip on that doc — a no-op while the strip is one doc, kept so
+    /// the click's other half (a foreign doc's id) still says no rather than repaint.
     fn pin(&mut self, doc_id: &str, cx: &mut Context<Self>) {
+        if doc_id != self.owner {
+            return;
+        }
         if self.pinned.as_deref() != Some(doc_id) {
             self.pinned = Some(doc_id.to_string());
             self.page = 1;
-            self.page_end = None;
             self.shown = None;
             self.detail = None;
             self.view_version = None;
             self.picker = None;
             self.ensure_surfaces(cx);
             cx.notify();
+            self.repaint(cx);
         }
-    }
-
-    /// Follow rejoins whichever doc the turn is touching now: the pin is dropped and the
-    /// live marker takes over again.
-    fn follow(&mut self, cx: &mut Context<Self>) {
-        self.pinned = None;
-        self.page = 1;
-        self.page_end = None;
-        self.shown = None;
-        self.detail = None;
-        self.view_version = None;
-        self.picker = None;
-        self.ensure_surfaces(cx);
-        cx.notify();
     }
 
     /// The live head: detail's answer when it has landed (a card's saved `version` can be a
@@ -581,6 +777,7 @@ impl OfficeDocWindow {
     pub(crate) fn toggle_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.picker.take().is_some() {
             cx.notify();
+            window.refresh();
             return;
         }
         let viewed = self.active_doc().map(|spec| self.shown_version(spec));
@@ -599,6 +796,7 @@ impl OfficeDocWindow {
         });
         self.picker_focus.focus(window, cx);
         cx.notify();
+        window.refresh();
     }
 
     /// A pick — the list's row or a footer click on the live head. Picking the head is
@@ -609,10 +807,13 @@ impl OfficeDocWindow {
         self.view_version = (Some(version) != head).then_some(version);
         self.picker = None;
         self.page = 1;
-        self.page_end = None;
         self.shown = None;
+        // Picking a version is the person asking again — a page that failed once gets to
+        // answer differently this time. `page_ends` stays: a version's bound is still true.
+        self.failed.clear();
         self.ensure_surfaces(cx);
         cx.notify();
+        self.repaint(cx);
     }
 
     /// The tab strip: one chip per document, the live one dotted, the shown one raised.
@@ -662,6 +863,7 @@ impl OfficeDocWindow {
                         let browsing = self.view_version.is_some();
                         div()
                             .id(ElementId::Name(doc_version_id(&spec.doc_id).into()))
+                            .relative()
                             .text_xs()
                             .px(px(5.))
                             .rounded(px(4.))
@@ -680,6 +882,22 @@ impl OfficeDocWindow {
                                     this.toggle_picker(window, cx);
                                 }),
                             )
+                            // The list hangs from the chip's own bottom-left — anchored
+                            // measures off this element, so the menu opens where the click
+                            // happened instead of the window's corner.
+                            .when(self.picker.is_some(), |chip| {
+                                chip.child(
+                                    div().absolute().bottom_0().left_0().h(px(0.)).child(
+                                        deferred(
+                                            anchored()
+                                                .position_mode(AnchoredPositionMode::Local)
+                                                .position(point(px(0.), px(0.)))
+                                                .child(self.version_picker(spec, theme, cx)),
+                                        )
+                                        .with_priority(4),
+                                    ),
+                                )
+                            })
                             .into_any_element()
                     } else {
                         div()
@@ -830,12 +1048,7 @@ impl OfficeDocWindow {
                     .child("No versions match"),
             );
         }
-        div()
-            .absolute()
-            .top(px(48.))
-            .right(px(12.))
-            .child(list)
-            .into_any_element()
+        list.into_any_element()
     }
 
     /// The proposals the active doc is waiting on, one line each — read-only, because the
@@ -891,69 +1104,90 @@ impl Render for OfficeDocWindow {
             .map(|spec| self.shown_version(spec))
             .unwrap_or(0);
 
-        // The page area: the fetched page fitted to the window, or the reason it is not
-        // there — a doc whose kind cannot render yet, a fetch that failed, or a doc still
-        // on its way.
-        let page_area: AnyElement = match (active.as_ref(), &self.shown) {
-            (Some(spec), Some((id, version, page, image)))
-                if id == &spec.doc_id && *version == shown_version && *page == self.page =>
-            {
-                div()
-                    .flex_1()
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p(px(24.))
-                    .child(
-                        img(image.clone())
-                            .size_full()
-                            .object_fit(ObjectFit::Contain),
-                    )
-                    .into_any_element()
-            }
-            (Some(spec), _) => {
-                let (title, note) = if let Some(failure) = &self.failure {
-                    (
+        // The page area: the page the pointer names when it is fetched — out of the cache
+        // on the frame, no wait — else the last page stays up while the new one loads (a
+        // deck does not blank slide N while it draws N+1), else the reason there is
+        // nothing: a failed page, a doc still on its way, a kind that cannot render yet.
+        // The page area: the page the pointer names when it is fetched — out of the cache
+        // on the frame, no wait — else the failure it earned, else the last page stays up
+        // while the new one loads (a deck does not blank slide N while it draws N+1), else
+        // the reason there is nothing yet.
+        let current_key = (shown_version, self.page);
+        let page_area: AnyElement = match active.as_ref() {
+            Some(spec) => {
+                let placeholder = |title: String, note: String, spec: &OfficeDocSpec| {
+                    v_flex()
+                        .flex_1()
+                        .w_full()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(10.))
+                        .child(kind_badge(spec, &theme))
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(theme.foreground)
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(note),
+                        )
+                        .into_any_element()
+                };
+                if let Some(image) = self.pages.get(&current_key) {
+                    div()
+                        .flex_1()
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .p(px(24.))
+                        .child(
+                            img(image.clone())
+                                .size_full()
+                                .object_fit(ObjectFit::Contain),
+                        )
+                        .into_any_element()
+                } else if self.failed.contains(&current_key) {
+                    placeholder(
                         "This page could not be fetched".to_string(),
-                        failure.clone(),
+                        self.failure
+                            .clone()
+                            .unwrap_or_else(|| "this page could not be fetched".to_string()),
+                        spec,
                     )
-                } else if self.fetching.is_some() {
-                    (
+                } else if let Some((_, _, image)) = &self.shown {
+                    let image = image.clone();
+                    div()
+                        .flex_1()
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .p(px(24.))
+                        .child(img(image).size_full().object_fit(ObjectFit::Contain))
+                        .into_any_element()
+                } else if self.fetching.contains(&current_key) {
+                    placeholder(
                         format!("Rendering {}…", spec.file_name()),
                         "The computer is drawing this page.".to_string(),
+                        spec,
                     )
                 } else {
-                    (
+                    placeholder(
                         format!("No page to show for {}", spec.file_name()),
                         "This document may not render yet — DOCX page layout is still being \
                          wired on the server."
                             .to_string(),
+                        spec,
                     )
-                };
-                v_flex()
-                    .flex_1()
-                    .w_full()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(10.))
-                    .child(kind_badge(spec, &theme))
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(theme.foreground)
-                            .child(title),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(note),
-                    )
-                    .into_any_element()
+                }
             }
-            (None, _) => v_flex()
+            None => v_flex()
                 .flex_1()
                 .w_full()
                 .items_center()
@@ -985,14 +1219,27 @@ impl Render for OfficeDocWindow {
                     .child(
                         active
                             .as_ref()
-                            .map(|spec| match self.view_version {
-                                Some(viewed) => format!(
-                                    "{} · v{viewed} (live v{})",
-                                    spec.path,
-                                    self.head_version(spec)
-                                ),
-                                None => {
-                                    format!("{} · v{}", spec.path, self.head_version(spec))
+                            .map(|spec| {
+                                // A doc whose box is gone still renders — the server serves
+                                // the last kept snapshot — so the footer says which copy the
+                                // person is looking at instead of letting it pose as live.
+                                let offline = self
+                                    .detail
+                                    .as_ref()
+                                    .is_some_and(|detail| detail.box_live == Some(false));
+                                let live = if offline { " · offline copy" } else { "" };
+                                match self.view_version {
+                                    Some(viewed) => format!(
+                                        "{} · v{viewed} (live v{}){live}",
+                                        spec.path,
+                                        self.head_version(spec)
+                                    ),
+                                    None => format!(
+                                        "{} · v{}{}",
+                                        spec.path,
+                                        self.head_version(spec),
+                                        live
+                                    ),
                                 }
                             })
                             .unwrap_or_default(),
@@ -1019,17 +1266,6 @@ impl Render for OfficeDocWindow {
                                 })),
                         )
                     })
-                    .when(self.pinned.is_some(), |row| {
-                        row.child(
-                            Button::new(SharedString::from(doc_follow_id()))
-                                .label("Follow live")
-                                .ghost()
-                                .small()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.follow(cx);
-                                })),
-                        )
-                    })
                     .child(
                         Button::new(SharedString::from(doc_page_prev_id()))
                             .label("‹")
@@ -1037,16 +1273,12 @@ impl Render for OfficeDocWindow {
                             .small()
                             .disabled(self.page <= 1)
                             .on_click(cx.listener(|this, _, _, cx| {
-                                if this.page > 1 {
-                                    this.page -= 1;
-                                    this.ensure_surfaces(cx);
-                                    cx.notify();
-                                }
+                                this.step_page(-1, cx);
                             })),
                     )
                     .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        match self.page_end {
-                            Some(end) if end > 0 => format!("{} / {}", self.page, end),
+                        match self.page_ends.get(&shown_version) {
+                            Some(end) if *end > 0 => format!("{} / {}", self.page, end),
                             _ => format!("{}", self.page),
                         },
                     ))
@@ -1055,11 +1287,16 @@ impl Render for OfficeDocWindow {
                             .label("›")
                             .ghost()
                             .small()
-                            .disabled(self.page_end.is_some_and(|end| self.page >= end.max(1)))
+                            .disabled(
+                                self.page_ends
+                                    .get(&shown_version)
+                                    .is_some_and(|end| self.page >= *end),
+                            )
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.page += 1;
-                                this.ensure_surfaces(cx);
-                                cx.notify();
+                                // The end learned from a page response greys this button
+                                // out, but a click can still land faster than the bound —
+                                // step_page's clamp is the second gate.
+                                this.step_page(1, cx);
                             })),
                     ),
             );
@@ -1083,12 +1320,6 @@ impl Render for OfficeDocWindow {
             .child(page_area)
             .children(self.proposals(&theme))
             .child(footer)
-            .children(
-                active
-                    .as_ref()
-                    .filter(|_| self.picker.is_some())
-                    .map(|spec| self.version_picker(spec, &theme, cx)),
-            )
     }
 }
 
@@ -1145,5 +1376,56 @@ mod tests {
         picker.press("9", Some('9'), CHAIN);
         assert!(picker.filtered(CHAIN, 5).is_empty());
         assert_eq!(picker.press("escape", None, CHAIN), PickerKey::Close);
+    }
+
+    /// The cache evicts oldest-inserted past the cap — a deck longer than the cache still
+    /// fits in it — and two versions of the same page are different entries, so browsing
+    /// a kept version can never show the head's render.
+    #[test]
+    fn the_page_cache_evicts_oldest_and_keeps_versions_apart() {
+        use super::{PAGE_CACHE_MAX, PageKey, cache_page};
+        use std::collections::{BTreeMap, VecDeque};
+
+        let mut pages: BTreeMap<PageKey, usize> = BTreeMap::new();
+        let mut order: VecDeque<PageKey> = VecDeque::new();
+        for page in 1..=(PAGE_CACHE_MAX as u32 + 2) {
+            cache_page(&mut pages, &mut order, None, (0, page), page as usize);
+        }
+        assert_eq!(pages.len(), PAGE_CACHE_MAX);
+        assert!(
+            !pages.contains_key(&(0, 1)) && !pages.contains_key(&(0, 2)),
+            "the two oldest pages left"
+        );
+        assert!(pages.contains_key(&(0, PAGE_CACHE_MAX as u32 + 2)));
+
+        // A same-numbered page under another version is its own entry, never the head's.
+        cache_page(&mut pages, &mut order, None, (3, 5), 999);
+        assert_ne!(pages.get(&(0, 5)), pages.get(&(3, 5)));
+        assert_eq!(pages[&(3, 5)], 999);
+    }
+
+    /// The page on screen survives eviction even as the oldest entry — evicting it would
+    /// blank the window mid-read.
+    #[test]
+    fn the_shown_page_is_never_evicted() {
+        use super::{PAGE_CACHE_MAX, PageKey, cache_page};
+        use std::collections::{BTreeMap, VecDeque};
+
+        let mut pages: BTreeMap<PageKey, usize> = BTreeMap::new();
+        let mut order: VecDeque<PageKey> = VecDeque::new();
+        let on_screen: PageKey = (0, 1);
+        cache_page(&mut pages, &mut order, Some(on_screen), on_screen, 1);
+        for page in 2..=(PAGE_CACHE_MAX as u32 + 1) {
+            cache_page(
+                &mut pages,
+                &mut order,
+                Some(on_screen),
+                (0, page),
+                page as usize,
+            );
+        }
+        assert_eq!(pages.len(), PAGE_CACHE_MAX);
+        assert!(pages.contains_key(&on_screen), "the shown page stayed");
+        assert!(!pages.contains_key(&(0, 2)), "the next-oldest went instead");
     }
 }

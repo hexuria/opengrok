@@ -71,7 +71,7 @@
 //! `plugin-needs-again-{message}`, each disabled once the card is not the thread's last turn,
 //! `office-card-{message}-{doc}` (an `opengrok.officeDoc` card, gol/betteroffice) holding
 //! `office-open-{message}-{doc}` (opens the document window on that doc), and in the window
-//! `office-tab-{doc}`, `office-page-prev`, `office-page-next`, `office-follow`,
+//! `office-tab-{doc}`, `office-page-prev`, `office-page-next`,
 //! `office-version-{doc}` (the version combobox's trigger), `office-version-v{n}` (a row in
 //! it) and `office-version-latest` (back to the live head),
 //! `user-form-use-saved-{key}-{login}` (one per saved account for the card's site; a sign-in

@@ -1361,6 +1361,11 @@ pub enum Command {
     /// The same pick the combobox's Enter performs: view a kept version, or the head's row
     /// to follow live again.
     PickOfficeVersion(u64),
+    /// A chevron turn on the document window's pager — the window has no semantic nodes of
+    /// its own, so the driver's `office-page-next`/`office-page-prev` arrive here as a step.
+    StepOfficePage(i64),
+    /// The deep jump a `office.page` verb asks for — one doc window's pager set to a page.
+    GoOfficePage(u32),
     ResendAfterNeeds {
         message_id: String,
     },
@@ -1743,6 +1748,8 @@ impl Command {
             Self::OpenOfficeDoc { doc_id, page } => state.open_office_doc(&doc_id, page, cx),
             Self::ToggleOfficeVersionPicker => state.office_doc_version_picker_toggle(cx),
             Self::PickOfficeVersion(version) => state.office_doc_version_pick(version, cx),
+            Self::StepOfficePage(delta) => state.office_doc_page_step(delta, cx),
+            Self::GoOfficePage(page) => state.office_doc_page_go(page, cx),
             Self::ResendAfterNeeds { message_id } => state.resend_after_needs(message_id, cx),
             Self::DeleteSiteLogin { id } => state.delete_site_login(id, cx),
             Self::SetAppSettingsTab(tab) => state.set_app_settings_tab(tab, cx),
@@ -2509,6 +2516,17 @@ struct PluginNeedsSnap {
 struct OfficeDocSnap {
     message_id: String,
     spec: crate::opengrok::OfficeDocSpec,
+}
+
+/// One open document window's pager, as the window published it — the driver's reach for
+/// a surface that draws in a window the main tree cannot walk.
+#[derive(Clone)]
+struct OfficeWindowSnap {
+    doc_id: String,
+    title: String,
+    page: u32,
+    /// The last page the server owns up to (`x-office-pages`), when the window knows it.
+    end: Option<u32>,
 }
 
 #[derive(Clone, Default)]
@@ -3416,6 +3434,27 @@ fn office_doc_node(card: &OfficeDocSnap) -> UiNode {
     ))
 }
 
+/// One open document window: its own frame, its own pager. The ids are the ones the
+/// window draws — `office-page-prev`/`office-page-next`/`office-page-label` — so a driver
+/// clicks them by the same names a hand would.
+fn office_window_node(window: &OfficeWindowSnap) -> UiNode {
+    use crate::components::office_doc as ids;
+    let label = match window.end {
+        Some(end) => format!("{} / {}", window.page, end),
+        None => format!("{}", window.page),
+    };
+    UiNode::window(
+        format!("office-window-{}", window.doc_id),
+        window.title.clone(),
+    )
+    .with_child(UiNode::button(ids::doc_page_prev_id(), "‹").with_enabled(window.page > 1))
+    .with_child(UiNode::new("office-page-label", "status", label))
+    .with_child(
+        UiNode::button(ids::doc_page_next_id(), "›")
+            .with_enabled(window.end.is_none_or(|end| window.page < end)),
+    )
+}
+
 fn save_login_node(offer: &SaveLoginSnap) -> UiNode {
     UiNode::dialog(
         save_login_card_id(&offer.form_entry_id),
@@ -3880,6 +3919,10 @@ pub struct NativeChatHost {
     plugin_needs: Vec<PluginNeedsSnap>,
     /// The office document cards in the open thread (gol/betteroffice).
     office_docs: Vec<OfficeDocSnap>,
+    /// What each open document window's pager is showing — `(page, learned end)` by doc.
+    /// The window publishes it on AppState; the tree turns it into an `office-window` node
+    /// whose chevrons are real click targets.
+    office_windows: Vec<OfficeWindowSnap>,
     /// The open tool choice dialog: `(tool, title, mode)` (#359).
     tool_mode_dialog: Option<(String, String, String)>,
     site_logins: Vec<SiteLoginSnap>,
@@ -4589,6 +4632,21 @@ impl NativeChatHost {
                     cards
                 })
                 .unwrap_or_default(),
+            office_windows: state
+                .office_pager
+                .iter()
+                .map(|(doc_id, (page, end))| OfficeWindowSnap {
+                    doc_id: doc_id.clone(),
+                    title: state
+                        .office_docs
+                        .iter()
+                        .find(|doc| &doc.doc_id == doc_id)
+                        .map(|doc| doc.file_name().to_string())
+                        .unwrap_or_else(|| doc_id.clone()),
+                    page: *page,
+                    end: *end,
+                })
+                .collect(),
             site_logins: state
                 .site_logins
                 .iter()
@@ -4994,14 +5052,23 @@ impl NativeChatHost {
                     "Plugins for this Bot",
                 ))
                 .with_child(UiNode::button(ids::COMPUTER_TOOLS, "Tools for this Bot"))
-                .with_child(
-                    UiNode::new(
+                .with_child({
+                    // Three honest states, the same the header's globe paints: off; on and
+                    // routing (checked); on but the live box predates the tunnel (pending —
+                    // a reset/update carries it). The difference between the last two is
+                    // the state a misleading switch would hide.
+                    let mut toggle = UiNode::new(
                         "route-traffic-this-computer",
                         "switch",
                         "Route traffic for all your computers",
                     )
-                    .with_enabled(self.route_traffic_on_bot_pane),
-                );
+                    .with_checked(self.egress_tunnel_enabled)
+                    .with_enabled(self.route_traffic_on_bot_pane);
+                    if self.egress_tunnel_enabled && !self.egress_tunnel_ready.unwrap_or(false) {
+                        toggle.states.push("pending-box".into());
+                    }
+                    toggle
+                });
             if let Some(own) = self.own_screen {
                 computer = computer.with_child(
                     UiNode::new("computer-own-screen", "switch", "Use its own screen")
@@ -5183,128 +5250,134 @@ impl NativeChatHost {
             settings = settings.with_child(UiNode::status("agent-settings-error", error.clone()));
         }
 
+        // Document windows draw in their own frames, invisible to this walk — each one
+        // still answers for itself here, as a window node whose pager the driver can
+        // click and read.
+        let mut nodes = Vec::new();
+        for window in &self.office_windows {
+            nodes.push(office_window_node(window));
+        }
+        nodes.insert(
+            0,
+            UiNode::window(ids::WINDOW, "NativeChat")
+                .with_children(
+                    (!self.sidebar_hidden)
+                        .then_some(sidebar)
+                        .into_iter()
+                        .collect(),
+                )
+                .with_child(page)
+                .with_child(self.recipes_node())
+                .with_child({
+                    let mut settings = UiNode::dialog(ids::DIALOG_ACCOUNT, "Settings")
+                        .with_visible(self.account_open)
+                        .with_child(UiNode::button("app-settings-back", "← Back to app"))
+                        .with_child(UiNode::button(ids::SETTINGS_GENERAL, "General"))
+                        .with_child(UiNode::button("settings-tab-computer", "Computer"))
+                        .with_child(UiNode::button("settings-tab-updates", "Updates"))
+                        .with_child(UiNode::button("settings-tab-logins", "Logins"));
+                    if self.logins_tab {
+                        settings = self.logins_nodes(settings);
+                    }
+                    // The same for General's Default models, and its Show turn timing switch.
+                    if self.account_open && self.general_tab {
+                        settings = settings
+                            .with_child(self.default_models_node())
+                            .with_child(self.show_turn_timing_node());
+                    }
+                    if self.updates_tab {
+                        settings = settings.with_child(UiNode::button(
+                            "settings-computer-update",
+                            self.computer_update_label.clone(),
+                        ));
+                    }
+                    // Why this Mac stopped running commands, over its computers as on the
+                    // page, then each computer's card, its relay switch and where its relay
+                    // stands, and its local-exec mode, while Settings is open on Computer:
+                    // the choice a check of this Mac's Ask / Always / Never sets.
+                    if self.account_open && self.computer_tab {
+                        if let Some(why) = &self.local_exec_stopped {
+                            settings = settings
+                                .with_child(UiNode::status(ids::LOCAL_EXEC_STOPPED, why.clone()));
+                        }
+                        for card in &self.computers {
+                            settings = settings.with_child(self.computer_card_node(card));
+                            let (machine, mode) = (&card.machine_id, card.mode);
+                            let mut menu = UiNode::new(
+                                ids::computer_exec(machine),
+                                "menu",
+                                card.label.clone(),
+                            )
+                            .with_value(mode.as_stored());
+                            if card.this_computer {
+                                menu.states.push("this-mac".into());
+                            }
+                            for choice in [
+                                crate::opengrok::LocalExecMode::Always,
+                                crate::opengrok::LocalExecMode::Ask,
+                                crate::opengrok::LocalExecMode::Never,
+                            ] {
+                                let mut button = UiNode::button(
+                                    ids::computer_exec_mode(machine, choice),
+                                    choice.label(),
+                                );
+                                if choice == mode {
+                                    button.states.push("selected".into());
+                                }
+                                menu = menu.with_child(button);
+                            }
+                            settings = settings.with_child(menu);
+                        }
+                    }
+                    if self.computer_tab && self.route_traffic_in_user_settings {
+                        settings = settings.with_child(UiNode::new(
+                            "route-traffic-this-computer",
+                            "switch",
+                            "Route traffic through this computer",
+                        ));
+                        if let Some(current) = self.egress_policy {
+                            settings = settings.with_child(egress_policy_node(current));
+                        }
+                    }
+                    // Only while the dialog is open on Computer: the tab stays selected after
+                    // Settings closes, and a closed dialog's children are still found by id, so
+                    // a snapshot would otherwise keep listing the commands after the person left.
+                    if self.account_open
+                        && self.computer_tab
+                        && let Some(rules) = &self.local_rules
+                    {
+                        for node in local_rules_nodes(rules) {
+                            settings = settings.with_child(node);
+                        }
+                    }
+                    settings
+                })
+                .with_child(
+                    UiNode::dialog(ids::DIALOG_VOICE, "Voice Mode").with_visible(self.voice_open),
+                )
+                .with_child(settings)
+                .with_child(UiNode::button(
+                    "agent-model-dismiss",
+                    "Dismiss model picker",
+                ))
+                .with_child(UiNode::button(
+                    ids::NEW_BOTS_DISMISS,
+                    "Dismiss the default for new Bots' picker",
+                ))
+                .with_child(UiNode::button(
+                    ids::PLAN_FALLBACK_DISMISS,
+                    "Dismiss the Relay-off fallback's picker",
+                ))
+                .with_child(UiNode::button(
+                    "avatar-editor-dismiss",
+                    "Dismiss avatar editor",
+                )),
+        );
         UiTree {
             app: "nativechat".into(),
             platform: PlatformKind::Desktop,
             ready: self.ready,
-            nodes: vec![
-                UiNode::window(ids::WINDOW, "NativeChat")
-                    .with_children(
-                        (!self.sidebar_hidden)
-                            .then_some(sidebar)
-                            .into_iter()
-                            .collect(),
-                    )
-                    .with_child(page)
-                    .with_child(self.recipes_node())
-                    .with_child({
-                        let mut settings = UiNode::dialog(ids::DIALOG_ACCOUNT, "Settings")
-                            .with_visible(self.account_open)
-                            .with_child(UiNode::button("app-settings-back", "← Back to app"))
-                            .with_child(UiNode::button(ids::SETTINGS_GENERAL, "General"))
-                            .with_child(UiNode::button("settings-tab-computer", "Computer"))
-                            .with_child(UiNode::button("settings-tab-updates", "Updates"))
-                            .with_child(UiNode::button("settings-tab-logins", "Logins"));
-                        if self.logins_tab {
-                            settings = self.logins_nodes(settings);
-                        }
-                        // The same for General's Default models, and its Show turn timing switch.
-                        if self.account_open && self.general_tab {
-                            settings = settings
-                                .with_child(self.default_models_node())
-                                .with_child(self.show_turn_timing_node());
-                        }
-                        if self.updates_tab {
-                            settings = settings.with_child(UiNode::button(
-                                "settings-computer-update",
-                                self.computer_update_label.clone(),
-                            ));
-                        }
-                        // Why this Mac stopped running commands, over its computers as on the
-                        // page, then each computer's card, its relay switch and where its relay
-                        // stands, and its local-exec mode, while Settings is open on Computer:
-                        // the choice a check of this Mac's Ask / Always / Never sets.
-                        if self.account_open && self.computer_tab {
-                            if let Some(why) = &self.local_exec_stopped {
-                                settings = settings.with_child(UiNode::status(
-                                    ids::LOCAL_EXEC_STOPPED,
-                                    why.clone(),
-                                ));
-                            }
-                            for card in &self.computers {
-                                settings = settings.with_child(self.computer_card_node(card));
-                                let (machine, mode) = (&card.machine_id, card.mode);
-                                let mut menu = UiNode::new(
-                                    ids::computer_exec(machine),
-                                    "menu",
-                                    card.label.clone(),
-                                )
-                                .with_value(mode.as_stored());
-                                if card.this_computer {
-                                    menu.states.push("this-mac".into());
-                                }
-                                for choice in [
-                                    crate::opengrok::LocalExecMode::Always,
-                                    crate::opengrok::LocalExecMode::Ask,
-                                    crate::opengrok::LocalExecMode::Never,
-                                ] {
-                                    let mut button = UiNode::button(
-                                        ids::computer_exec_mode(machine, choice),
-                                        choice.label(),
-                                    );
-                                    if choice == mode {
-                                        button.states.push("selected".into());
-                                    }
-                                    menu = menu.with_child(button);
-                                }
-                                settings = settings.with_child(menu);
-                            }
-                        }
-                        if self.computer_tab && self.route_traffic_in_user_settings {
-                            settings = settings.with_child(UiNode::new(
-                                "route-traffic-this-computer",
-                                "switch",
-                                "Route traffic through this computer",
-                            ));
-                            if let Some(current) = self.egress_policy {
-                                settings = settings.with_child(egress_policy_node(current));
-                            }
-                        }
-                        // Only while the dialog is open on Computer: the tab stays selected after
-                        // Settings closes, and a closed dialog's children are still found by id, so
-                        // a snapshot would otherwise keep listing the commands after the person left.
-                        if self.account_open
-                            && self.computer_tab
-                            && let Some(rules) = &self.local_rules
-                        {
-                            for node in local_rules_nodes(rules) {
-                                settings = settings.with_child(node);
-                            }
-                        }
-                        settings
-                    })
-                    .with_child(
-                        UiNode::dialog(ids::DIALOG_VOICE, "Voice Mode")
-                            .with_visible(self.voice_open),
-                    )
-                    .with_child(settings)
-                    .with_child(UiNode::button(
-                        "agent-model-dismiss",
-                        "Dismiss model picker",
-                    ))
-                    .with_child(UiNode::button(
-                        ids::NEW_BOTS_DISMISS,
-                        "Dismiss the default for new Bots' picker",
-                    ))
-                    .with_child(UiNode::button(
-                        ids::PLAN_FALLBACK_DISMISS,
-                        "Dismiss the Relay-off fallback's picker",
-                    ))
-                    .with_child(UiNode::button(
-                        "avatar-editor-dismiss",
-                        "Dismiss avatar editor",
-                    )),
-            ],
+            nodes,
         }
     }
 
@@ -5857,7 +5930,8 @@ impl NativeChatHost {
     }
 
     /// `office-open-<message>-<doc>` and the card's own `office-card-<message>-<doc>` —
-    /// the whole card is the window's anchor, at the page the card's change named.
+    /// the whole card is the window's anchor, at the page the card's change named — and
+    /// the `office-page-*` chevrons an open document window's node carries.
     fn office_doc_command(&self, target: &str) -> Option<Command> {
         use crate::components::office_doc as ids;
         for card in &self.office_docs {
@@ -5869,6 +5943,12 @@ impl NativeChatHost {
                     page: card.spec.changed_page().unwrap_or(1),
                 });
             }
+        }
+        if target == ids::doc_page_next_id() {
+            return Some(Command::StepOfficePage(1));
+        }
+        if target == ids::doc_page_prev_id() {
+            return Some(Command::StepOfficePage(-1));
         }
         None
     }
@@ -10548,6 +10628,22 @@ impl NativeChatHost {
             // nodes, so its verbs live here: what the chip click does, and what Enter on a
             // row does.
             "office.version.picker" => Command::ToggleOfficeVersionPicker,
+            "office.page.next" => Command::StepOfficePage(1),
+            "office.page.prev" => Command::StepOfficePage(-1),
+            "office.page" => {
+                let page = ["to", "page", "n"]
+                    .iter()
+                    .find_map(|key| {
+                        args.get(*key).and_then(|value| {
+                            value
+                                .as_u64()
+                                .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
+                        })
+                    })
+                    .and_then(|v| u32::try_from(v).ok())
+                    .ok_or("office.page requires arg to (a page number)")?;
+                Command::GoOfficePage(page)
+            }
             "office.version.pick" => {
                 let version = invoke_arg_str(args, &["version", "v"])
                     .and_then(|v| v.parse::<u64>().ok())

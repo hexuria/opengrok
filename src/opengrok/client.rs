@@ -782,12 +782,16 @@ impl OpenGrokClient {
     /// the window can show what the document was; `None` is the live head off the box.
     /// `None` on a 404 — past the last page, a version nothing kept, or a doc the box no
     /// longer has — rather than an error the pager would have to read twice.
+    ///
+    /// The answer carries the server's `x-office-pages` count when it sends one, so the
+    /// pager learns the last page from the fetch itself instead of from a failed click past
+    /// it; an older server sends none and the probe behaviour still applies.
     pub async fn office_doc_page(
         &self,
         id: &str,
         page: u32,
         version: Option<u64>,
-    ) -> Result<Option<Vec<u8>>, OpenGrokError> {
+    ) -> Result<Option<OfficeDocPage>, OpenGrokError> {
         let at = version
             .map(|version| format!("?version={version}"))
             .unwrap_or_default();
@@ -798,11 +802,25 @@ impl OpenGrokClient {
         match response.status().as_u16() {
             404 => Ok(None),
             _ if response.status().is_success() => {
+                let page_count = response
+                    .headers()
+                    .get("x-office-pages")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|raw| raw.parse::<u32>().ok());
+                let served_version = response
+                    .headers()
+                    .get("x-office-version")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|raw| raw.parse::<u64>().ok());
                 let bytes = response
                     .bytes()
                     .await
                     .map_err(|e| OpenGrokError::transport(&e))?;
-                Ok((!bytes.is_empty()).then(|| bytes.to_vec()))
+                Ok((!bytes.is_empty()).then(|| OfficeDocPage {
+                    bytes: bytes.to_vec(),
+                    version: served_version,
+                    page_count,
+                }))
             }
             _ => Err(Self::read_error(response).await),
         }
@@ -4579,7 +4597,21 @@ pub enum BotSkillScope {
     Org,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+/// One rendered office page as `GET /office/docs/{id}/pages/{page}.png` answers it: the PNG
+/// bytes plus the response's `x-office-version` / `x-office-pages` headers. The count is what
+/// a pager needs to disable its own Next at the end instead of learning the end from a failed
+/// click past it; both are `None` from a server that predates the headers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfficeDocPage {
+    pub bytes: Vec<u8>,
+    /// The version the bytes were rendered from — the served head can differ from the asked
+    /// one when the head moved mid-fetch.
+    pub version: Option<u64>,
+    /// How many pages/slides/sheets the document holds, when the server says.
+    pub page_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CoworkerComputer {
     #[serde(rename = "agentId", default)]
     pub agent_id: String,
@@ -6623,7 +6655,12 @@ mod tests {
             .await;
         Mock::given(method("GET"))
             .and(path("/office/docs/odoc_1/pages/1.png"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x50]))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(vec![0x89, 0x50])
+                    .insert_header("x-office-version", "3")
+                    .insert_header("x-office-pages", "4"),
+            )
             .mount(&server)
             .await;
         Mock::given(method("GET"))
@@ -6645,21 +6682,29 @@ mod tests {
         assert_eq!(detail.version, 3);
         assert_eq!(detail.proposals.len(), 1);
         assert_eq!(detail.proposals[0].changes, 2);
+        let page = client
+            .office_doc_page("odoc_1", 1, None)
+            .await
+            .expect("the page")
+            .expect("page 1 exists");
+        assert_eq!(page.bytes, vec![0x89, 0x50]);
         assert_eq!(
-            client
-                .office_doc_page("odoc_1", 1, None)
-                .await
-                .expect("the page")
-                .as_deref(),
-            Some(&[0x89, 0x50][..])
+            page.page_count,
+            Some(4),
+            "x-office-pages is the pager's bound, read off the answer itself"
+        );
+        assert_eq!(
+            page.version,
+            Some(3),
+            "x-office-version names the served head"
         );
         assert_eq!(
             client
                 .office_doc_page("odoc_1", 2, Some(1))
                 .await
                 .expect("the old page")
-                .as_deref(),
-            Some(&[0x89, 0x51][..]),
+                .map(|page| page.bytes),
+            Some(vec![0x89, 0x51]),
             "a kept version's page is fetched with ?version="
         );
         assert_eq!(
