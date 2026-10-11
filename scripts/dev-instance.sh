@@ -532,10 +532,14 @@ down() {
 }
 
 # The repos a topic can span: the main checkouts next to this one, unless DEV_REPOS names them.
+# Fails when it can find neither: a copy of this script outside any checkout once found no repos
+# and answered "nothing to finish", which looked like there was nothing to clear. Callers read it
+# with `repos=$(dev_repos) || exit 1`, since a failure inside $(…) stops only the subshell.
 dev_repos() {
   if [ -n "${DEV_REPOS:-}" ]; then echo "$DEV_REPOS"; return; fi
   local main oss r
-  main=$(git -C "$REPO" worktree list --porcelain | sed -n '1s/^worktree //p')
+  main=$(git -C "$REPO" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') || true
+  [ -n "$main" ] || die "can't find the repos: $REPO is not a checkout. Run the script from one, or set DEV_REPOS"
   oss=$(dirname "$main")
   for r in nativechat opengrok-server box open-ai-gateway; do
     if [ -d "$oss/$r" ]; then echo "$oss/$r"; fi
@@ -583,7 +587,8 @@ wrap_up() {
   done
   [[ "$topic" =~ ^[a-z0-9][a-z0-9._-]{1,50}$ ]] || die "topic must be the gol/<topic> branch name: '$topic'"
   local branch="gol/$topic" plan=() refuse=() acts=()
-  local repo wt wts main prs n state head url merged open merged_heads has_branch tip lost
+  local repo wt wts main prs n state head url merged open merged_heads has_branch tip lost repos
+  repos=$(dev_repos) || exit 1
 
   if [ -d "$(dir_of "$topic")" ]; then plan+=("instance $topic: down"); acts+=("down$TAB$topic"); fi
 
@@ -643,7 +648,7 @@ wrap_up() {
     if [ "$mode" = abort ] && git -C "$repo" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
       plan+=("$repo: delete remote branch $branch"); acts+=("remote$TAB$repo")
     fi
-  done <<<"$(dev_repos)"
+  done <<<"$repos"
 
   # Your own build of the box for this topic, and an instance tag `down` didn't get to.
   local tag
@@ -683,6 +688,7 @@ group() {
   local total=0 merged=0 open=0 green=0 noted=()
   [[ "$topic" =~ ^[a-z0-9][a-z0-9._-]{1,50}$ ]] || die "topic must be the gol/<topic> branch name: '$topic'"
   branch="gol/$topic"
+  local repos; repos=$(dev_repos) || exit 1
   echo "gol/$topic:"
   while IFS= read -r repo; do
     [ -n "$repo" ] || continue
@@ -704,7 +710,7 @@ group() {
         *) echo "  $(basename "$repo") #$n $(echo "$state" | tr '[:upper:]' '[:lower:]')  $url" ;;
       esac
     done <<<"$prs"
-  done <<<"$(dev_repos)"
+  done <<<"$repos"
   if [ "$total" = 0 ]; then
     echo "no PRs"
   elif [ "$merged" -gt 0 ] && [ "$open" -gt 0 ]; then

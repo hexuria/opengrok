@@ -339,5 +339,16 @@ git -C "$repo2" branch -q gol/g5
 code=$(group_says g5 "1 OPEN aaa green https://pr/1" "")
 check "group calls a branch with no PR not ready" "[ $code = 1 ] && grep -q 'no PR' $TMP/group.out"
 
+# --- a copy of the script outside any checkout says it can't find the repos ---------------------
+# Run from a copy with no checkout around it and no DEV_REPOS, `finish` once answered "nothing to
+# finish": the repos were never found, and it looked like there was nothing to clear.
+mkdir -p "$TMP/loose"
+cp "$DI" "$TMP/loose/dev-instance.sh"
+for cmd in finish abort group; do
+  (cd "$TMP/loose" && env -u DEV_REPOS ./dev-instance.sh $cmd "$RUN-loose" > "$TMP/loose/$cmd.out" 2>&1)
+  code=$?
+  check "$cmd outside a checkout without DEV_REPOS refuses, saying why" "[ $code != 0 ] && grep -q DEV_REPOS $TMP/loose/$cmd.out"
+done
+
 echo
 [ "$FAILS" = 0 ] && echo "all passed" || { echo "$FAILS failed"; exit 1; }

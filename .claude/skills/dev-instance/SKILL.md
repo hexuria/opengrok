@@ -198,6 +198,10 @@ scripts/dev-instance.sh finish <topic>         # lists what it will do, changes 
 scripts/dev-instance.sh finish <topic> --yes   # does it
 ```
 
+Run it from a checkout other than the topic's own, since it won't remove the one it runs from. Or
+run a copy of the script from anywhere with `DEV_REPOS` set to the repos, one per line. Without
+either it stops, rather than find no repos.
+
 `<topic>` is the branch name after `gol/`. Across the nativechat, opengrok-server, box and open-ai-gateway
 checkouts (or `DEV_REPOS`), `finish`:
 - takes down the instance named `<topic>`;
