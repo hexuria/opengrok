@@ -206,6 +206,15 @@ impl OfficeDocSpec {
     pub fn changed_type(&self) -> Option<&str> {
         self.changed.get("type").and_then(Value::as_str)
     }
+
+    /// The page the change named, when it named one — today's frames say nothing about
+    /// pages, so cards default to the first; a change that points at a page opens there.
+    pub fn changed_page(&self) -> Option<u32> {
+        self.changed
+            .get("page")
+            .and_then(Value::as_u64)
+            .and_then(|page| u32::try_from(page).ok())
+    }
 }
 
 /// A visible reasoning segment and its locally observed duration, never a guessed model round.

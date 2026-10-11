@@ -6102,6 +6102,13 @@ pub struct AppState {
     /// Open rather than stacked.
     #[cfg(target_os = "macos")]
     office_window: Option<WindowHandle<crate::components::office_doc::OfficeDocWindow>>,
+    /// The transcript cards' page images, keyed by doc and the card's version: a card shows
+    /// the page the document was dealt at, so an edit's card and an export's card can hold
+    /// different pages of the same file.
+    office_thumbs: HashMap<(String, u64), Arc<gpui_kit::Image>>,
+    /// A thumbnail fetch per (doc, version), deduped — a card that repaints before its page
+    /// lands asks once, not twice.
+    office_thumb_fetching: HashSet<(String, u64)>,
     /// Update / Reset ask first: the dialog over the app, until Confirm or Cancel.
     pub computer_confirm: Option<ComputerAction>,
     /// The network-permission dialog for the open bot's own computer is on screen.
@@ -6723,6 +6730,8 @@ impl AppState {
             computer_windows: std::collections::HashMap::new(),
             office_docs: Vec::new(),
             office_active: None,
+            office_thumbs: HashMap::new(),
+            office_thumb_fetching: HashSet::new(),
             #[cfg(target_os = "macos")]
             office_window: None,
         }
@@ -13896,6 +13905,7 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         let mut joined = false;
+        let mut thumbs = Vec::new();
         for spec in docs.values() {
             match self
                 .office_docs
@@ -13905,13 +13915,18 @@ impl AppState {
                 Some(existing) if existing.version >= spec.version => {}
                 Some(existing) => {
                     *existing = spec.clone();
+                    thumbs.push(spec.clone());
                     cx.notify();
                 }
                 None => {
                     self.office_docs.push(spec.clone());
+                    thumbs.push(spec.clone());
                     joined = true;
                 }
             }
+        }
+        for spec in &thumbs {
+            self.ensure_office_thumb(spec, cx);
         }
         if let Some(id) = latest {
             self.office_active = Some(id.to_string());
@@ -13922,13 +13937,113 @@ impl AppState {
         cx.notify();
     }
 
-    /// A document card's Open: the window comes up with that document live. Reopening a doc
-    /// the session forgot (app relaunched, row gone on the server) still opens — the window
-    /// says what the fetch says.
-    pub fn open_office_doc(&mut self, doc_id: &str, cx: &mut Context<Self>) {
+    /// A document card's Open: the window comes up with that document pinned at the page the
+    /// card named — the first when the change said nothing about pages. Reopening a doc the
+    /// session forgot (app relaunched, `office_docs` emptied) still opens — the card
+    /// the person clicked kept the spec through `saved_parts`, so the window opens on the
+    /// card's word and the fetches say what the server has now.
+    pub fn open_office_doc(&mut self, doc_id: &str, page: u32, cx: &mut Context<Self>) {
+        if !self.office_docs.iter().any(|doc| doc.doc_id == doc_id) {
+            let spec = self
+                .conversations
+                .iter()
+                .flat_map(|conversation| conversation.messages.iter())
+                .flat_map(|message| message.parts.iter())
+                .find_map(|part| match part {
+                    ChatPart::OfficeDoc(spec) if spec.doc_id == doc_id => Some(spec.clone()),
+                    _ => None,
+                });
+            if let Some(spec) = spec {
+                self.office_docs.push(spec);
+            }
+        }
         self.office_active = Some(doc_id.to_string());
         self.open_office_window(cx);
+        self.office_doc_show(doc_id, page, cx);
         cx.notify();
+    }
+
+    /// A document card's page image, as it was dealt: the kept snapshot of the card's
+    /// version when the chain has one, the live page when it does not (a doc whose early
+    /// version no snapshot covered still shows its page, just its newest one).
+    pub fn ensure_office_thumb(
+        &mut self,
+        spec: &crate::opengrok::OfficeDocSpec,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(client) = self.opengrok.clone() else {
+            return;
+        };
+        let key = (spec.doc_id.clone(), spec.version);
+        if self.office_thumbs.contains_key(&key) || !self.office_thumb_fetching.insert(key.clone())
+        {
+            return;
+        }
+        let (doc_id, version) = key.clone();
+        cx.spawn(async move |this, cx| {
+            let mut png = client
+                .office_doc_page(&doc_id, 1, Some(version))
+                .await
+                .ok()
+                .flatten();
+            if png.is_none() {
+                png = client
+                    .office_doc_page(&doc_id, 1, None)
+                    .await
+                    .ok()
+                    .flatten();
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.office_thumb_fetching.remove(&key);
+                if let Some(png) = png {
+                    this.office_thumbs.insert(
+                        key,
+                        Arc::new(gpui_kit::Image::from_bytes(gpui_kit::ImageFormat::Png, png)),
+                    );
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The card's fetched page, when it has landed — the card reads through here so the
+    /// cache's key shape stays in one place.
+    pub fn office_thumb(&self, doc_id: &str, version: u64) -> Option<Arc<gpui_kit::Image>> {
+        self.office_thumbs
+            .get(&(doc_id.to_string(), version))
+            .cloned()
+    }
+
+    /// The window's half of a card's Open: pin that doc at that page. macOS-only like the
+    /// window itself — the field the method updates only exists there.
+    fn office_doc_show(&mut self, doc_id: &str, page: u32, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = self.office_window {
+            let _ = window.update(cx, |view, _window, cx| view.show_doc(doc_id, page, cx));
+        }
+        let _ = (doc_id, page, cx);
+    }
+
+    /// The document window's version combobox, toggled — a driver's reach for the chip's
+    /// click. The window holds no semantic nodes of its own, so the action arrives here.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_version_picker_toggle(&mut self, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = self.office_window {
+            let _ = window.update(cx, |view, window, cx| view.toggle_picker(window, cx));
+        }
+        let _ = cx;
+    }
+
+    /// The pick the combobox's Enter performs — a driver's reach for a row click.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_version_pick(&mut self, version: u64, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = self.office_window {
+            let _ = window.update(cx, |view, _window, cx| view.pick_version(version, cx));
+        }
+        let _ = (version, cx);
     }
 
     /// The document window: one for the app, tabbed across `office_docs`. Already open comes
@@ -17324,6 +17439,20 @@ impl AppState {
                                 .find(|c| c.id == session_id_clone)
                             {
                                 apply_reload(conversation, live.as_ref(), db_messages);
+                                // Restored cards' pages fetch like live-dealt ones — a
+                                // reopened thread's document cards paint their thumbnails too.
+                                let specs: Vec<_> = conversation
+                                    .messages
+                                    .iter()
+                                    .flat_map(|message| message.parts.iter())
+                                    .filter_map(|part| match part {
+                                        ChatPart::OfficeDoc(spec) => Some(spec.clone()),
+                                        _ => None,
+                                    })
+                                    .collect();
+                                for spec in &specs {
+                                    state.ensure_office_thumb(spec, cx);
+                                }
                                 state.sync_pending_approvals(cx);
                                 cx.notify();
                             }

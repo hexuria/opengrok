@@ -709,25 +709,13 @@ const REST_NOT_READ: &[(&str, &str, &str)] = &[
 ///
 /// Only routes built ahead of a recording are listed. Routes this app asks that no test on the
 /// server drives are a different gap, and not this list's.
-const REST_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[
-    (
-        "GET__office_docs__id_",
-        "/office/docs/{id}",
-        "The document window's session fetch (opengrok-server `office_routes.rs`,
+const REST_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[(
+    "GET__office_docs__id_",
+    "/office/docs/{id}",
+    "The document window's session fetch (opengrok-server `office_routes.rs`,
         gol/betteroffice): the server's recorder gains its fixtures when record-wire.sh runs on
         the office branch.",
-    ),
-    (
-        "GET__office_docs__id__bytes",
-        "/office/docs/{id}/bytes",
-        "The document's bytes as the box has them, for the window (same recording).",
-    ),
-    (
-        "GET__office_docs__id__pages__page_.png",
-        "/office/docs/{id}/pages/{page}.png",
-        "One rendered page/slide/used-range for the document window (same recording).",
-    ),
-];
+)];
 
 /// Routes this app asks with this Mac's machine token (`local_exec.rs` `MachineCredential`)
 /// rather than the person's session, so they never pass through `send_json_within`: a 401 on one

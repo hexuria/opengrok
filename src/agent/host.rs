@@ -1349,10 +1349,18 @@ pub enum Command {
     OpenPluginDetail {
         plugin: String,
     },
-    /// An office document card's Open: the document window comes up on that doc.
+    /// An office document card's Open — its button or the card itself: the window comes up
+    /// on that doc at the page the card named.
     OpenOfficeDoc {
         doc_id: String,
+        page: u32,
     },
+    /// The document window's version combobox, toggled — the window has no semantic nodes
+    /// of its own, so a driver reaches it here the way the chip's click does.
+    ToggleOfficeVersionPicker,
+    /// The same pick the combobox's Enter performs: view a kept version, or the head's row
+    /// to follow live again.
+    PickOfficeVersion(u64),
     ResendAfterNeeds {
         message_id: String,
     },
@@ -1732,7 +1740,9 @@ impl Command {
             Self::AskSkillPageDelete(open) => state.ask_skill_page_delete(open, cx),
             Self::ConfirmSkillPageDelete => state.confirm_skill_page_delete(cx),
             Self::OpenPluginDetail { plugin } => state.open_plugin_detail(plugin, cx),
-            Self::OpenOfficeDoc { doc_id } => state.open_office_doc(&doc_id, cx),
+            Self::OpenOfficeDoc { doc_id, page } => state.open_office_doc(&doc_id, page, cx),
+            Self::ToggleOfficeVersionPicker => state.office_doc_version_picker_toggle(cx),
+            Self::PickOfficeVersion(version) => state.office_doc_version_pick(version, cx),
             Self::ResendAfterNeeds { message_id } => state.resend_after_needs(message_id, cx),
             Self::DeleteSiteLogin { id } => state.delete_site_login(id, cx),
             Self::SetAppSettingsTab(tab) => state.set_app_settings_tab(tab, cx),
@@ -3397,7 +3407,7 @@ fn plugin_needs_node(card: &PluginNeedsSnap) -> UiNode {
 fn office_doc_node(card: &OfficeDocSnap) -> UiNode {
     use crate::components::office_doc as ids;
     UiNode::dialog(
-        format!("office-card-{}-{}", card.message_id, card.spec.doc_id),
+        ids::card_id(&card.message_id, &card.spec.doc_id),
         format!("{} ({})", card.spec.file_name(), card.spec.kind_label()),
     )
     .with_child(UiNode::button(
@@ -5846,13 +5856,17 @@ impl NativeChatHost {
         None
     }
 
-    /// `office-open-<message>-<doc>` on a document card: open the window on that doc.
+    /// `office-open-<message>-<doc>` and the card's own `office-card-<message>-<doc>` —
+    /// the whole card is the window's anchor, at the page the card's change named.
     fn office_doc_command(&self, target: &str) -> Option<Command> {
         use crate::components::office_doc as ids;
         for card in &self.office_docs {
-            if target == ids::card_open_id(&card.message_id, &card.spec.doc_id) {
+            if target == ids::card_open_id(&card.message_id, &card.spec.doc_id)
+                || target == ids::card_id(&card.message_id, &card.spec.doc_id)
+            {
                 return Some(Command::OpenOfficeDoc {
                     doc_id: card.spec.doc_id.clone(),
+                    page: card.spec.changed_page().unwrap_or(1),
                 });
             }
         }
@@ -10529,6 +10543,16 @@ impl NativeChatHost {
                     return Err(format!("no composer-file-{index} on the draft"));
                 }
                 Command::DetachFile(index)
+            }
+            // The document window's version combobox — the window itself has no semantic
+            // nodes, so its verbs live here: what the chip click does, and what Enter on a
+            // row does.
+            "office.version.picker" => Command::ToggleOfficeVersionPicker,
+            "office.version.pick" => {
+                let version = invoke_arg_str(args, &["version", "v"])
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .ok_or("office.version.pick requires arg version (a number)")?;
+                Command::PickOfficeVersion(version)
             }
             "computer.toggle" => Command::ToggleComputerPane,
             "computer.open" => Command::OpenCoworkerScreen,

@@ -22,9 +22,77 @@ use gpui_kit::*;
 use crate::opengrok::{OfficeDocDetail, OfficeDocSpec, OpenGrokClient};
 use crate::state::AppState;
 
+/// The version picker's moving parts, kept as data so a keystroke's answer can be tested
+/// without a window: `filter` is what was typed, `highlight` the row the arrows rest on —
+/// an index into the filtered list, so every keystroke starts the next match at its top.
+#[derive(Debug, Default)]
+struct VersionPicker {
+    filter: String,
+    highlight: usize,
+}
+
+/// What a keystroke inside the picker did: swallowed, picked a version, or closed it.
+#[derive(Debug, PartialEq, Eq)]
+enum PickerKey {
+    Handled,
+    Pick(u64),
+    Close,
+}
+
+impl VersionPicker {
+    /// The rows under the filter, newest first (the server's order kept): "3" matches v3,
+    /// and the head's "latest" label is part of its row so typing "lat" lands there too.
+    fn filtered(&self, versions: &[u64], head: u64) -> Vec<u64> {
+        let query = self.filter.trim().to_lowercase();
+        versions
+            .iter()
+            .copied()
+            .filter(|version| {
+                query.is_empty()
+                    || version.to_string().contains(&query)
+                    || (*version == head && "latest".contains(&query))
+            })
+            .collect()
+    }
+
+    /// One keystroke's answer. `rows` is the filtered list, so highlight moves inside what
+    /// the person can see; Enter on an empty list is still swallowed, because a key meant
+    /// for the picker must not leak into the window behind it.
+    fn press(&mut self, key: &str, ch: Option<char>, rows: &[u64]) -> PickerKey {
+        match key {
+            "escape" => return PickerKey::Close,
+            "enter" => {
+                if let Some(version) = rows.get(self.highlight) {
+                    return PickerKey::Pick(*version);
+                }
+            }
+            "up" => self.highlight = self.highlight.saturating_sub(1),
+            "down" => {
+                if self.highlight + 1 < rows.len() {
+                    self.highlight += 1;
+                }
+            }
+            "backspace" => {
+                self.filter.pop();
+                self.highlight = 0;
+            }
+            _ => {
+                if let Some(ch) = ch.filter(|c| !c.is_control()) {
+                    self.filter.push(ch);
+                    self.highlight = 0;
+                }
+            }
+        }
+        PickerKey::Handled
+    }
+}
+
 /// The card's and the window's ids, by what they act on — the catalogue in `agent/mod.rs`
 /// names them so the driver can reach every control from a snapshot. A turn can touch several
 /// documents, so a card's ids carry the doc id too.
+pub fn card_id(message_id: &str, doc_id: &str) -> String {
+    format!("office-card-{message_id}-{doc_id}")
+}
 pub fn card_open_id(message_id: &str, doc_id: &str) -> String {
     format!("office-open-{message_id}-{doc_id}")
 }
@@ -39,6 +107,19 @@ pub fn doc_page_next_id() -> &'static str {
 }
 pub fn doc_follow_id() -> &'static str {
     "office-follow"
+}
+/// The version trigger on the active tab — a combobox, so its id carries the doc's like a
+/// tab's does.
+pub fn doc_version_id(doc_id: &str) -> String {
+    format!("office-version-{doc_id}")
+}
+/// One row in the open version list.
+pub fn doc_version_row_id(version: u64) -> String {
+    format!("office-version-v{version}")
+}
+/// The footer's way back to the live head while an older version is being browsed.
+pub fn doc_version_latest_id() -> &'static str {
+    "office-version-latest"
 }
 
 /// The kind's colour, from the apps themselves: Word blue, Sheets green, Slides orange.
@@ -71,9 +152,10 @@ fn kind_badge(spec: &OfficeDocSpec, theme: &Theme) -> impl IntoElement {
         )
 }
 
-/// The feed's document card: what the file is, what last happened to it, and Open — the
-/// window's anchor in the transcript, so a reader can get back to the document after the
-/// turn (and the window's tab) moved on.
+/// The feed's document card: the page the document was dealt at — page 1, or the page the
+/// change named — fetched through AppState's cache, then the file's name and what last
+/// happened to it. The whole card is the window's anchor: clicking it opens the document
+/// on that page, like the Open button does.
 pub fn render_office_doc_card(
     spec: &OfficeDocSpec,
     message_id: &str,
@@ -90,10 +172,35 @@ pub fn render_office_doc_card(
         _ => format!("v{}", spec.version),
     };
     let doc_id = spec.doc_id.clone();
+    let page = spec.changed_page().unwrap_or(1);
+    let thumb = app.read(cx).office_thumb(&spec.doc_id, spec.version);
+    if thumb.is_none() {
+        // Deferred past this render's read: the task re-borrows AppState to kick the fetch,
+        // and its landing repaints — the card shows the badge row until the page arrives.
+        let app = app.clone();
+        let spec = spec.clone();
+        cx.spawn(async move |cx| {
+            app.update(cx, |state, cx| {
+                state.ensure_office_thumb(&spec, cx);
+            });
+        })
+        .detach();
+    }
+    let thumb_row = thumb.map(|image| {
+        div()
+            .w_full()
+            .flex()
+            .justify_center()
+            .rounded(px(6.))
+            .overflow_hidden()
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.secondary)
+            .child(img(image).h(px(280.)).object_fit(ObjectFit::Contain))
+            .into_any_element()
+    });
     v_flex()
-        .id(ElementId::Name(
-            format!("office-card-{message_id}-{}", spec.doc_id).into(),
-        ))
+        .id(ElementId::Name(card_id(message_id, &spec.doc_id).into()))
         .w_full()
         .gap(px(8.))
         .p(px(12.))
@@ -101,6 +208,17 @@ pub fn render_office_doc_card(
         .border_1()
         .border_color(theme.border)
         .bg(theme.background)
+        .cursor_pointer()
+        .on_mouse_down(gpui::MouseButton::Left, {
+            let app = app.clone();
+            let doc_id = doc_id.clone();
+            move |_, _, cx| {
+                app.update(cx, |state, cx| {
+                    state.open_office_doc(&doc_id, page, cx);
+                });
+            }
+        })
+        .children(thumb_row)
         .child(
             h_flex()
                 .gap(px(10.))
@@ -131,7 +249,7 @@ pub fn render_office_doc_card(
                         .small()
                         .on_click(move |_, _, cx| {
                             app.update(cx, |state, cx| {
-                                state.open_office_doc(&doc_id, cx);
+                                state.open_office_doc(&doc_id, page, cx);
                             });
                         }),
                 ),
@@ -170,6 +288,15 @@ pub struct OfficeDocWindow {
     /// The last fetch failure, painted where the page would be: a window that shows nothing
     /// says why.
     failure: Option<String>,
+    /// The version the person picked in the list — `None` follows the live head, so a new
+    /// accept repaints the page on its own. A picked version stays until the head's row is
+    /// chosen again.
+    view_version: Option<u64>,
+    /// The version combobox's open state: `None` is closed.
+    picker: Option<VersionPicker>,
+    /// The picker's focus owner — while it holds focus, arrows, Enter and the filter's
+    /// typing all land on its `on_key_down`.
+    picker_focus: gpui::FocusHandle,
 }
 
 impl OfficeDocWindow {
@@ -210,6 +337,9 @@ impl OfficeDocWindow {
             detail: None,
             detail_fetching: None,
             failure: None,
+            view_version: None,
+            picker: None,
+            picker_focus: cx.focus_handle(),
         };
         // The first sync may land before observe's first spawn: open_window draws at once,
         // and the window's first answer to "which doc" should not wait for an event.
@@ -250,13 +380,31 @@ impl OfficeDocWindow {
         self.client = client;
         let after = self.active_doc_id().map(str::to_string);
         if before != after {
-            // A different document is live: its page numbering restarts, and a page fetched
-            // for the old one is not its page.
+            // A different document is live: its page numbering restarts, a page fetched
+            // for the old one is not its page, and a version browsed on it is not this
+            // one's history.
             self.page = 1;
             self.page_end = None;
             self.shown = None;
             self.detail = None;
+            self.view_version = None;
+            self.picker = None;
         }
+        self.ensure_surfaces(cx);
+        cx.notify();
+    }
+
+    /// A card's Open lands here: that document pinned on its tab, on the page the card
+    /// named — the first when the change said nothing about pages. Same resets a tab
+    /// click makes: the old doc's page, version and detail are not this one's.
+    pub(crate) fn show_doc(&mut self, doc_id: &str, page: u32, cx: &mut Context<Self>) {
+        self.pinned = Some(doc_id.to_string());
+        self.page = page.max(1);
+        self.page_end = None;
+        self.shown = None;
+        self.detail = None;
+        self.view_version = None;
+        self.picker = None;
         self.ensure_surfaces(cx);
         cx.notify();
     }
@@ -285,7 +433,7 @@ impl OfficeDocWindow {
         let Some(spec) = self.active_doc().cloned() else {
             return;
         };
-        let key = (spec.doc_id.clone(), spec.version, self.page);
+        let key = (spec.doc_id.clone(), self.shown_version(&spec), self.page);
         let shown_current = self.shown.as_ref().is_some_and(|(id, version, page, _)| {
             id == &key.0 && *version == key.1 && *page == key.2
         });
@@ -293,9 +441,10 @@ impl OfficeDocWindow {
         if !shown_current && !end && self.fetching.as_ref() != Some(&key) {
             self.fetching = Some(key.clone());
             let (id, _, page) = key.clone();
+            let at = self.view_version;
             let page_client = client.clone();
             cx.spawn(async move |this, cx| {
-                let fetched = page_client.office_doc_page(&id, page).await;
+                let fetched = page_client.office_doc_page(&id, page, at).await;
                 let _ = this.update(cx, |this, cx| {
                     if this.fetching.as_ref() == Some(&key) {
                         this.fetching = None;
@@ -329,11 +478,14 @@ impl OfficeDocWindow {
             })
             .detach();
         }
+        // Detail is current when it carries a head at least as new as the spec's: a restored
+        // card can name a version behind the server's (the detail then still answers it),
+        // while a live frame bumping the spec ahead refetches for the new proposals.
         let dkey = (spec.doc_id.clone(), spec.version);
         let detail_current = self
             .detail
             .as_ref()
-            .is_some_and(|detail| detail.doc_id == dkey.0 && detail.version == dkey.1);
+            .is_some_and(|detail| detail.doc_id == dkey.0 && detail.version >= spec.version);
         if !detail_current && self.detail_fetching.as_ref() != Some(&dkey) {
             self.detail_fetching = Some(dkey.clone());
             let id = dkey.0.clone();
@@ -365,6 +517,8 @@ impl OfficeDocWindow {
             self.page_end = None;
             self.shown = None;
             self.detail = None;
+            self.view_version = None;
+            self.picker = None;
             self.ensure_surfaces(cx);
             cx.notify();
         }
@@ -378,6 +532,73 @@ impl OfficeDocWindow {
         self.page_end = None;
         self.shown = None;
         self.detail = None;
+        self.view_version = None;
+        self.picker = None;
+        self.ensure_surfaces(cx);
+        cx.notify();
+    }
+
+    /// The live head: detail's answer when it has landed (a card's saved `version` can be a
+    /// relaunch-old word), else the newest frame's.
+    fn head_version(&self, spec: &OfficeDocSpec) -> u64 {
+        match &self.detail {
+            Some(detail) if detail.doc_id == spec.doc_id => detail.version.max(spec.version),
+            _ => spec.version,
+        }
+    }
+
+    /// The version on screen: the picked one, else the live head.
+    fn shown_version(&self, spec: &OfficeDocSpec) -> u64 {
+        self.view_version.unwrap_or_else(|| self.head_version(spec))
+    }
+
+    /// The versions on offer for `spec`, newest first — the server's chain once detail has
+    /// landed (it always carries the head), the head alone before it has.
+    fn version_list(&self, spec: &OfficeDocSpec) -> Vec<u64> {
+        match &self.detail {
+            Some(detail) if detail.doc_id == spec.doc_id && !detail.versions.is_empty() => {
+                detail.versions.iter().map(|v| v.version).collect()
+            }
+            _ => vec![self.head_version(spec)],
+        }
+    }
+
+    /// The chip's click: open the list over the viewed row, or close it. Opening takes the
+    /// picker's focus so the next keystroke is the list's. `pub(crate)` for AppState's
+    /// driver seam — the window's own actions, reached past the window.
+    pub(crate) fn toggle_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picker.take().is_some() {
+            cx.notify();
+            return;
+        }
+        let viewed = self.active_doc().map(|spec| self.shown_version(spec));
+        let highlight = self
+            .active_doc()
+            .map(|spec| {
+                self.version_list(spec)
+                    .iter()
+                    .position(|v| Some(*v) == viewed)
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        self.picker = Some(VersionPicker {
+            filter: String::new(),
+            highlight,
+        });
+        self.picker_focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// A pick — the list's row or a footer click on the live head. Picking the head is
+    /// `None` internally: following live again is not "viewing v{N}", it is watching the
+    /// version move. `pub(crate)` for AppState's driver seam.
+    pub(crate) fn pick_version(&mut self, version: u64, cx: &mut Context<Self>) {
+        let head = self.active_doc().map(|spec| self.head_version(spec));
+        self.view_version = (Some(version) != head).then_some(version);
+        self.picker = None;
+        self.page = 1;
+        self.page_end = None;
+        self.shown = None;
         self.ensure_surfaces(cx);
         cx.notify();
     }
@@ -421,12 +642,40 @@ impl OfficeDocWindow {
                             })
                             .child(spec.file_name().to_string()),
                     )
-                    .child(
+                    .child(if is_active {
+                        // The active tab's version is the picker's door — and it shows the
+                        // version ON SCREEN, which the head only matches while nothing older
+                        // is being browsed. Clicking it is not a tab pin, so it stops here.
+                        let shown = self.shown_version(spec);
+                        let browsing = self.view_version.is_some();
+                        div()
+                            .id(ElementId::Name(doc_version_id(&spec.doc_id).into()))
+                            .text_xs()
+                            .px(px(5.))
+                            .rounded(px(4.))
+                            .cursor_pointer()
+                            .text_color(if browsing {
+                                theme.accent
+                            } else {
+                                theme.muted_foreground
+                            })
+                            .when(browsing, |chip| chip.bg(theme.secondary))
+                            .child(format!("v{shown} ▾"))
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.toggle_picker(window, cx);
+                                }),
+                            )
+                            .into_any_element()
+                    } else {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child(format!("v{}", spec.version)),
-                    )
+                            .child(format!("v{}", spec.version))
+                            .into_any_element()
+                    })
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(move |this, _, _window, cx| {
@@ -438,6 +687,143 @@ impl OfficeDocWindow {
                 }
                 tab
             }))
+    }
+
+    /// The open version list under the tab strip: the filter line on top, the chain's rows
+    /// newest first under it, the viewed row marked. Its keys live on `picker_focus` — the
+    /// filter is a line of text, not an input, because every keystroke already arrives at
+    /// the popup's handler and a fake field can show them exactly.
+    fn version_picker(
+        &self,
+        spec: &OfficeDocSpec,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(picker) = self.picker.as_ref() else {
+            return div().into_any_element();
+        };
+        let head = self.head_version(spec);
+        let viewed = self.shown_version(spec);
+        let rows = picker.filtered(&self.version_list(spec), head);
+
+        let mut list = v_flex()
+            .id(ElementId::Name("office-version-picker".into()))
+            .w(px(230.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.background)
+            .shadow_lg()
+            .track_focus(&self.picker_focus)
+            .on_key_down(
+                cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
+                    let Some(spec) = this.active_doc().cloned() else {
+                        return;
+                    };
+                    let rows = this
+                        .picker
+                        .as_ref()
+                        .map(|picker| {
+                            picker.filtered(&this.version_list(&spec), this.head_version(&spec))
+                        })
+                        .unwrap_or_default();
+                    // Modified keys are commands, not filter text — Cmd+V is paste, not a
+                    // "v" somebody meant to filter by.
+                    let mods = &event.keystroke.modifiers;
+                    let ch = if mods.control || mods.alt || mods.platform {
+                        None
+                    } else {
+                        event
+                            .keystroke
+                            .key_char
+                            .as_deref()
+                            .and_then(|s| s.chars().next())
+                    };
+                    let outcome = this
+                        .picker
+                        .as_mut()
+                        .map(|picker| picker.press(&event.keystroke.key, ch, &rows));
+                    match outcome {
+                        Some(PickerKey::Pick(version)) => this.pick_version(version, cx),
+                        Some(PickerKey::Close) => {
+                            this.picker = None;
+                            cx.notify();
+                        }
+                        _ => cx.notify(),
+                    }
+                }),
+            )
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
+
+        list = list.child(
+            h_flex()
+                .h(px(30.))
+                .px(px(10.))
+                .items_center()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(if picker.filter.is_empty() {
+                            theme.muted_foreground
+                        } else {
+                            theme.foreground
+                        })
+                        .child(if picker.filter.is_empty() {
+                            "Filter versions…".to_string()
+                        } else {
+                            format!("{}▏", picker.filter)
+                        }),
+                ),
+        );
+
+        for (index, version) in rows.iter().enumerate() {
+            let version = *version;
+            let highlighted = index == picker.highlight;
+            let label = if version == head {
+                format!("v{version} · latest")
+            } else {
+                format!("v{version}")
+            };
+            list = list.child(
+                h_flex()
+                    .id(ElementId::Name(doc_version_row_id(version).into()))
+                    .h(px(28.))
+                    .px(px(10.))
+                    .items_center()
+                    .justify_between()
+                    .cursor_pointer()
+                    .when(highlighted, |row| row.bg(theme.secondary))
+                    .child(div().text_xs().text_color(theme.foreground).child(label))
+                    .when(version == viewed, |row| {
+                        row.child(div().text_xs().text_color(theme.accent).child("viewing"))
+                    })
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.pick_version(version, cx);
+                        }),
+                    ),
+            );
+        }
+        if rows.is_empty() {
+            list = list.child(
+                div()
+                    .px(px(10.))
+                    .h(px(28.))
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child("No versions match"),
+            );
+        }
+        div()
+            .absolute()
+            .top(px(48.))
+            .right(px(12.))
+            .child(list)
+            .into_any_element()
     }
 
     /// The proposals the active doc is waiting on, one line each — read-only, because the
@@ -488,13 +874,17 @@ impl Render for OfficeDocWindow {
         // held across them is a borrow of `cx` still live.
         let theme = cx.theme().clone();
         let active = self.active_doc().cloned();
+        let shown_version = active
+            .as_ref()
+            .map(|spec| self.shown_version(spec))
+            .unwrap_or(0);
 
         // The page area: the fetched page fitted to the window, or the reason it is not
         // there — a doc whose kind cannot render yet, a fetch that failed, or a doc still
         // on its way.
         let page_area: AnyElement = match (active.as_ref(), &self.shown) {
             (Some(spec), Some((id, version, page, image)))
-                if id == &spec.doc_id && *version == spec.version && *page == self.page =>
+                if id == &spec.doc_id && *version == shown_version && *page == self.page =>
             {
                 div()
                     .flex_1()
@@ -583,7 +973,16 @@ impl Render for OfficeDocWindow {
                     .child(
                         active
                             .as_ref()
-                            .map(|spec| format!("{} · v{}", spec.path, spec.version))
+                            .map(|spec| match self.view_version {
+                                Some(viewed) => format!(
+                                    "{} · v{viewed} (live v{})",
+                                    spec.path,
+                                    self.head_version(spec)
+                                ),
+                                None => {
+                                    format!("{} · v{}", spec.path, self.head_version(spec))
+                                }
+                            })
                             .unwrap_or_default(),
                     ),
             )
@@ -591,6 +990,23 @@ impl Render for OfficeDocWindow {
                 h_flex()
                     .gap(px(6.))
                     .items_center()
+                    .when(self.view_version.is_some(), |row| {
+                        // Back to the head: the picker's "latest" row as a one-click way
+                        // out of the past.
+                        let head = active
+                            .as_ref()
+                            .map(|spec| self.head_version(spec))
+                            .unwrap_or(0);
+                        row.child(
+                            Button::new(SharedString::from(doc_version_latest_id()))
+                                .label(format!("v{head} live"))
+                                .ghost()
+                                .small()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.pick_version(head, cx);
+                                })),
+                        )
+                    })
                     .when(self.pinned.is_some(), |row| {
                         row.child(
                             Button::new(SharedString::from(doc_follow_id()))
@@ -639,10 +1055,83 @@ impl Render for OfficeDocWindow {
         v_flex()
             .w_full()
             .h_full()
+            .relative()
             .bg(theme.background)
+            // Any click the popup's own stop didn't swallow is a click outside it — the
+            // combobox's dismiss, the way a real menu's scrim works.
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.picker.take().is_some() {
+                        cx.notify();
+                    }
+                }),
+            )
             .child(self.tabs(&theme, cx))
             .child(page_area)
             .children(self.proposals(&theme))
             .child(footer)
+            .children(
+                active
+                    .as_ref()
+                    .filter(|_| self.picker.is_some())
+                    .map(|spec| self.version_picker(spec, &theme, cx)),
+            )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PickerKey, VersionPicker};
+
+    /// The chain the window lists — newest first, as `detail.versions` arrives.
+    const CHAIN: &[u64] = &[5, 3, 2, 1, 0];
+
+    /// Arrows move one highlight through the filtered rows, clamped at both ends, and
+    /// Enter picks the row it rests on — the combobox the person asked for.
+    #[test]
+    fn arrows_move_one_highlight_and_enter_picks_it() {
+        let mut picker = VersionPicker::default();
+        assert_eq!(picker.press("down", None, CHAIN), PickerKey::Handled);
+        assert_eq!(picker.highlight, 1);
+        assert_eq!(picker.press("down", None, CHAIN), PickerKey::Handled);
+        assert_eq!(picker.highlight, 2);
+        assert_eq!(picker.press("up", None, CHAIN), PickerKey::Handled);
+        assert_eq!(picker.highlight, 1);
+        assert_eq!(picker.press("up", None, CHAIN), PickerKey::Handled);
+        // The top clamps rather than wrapping — v5 is the first row, always.
+        assert_eq!(picker.press("up", None, CHAIN), PickerKey::Handled);
+        assert_eq!(picker.highlight, 0);
+        assert_eq!(picker.press("enter", None, CHAIN), PickerKey::Pick(5));
+    }
+
+    /// Typing narrows the rows to matches — and the head's "latest" label is part of its
+    /// row, so it is found by its word as well as its number.
+    #[test]
+    fn typing_filters_and_resets_the_highlight_to_the_first_match() {
+        let mut picker = VersionPicker::default();
+        picker.press("down", None, CHAIN);
+        picker.press("down", None, CHAIN);
+        assert_eq!(picker.filtered(CHAIN, 5).len(), 5);
+        picker.press("2", Some('2'), CHAIN);
+        assert_eq!(picker.filter, "2");
+        assert_eq!(picker.filtered(CHAIN, 5), vec![2]);
+        assert_eq!(picker.highlight, 0, "a fresh filter starts at the top");
+        picker.press("backspace", None, CHAIN);
+        picker.press("l", Some('l'), CHAIN);
+        picker.press("a", Some('a'), CHAIN);
+        assert_eq!(picker.filtered(CHAIN, 5), vec![5], "'lat…' finds latest");
+        assert_eq!(picker.press("enter", None, &[5]), PickerKey::Pick(5));
+    }
+
+    /// Enter on a list the filter emptied is swallowed — a picker's key never reaches the
+    /// window behind it — and Escape closes whatever the state.
+    #[test]
+    fn enter_on_no_matches_and_escape_are_safe() {
+        let mut picker = VersionPicker::default();
+        assert_eq!(picker.press("enter", None, &[]), PickerKey::Handled);
+        picker.press("9", Some('9'), CHAIN);
+        assert!(picker.filtered(CHAIN, 5).is_empty());
+        assert_eq!(picker.press("escape", None, CHAIN), PickerKey::Close);
     }
 }

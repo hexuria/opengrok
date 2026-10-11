@@ -778,19 +778,22 @@ impl OpenGrokClient {
     }
 
     /// `GET /office/docs/{id}/pages/{page}.png`: one rendered page/slide/used-range, one-based
-    /// like the `office_render` tool's `page`. `None` on a 404 — past the last page, or a doc
-    /// the box no longer has — rather than an error the pager would have to read twice.
+    /// like the `office_render` tool's `page`. `version` names a kept version's bytes, so
+    /// the window can show what the document was; `None` is the live head off the box.
+    /// `None` on a 404 — past the last page, a version nothing kept, or a doc the box no
+    /// longer has — rather than an error the pager would have to read twice.
     pub async fn office_doc_page(
         &self,
         id: &str,
         page: u32,
+        version: Option<u64>,
     ) -> Result<Option<Vec<u8>>, OpenGrokError> {
+        let at = version
+            .map(|version| format!("?version={version}"))
+            .unwrap_or_default();
+        let route = format!("/office/docs/{id}/pages/{page}.png");
         let response = self
-            .send_json::<()>(
-                reqwest::Method::GET,
-                &format!("/office/docs/{id}/pages/{page}.png"),
-                None,
-            )
+            .send_json::<()>(reqwest::Method::GET, &format!("{route}{at}"), None)
             .await?;
         match response.status().as_u16() {
             404 => Ok(None),
@@ -805,15 +808,20 @@ impl OpenGrokClient {
         }
     }
 
-    /// `GET /office/docs/{id}/bytes`: the document's bytes as the box has them now, for Save a
-    /// copy. `None` on a 404, the same "gone" the page route reports.
-    pub async fn office_doc_bytes(&self, id: &str) -> Result<Option<Vec<u8>>, OpenGrokError> {
+    /// `GET /office/docs/{id}/bytes`: the document's bytes for Save a copy — the box's
+    /// current file, or the kept copy of the version `version` names. `None` on a 404, the
+    /// same "gone" the page route reports.
+    pub async fn office_doc_bytes(
+        &self,
+        id: &str,
+        version: Option<u64>,
+    ) -> Result<Option<Vec<u8>>, OpenGrokError> {
+        let at = version
+            .map(|version| format!("?version={version}"))
+            .unwrap_or_default();
+        let route = format!("/office/docs/{id}/bytes");
         let response = self
-            .send_json::<()>(
-                reqwest::Method::GET,
-                &format!("/office/docs/{id}/bytes"),
-                None,
-            )
+            .send_json::<()>(reqwest::Method::GET, &format!("{route}{at}"), None)
             .await?;
         match response.status().as_u16() {
             404 => Ok(None),
@@ -6407,7 +6415,7 @@ mod tests {
     use super::super::types::assistant_text_from_sse;
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{body_json, method, path};
+    use wiremock::matchers::{body_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     /// A URL nothing is listening on. These tests only ever read the jar, and a base that
@@ -6624,6 +6632,13 @@ mod tests {
             .mount(&server)
             .await;
 
+        Mock::given(method("GET"))
+            .and(path("/office/docs/odoc_1/pages/2.png"))
+            .and(query_param("version", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x51]))
+            .mount(&server)
+            .await;
+
         let client = OpenGrokClient::new(&server.uri()).unwrap();
         let detail = client.office_doc("odoc_1").await.expect("the row");
         assert_eq!(detail.kind, "pptx");
@@ -6632,14 +6647,26 @@ mod tests {
         assert_eq!(detail.proposals[0].changes, 2);
         assert_eq!(
             client
-                .office_doc_page("odoc_1", 1)
+                .office_doc_page("odoc_1", 1, None)
                 .await
                 .expect("the page")
                 .as_deref(),
             Some(&[0x89, 0x50][..])
         );
         assert_eq!(
-            client.office_doc_page("odoc_1", 9).await.expect("the end"),
+            client
+                .office_doc_page("odoc_1", 2, Some(1))
+                .await
+                .expect("the old page")
+                .as_deref(),
+            Some(&[0x89, 0x51][..]),
+            "a kept version's page is fetched with ?version="
+        );
+        assert_eq!(
+            client
+                .office_doc_page("odoc_1", 9, None)
+                .await
+                .expect("the end"),
             None,
             "past the last page is None, not an error"
         );
