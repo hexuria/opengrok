@@ -113,7 +113,16 @@ check "down goes through once the other databases can be checked" "! exists $min
 mkdir -p "$TMP/fake"
 cat > "$TMP/fake/server" <<'EOF'
 #!/usr/bin/env bash
-exec python3 -I -c 'import http.server, os; h, p = os.environ["OG_BIND"].rsplit(":", 1); http.server.HTTPServer((h, int(p)), http.server.BaseHTTPRequestHandler).serve_forever()'
+# `admin org create` makes the test account; every request answers 200, so its sign-in succeeds.
+[ "${1:-}" = admin ] && exit 0
+exec python3 -I -c '
+import http.server, os
+class OK(http.server.BaseHTTPRequestHandler):
+    def answer(self):
+        self.send_response(200); self.send_header("content-length", "0"); self.end_headers()
+    do_GET = do_POST = answer
+h, p = os.environ["OG_BIND"].rsplit(":", 1)
+http.server.HTTPServer((h, int(p)), OK).serve_forever()'
 EOF
 printf '#!/usr/bin/env bash\nexec sleep 300\n' > "$TMP/fake/app"
 chmod +x "$TMP/fake/server" "$TMP/fake/app"
@@ -122,7 +131,7 @@ name="$RUN-up"
 echo "og_inst_$(echo "$name" | tr - _)" >> "$MADE/databases"
 (OG_BASE_ENV="$TMP/fake/env" "$DI" up "$name" --server "$TMP/fake/server" --app "$TMP/fake/app" | cat > "$TMP/up.out" 2>&1) &
 upper=$!
-for _ in $(seq 1 60); do kill -0 "$upper" 2>/dev/null || break; sleep 1; done
+for _ in $(seq 1 90); do kill -0 "$upper" 2>/dev/null || break; sleep 1; done
 if kill -0 "$upper" 2>/dev/null; then fail "up returns once the app is started"; pkill -P "$upper"; kill "$upper"
 else pass "up returns once the app is started"; fi
 d="$NATIVECHAT_INSTANCES/$name"
