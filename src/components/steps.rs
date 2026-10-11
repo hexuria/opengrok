@@ -519,9 +519,13 @@ fn heading(
 }
 
 /// A step's arguments or its result, exactly as they are kept, in the font code is read in.
+/// The words are not selectable, so the block's own copy affordance is the only way the
+/// output leaves the row — the disclosure's click is the row's toggle, not a selection.
 fn mono_block(text: String, cx: &App) -> Div {
     let theme = cx.theme();
+    let copy = text.clone();
     div()
+        .relative()
         .w_full()
         .px(px(8.))
         .py(px(6.))
@@ -531,6 +535,23 @@ fn mono_block(text: String, cx: &App) -> Div {
         .font_family(theme.mono_font_family.clone())
         .text_color(theme.secondary_foreground)
         .child(text)
+        .child(
+            div()
+                .id("step-mono-copy")
+                .absolute()
+                .top(px(4.))
+                .right(px(4.))
+                .p(px(3.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_color(theme.muted_foreground)
+                .hover(|style| style.text_color(theme.foreground).bg(theme.background))
+                .child(Icon::new(IconName::Copy).size(px(12.)))
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                }),
+        )
 }
 
 #[cfg(test)]
