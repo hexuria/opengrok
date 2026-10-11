@@ -63,10 +63,9 @@ scripts/dev-instance.sh up <name> \
   --server ../opengrok-server-<topic>/target/debug/opengrok \
   --app target/debug/nativechat \
   --image grok-box:local          # or grok-box-<topic>:local; leave it out for no computers
-                                  # add --mock for the stand-in model instead of the gateway
 ```
 
-It prints the instance. Everything lives in `~/.cache/nativechat-instances/<name>/`:
+It prints its ports and where its files are. Everything lives in `~/.cache/nativechat-instances/<name>/`:
 
 | Piece | Yours alone | Why |
 |---|---|---|
@@ -76,40 +75,46 @@ It prints the instance. Everything lives in `~/.cache/nativechat-instances/<name
 | Binaries | copied to `opengrok-<name>`, `nativechat-<name>` | `cargo clean` or another rebuild can't pull them from under a running process, and `ps` says whose they are. |
 | App data | `app-data/` | Two apps on one sqlite break each other. |
 | Image tag | `grok-box-inst-<name>:local` | A `:local` tag is never pulled, and `grok-box:local` stays the owner's. A tag says nothing about whose a container is: see Down. |
-| Test account | `<name>@instance.test`, password generated in `password` (0600) | Signed in for you in the app. Never a real password. |
-| Window | first empty AeroSpace workspace, no focus taken | The owner keeps working. |
+| Window | opened in the background, no focus taken | The owner keeps working. |
 
 The server env is the main server's with `OG_BIND`, `OG_DATABASE_URL` and
 `OG_OAUTH_REDIRECT_URI` replaced. The egress tunnel is off, because it is host-wide and a second
 one fights the main server's.
 
-Re-running `up <name>` with a new `--server` or `--app` swaps that binary and restarts only that
-process. The database and account stay.
+`up` refuses while the instance is running. To swap a binary, `down` it and `up` again; the
+database goes with `down`, so the account below is made again.
+
+**A test account** of the instance's own, never the owner's and never a real password:
+
+```sh
+d=~/.cache/nativechat-instances/<name>
+(umask 077; openssl rand -hex 12 > "$d/password")
+(set -a; . "$d/server.env"; "$d/opengrok-<name>" admin org create --name <name> \
+  --admin-email <name>@instance.test --domain instance.test --password "$(cat "$d/password")")
+```
+
+Sign the app in with it through gpui-agent (`set-value login-email …`, `set-value
+login-password …`, `click login-submit`).
 
 ## 4. Check it
 
 ```sh
-eval "$(scripts/dev-instance.sh env <name>)"   # GPUI_AGENT_ADDR/TOKEN/RUNTIME_DIR and og() for this instance
+export GPUI_AGENT_ADDR=127.0.0.1:<agent port> GPUI_AGENT_TOKEN=dev-secret   # as `up` printed
 gpui-agent snapshot | grep '"id"'              # stable ids; click <id>, type <id> <text>
-gpui-agent --connect nativechat-<name> hello   # the same app found by name instead of port
-og GET /coworkers                              # the server as the test account
-screencapture -x -o -l "$(cat ~/.cache/nativechat-instances/<name>/window)" shot.png
 ```
 
 - **gpui-agent:** use the CLI from gpui-agent's main branch
   (`cargo install --git https://github.com/hexuria/gpui-agent gpui-agent-cli --force`). The app
-  pins the same revision in `Cargo.toml`.
-  - `--connect <id>` finds an app by its connect id, with no port to remember.
-  - The CLI remembers the last `--connect` in `session.json`, in its runtime dir. In the shared
-    per-user dir, one agent's choice would send another agent's bare `gpui-agent hello` to the
-    wrong app. So each instance has its own dir (`GPUI_AGENT_RUNTIME_DIR`, set by `env`), and in
-    shared shells you pass `--connect` or `--addr` every time.
-- **The window:** capture it with `screencapture -l <window id>` (the id is in `window`). Don't
+  pins the same revision in `Cargo.toml`. Always pass `--addr` (or `GPUI_AGENT_ADDR`). The CLI
+  remembers the last `--connect` for every agent on the Mac, so a bare command can land in
+  someone else's app (hexuria/gpui-agent#48).
+- **The window:** capture it with `screencapture -l <window id>`. Find the id with
+  `aerospace list-windows --all --format '%{window-id} %{app-pid}'` and the app's pid. Don't
   raise it over the owner's work.
 - **Hover:** gpui-agent has no hover. To see a hover-only state, make a throwaway build with that
   state always on, capture it, then rebuild the real one. Never commit the throwaway.
-- **Computer screens:** to see one, open it in the app's Computer pane, or ask the server for it
-  with `og`.
+- **Computer screens:** to see one, open it in the app's Computer pane, or ask the server for
+  `GET /coworkers/<id>/computer` as the test account.
 - **Server tests:** they need their own database whose name ends in `_gate`. The test guard
   refuses any other.
 - **A Bot saying "Done":** that isn't proof. Look at the screen or the server's answer, for
@@ -181,9 +186,8 @@ Run it after changing the script. Run an older version of the script against it 
 ## Don'ts, each from a real clash
 
 - **`pkill -x nativechat`, `pkill -f target/debug/nativechat`:** these close every agent's app.
-  `just run` now stops only the app its own checkout launched. `build.sh` and
-  `scripts/install-nativechat-app.sh` still stop every `nativechat`, because the release app runs
-  under that same name, so don't run them while others are working.
+  `just run`, `build.sh` and `scripts/install-nativechat-app.sh` still do this, so don't run them
+  while others are working. Start your app with `up` instead.
 - **Picking containers by image, tag, name or `ancestor=`, or `docker container prune`,
   `docker volume prune`:** these take other servers' Bot computers and their data. Remove only
   the box ids your own instance's database records, which is what `down` does.

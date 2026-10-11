@@ -663,23 +663,6 @@ fn auth_banner(token_set: bool) -> &'static str {
     }
 }
 
-/// The discovery record `gpui-agent --connect <id>` finds this app by: its executable name, or
-/// `GPUI_AGENT_CONNECT_ID` when set (scripts/dev-instance.sh sets `nativechat-<name>`). gpui-agent
-/// writes one only for hosts served through `serve_host`, and this app serves a mailbox, so it
-/// writes its own (hexuria/gpui-agent#47). The guard sits in a static, which is never dropped, so
-/// the record outlives the process; the CLI skips a record whose process has exited and removes
-/// it then.
-fn publish_discovery_record(addr: std::net::SocketAddr) {
-    static PUBLISHED: std::sync::OnceLock<gpui_agent::discovery::PublishedHost> =
-        std::sync::OnceLock::new();
-    match gpui_agent::discovery::publish_current(addr, "nativechat") {
-        Ok(record) => {
-            let _ = PUBLISHED.set(record);
-        }
-        Err(err) => eprintln!("gpui-agent discovery record not written: {err}"),
-    }
-}
-
 /// Start the localhost control plane when `GPUI_AGENT=1`.
 pub fn maybe_start() -> Option<AgentMailbox> {
     match from_env() {
@@ -701,7 +684,6 @@ pub fn maybe_start() -> Option<AgentMailbox> {
                 Duration::from_secs(30),
             ) {
                 Ok((addr, _)) => {
-                    publish_discovery_record(addr);
                     eprintln!("gpui-agent listening on {addr} (platform=desktop, app=nativechat)");
                     eprintln!("opt-in: GPUI_AGENT=1 · bind via from_env · protocol v2");
                     eprintln!("{auth}");

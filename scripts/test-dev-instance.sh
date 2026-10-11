@@ -107,6 +107,31 @@ sql postgres "drop database if exists $broken with (force)" >/dev/null
 "$DI" down "$name" > "$TMP/closed2.out" 2>&1
 check "down goes through once the other databases can be checked" "! exists $mine && ! db_exists $db"
 
+# --- up starts the server and app it names, and down stops exactly those ----------------------
+# Stand-ins: a "server" that answers HTTP on OG_BIND, an "app" that sleeps. A backgrounded
+# `cd && …` once recorded the shell around the app, not the app, and held up's output open.
+mkdir -p "$TMP/fake"
+cat > "$TMP/fake/server" <<'EOF'
+#!/usr/bin/env bash
+exec python3 -I -c 'import http.server, os; h, p = os.environ["OG_BIND"].rsplit(":", 1); http.server.HTTPServer((h, int(p)), http.server.BaseHTTPRequestHandler).serve_forever()'
+EOF
+printf '#!/usr/bin/env bash\nexec sleep 300\n' > "$TMP/fake/app"
+chmod +x "$TMP/fake/server" "$TMP/fake/app"
+echo "OG_DATABASE_URL=postgres://u:p@127.0.0.1:5455/unused" > "$TMP/fake/env"
+name="$RUN-up"
+echo "og_inst_$(echo "$name" | tr - _)" >> "$MADE/databases"
+(OG_BASE_ENV="$TMP/fake/env" "$DI" up "$name" --server "$TMP/fake/server" --app "$TMP/fake/app" | cat > "$TMP/up.out" 2>&1) &
+upper=$!
+for _ in $(seq 1 60); do kill -0 "$upper" 2>/dev/null || break; sleep 1; done
+if kill -0 "$upper" 2>/dev/null; then fail "up returns once the app is started"; pkill -P "$upper"; kill "$upper"
+else pass "up returns once the app is started"; fi
+d="$NATIVECHAT_INSTANCES/$name"
+srv=$(cat "$d/server.pid" 2>/dev/null); app=$(cat "$d/app.pid" 2>/dev/null)
+check "up records the app's own pid" "ps -o command= -p ${app:-0} | grep -q 'sleep 300'"
+check "up records the server's own pid" "ps -o command= -p ${srv:-0} | grep -q 'http.server'"
+"$DI" down "$name" > "$TMP/up-down.out" 2>&1
+check "down stops that server and app" "! kill -0 ${srv:-0} 2>/dev/null && ! kill -0 ${app:-0} 2>/dev/null"
+
 # --- finish and abort -------------------------------------------------------------------------
 # A stand-in gh: `pr list` prints $FAKE_GH_PRS ("number state head url" lines), `pr close` is logged.
 mkdir -p "$TMP/bin"
