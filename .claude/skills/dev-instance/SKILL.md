@@ -58,26 +58,77 @@ main, and `grok-box:local` is main's image.
 
 ## 3. Up
 
+**A branch gets its own copy only of what it changes**, and shares the rest:
+
+| The branch changes… | Server | Database | Gateway | Computer image |
+|---|---|---|---|---|
+| only the app | the shared **baseline**, with an account of its own | the baseline's | shared :29080 | shared |
+| the server | **its own** (`--server`) | **its own** | shared :29080 | shared |
+| the gateway | its own (`--server`), to point it at the gateway | its own | **its own** (`--gateway`) | shared |
+| the box | its own (`--server`) | its own | shared | **its own** (`--image`) |
+
+- **A changed server gets its own database.** Its migrations would change the schema under main
+  and every other agent, and two server versions can't share a database.
+- **An unchanged one is shared.** Its schema is main's, and accounts keep agents' Bots, chats and
+  computers apart.
+- **The baseline is never the owner's :1447.** It's a dev server built from main
+  (`~/bin/opengrok-pr139`, or `OG_BASELINE_SERVER`).
+
 ```sh
+# only the app changed: on the shared baseline, started for you if it isn't running
+scripts/dev-instance.sh up <name> --app target/debug/nativechat
+
+# the server changed: a server and database of its own
 scripts/dev-instance.sh up <name> \
   --server ../opengrok-server-<topic>/target/debug/opengrok \
   --app target/debug/nativechat \
-  --image grok-box:local          # or grok-box-<topic>:local; leave it out for no computers
-                                  # add --mock for the stand-in model instead of the gateway
+  --image grok-box:local            # or grok-box-<topic>:local; leave it out for no computers
+  # --gateway http://127.0.0.1:<port> to use a branch's own gateway; --mock for the stand-in model
 ```
+
+For a gateway branch, start its gateway from the gateway worktree on ports of its own:
+`just pub_port=<p> adm_port=<p+1> serve` (it also shifts on a clash and prints what it chose).
+Its database is the gateway's dev Postgres on :5452; a gateway branch with migrations needs its
+own there too.
 
 It prints the instance. Everything lives in `~/.cache/nativechat-instances/<name>/`:
 
 | Piece | Yours alone | Why |
 |---|---|---|
-| Server port | first free in 1460–1499 | Two servers can't share a port. 1447 and 1448 are never picked. |
-| gpui-agent port | 16000 + server port (1460 → 17460) | The owner's app holds 17426. |
-| Database | `og_inst_<name>` in `opengrok-postgres` | The server migrates it on start. Bots and turns never mix. |
+| Slot | first free in 1460–1499 | Your server's port, when you have one. 1447 and 1448 are never picked. |
+| gpui-agent port | 16000 + slot (1460 → 17460) | The owner's app holds 17426. |
+| Database | `og_inst_<name>` in `opengrok-postgres`, or the baseline's | The server migrates it on start. |
 | Binaries | copied to `opengrok-<name>`, `nativechat-<name>` | `cargo clean` or another rebuild can't pull them from under a running process, and `ps` says whose they are. |
 | App data | `app-data/` | Two apps on one sqlite break each other. |
 | Image tag | `grok-box-inst-<name>:local` | A `:local` tag is never pulled, and `grok-box:local` stays the owner's. A tag says nothing about whose a container is: see Down. |
-| Test account | `<name>@instance.test`, password generated in `password` (0600) | Signed in for you in the app. Never a real password. |
+| Account | see below | Signed in for you in the app. |
 | Window | first empty AeroSpace workspace, no focus taken | The owner keeps working. |
+
+**Accounts.** A fresh database is seeded with one org and its admin, and the app signs in as that
+admin. The values come from `~/.config/opengrok-dev/seed.env` (0600, on this Mac only, **never
+committed**):
+
+```sh
+OG_SEED_ORG_NAME=Goldcoders
+OG_SEED_DOMAIN=goldcoders.dev
+OG_SEED_EMAIL=ceo@goldcoders.dev
+OG_SEED_PASSWORD='…'
+```
+
+The file is read as text, never run. Without it, each instance makes a random
+`<name>@instance.test` account, with its password in `password`.
+
+On the baseline, each instance gets `<name>@<seed domain>` in the baseline's org, with a password
+of its own. So agents never share a login, and `down` can tell its computers apart. The server
+has no command that removes an account, so the account stays on the baseline. An instance made
+again under the same name gets it back, with a new password.
+
+**A debug app shows its icons only while its worktree exists.** In a debug build, `rust-embed`
+reads `assets/` from the checkout it was built in, at run time. Once that worktree is removed,
+the copy shows no icons or logos. Keep the worktree until the instance is down (`finish` takes
+the instance down first). For an app that must outlive its worktree, the owner's in particular,
+use a release build (`cargo build --release -p nativechat --features agent`), which packs
+`assets/` into the binary.
 
 The server env is the main server's with `OG_BIND`, `OG_DATABASE_URL` and
 `OG_OAUTH_REDIRECT_URI` replaced. The egress tunnel is off, because it is host-wide and a second
@@ -92,7 +143,7 @@ process. The database and account stay.
 eval "$(scripts/dev-instance.sh env <name>)"   # GPUI_AGENT_ADDR/TOKEN/RUNTIME_DIR and og() for this instance
 gpui-agent snapshot | grep '"id"'              # stable ids; click <id>, type <id> <text>
 gpui-agent --connect nativechat-<name> hello   # the same app found by name instead of port
-og GET /coworkers                              # the server as the test account
+og GET /coworkers                              # the server as the instance's account
 screencapture -x -o -l "$(cat ~/.cache/nativechat-instances/<name>/window)" shot.png
 ```
 
@@ -147,7 +198,7 @@ scripts/dev-instance.sh finish <topic>         # lists what it will do, changes 
 scripts/dev-instance.sh finish <topic> --yes   # does it
 ```
 
-`<topic>` is the branch name after `gol/`. Across the nativechat, opengrok-server and box
+`<topic>` is the branch name after `gol/`. Across the nativechat, opengrok-server, box and open-ai-gateway
 checkouts (or `DEV_REPOS`), `finish`:
 - takes down the instance named `<topic>`;
 - runs `cargo clean`, then `git worktree remove` on each `gol/<topic>` worktree;
@@ -178,6 +229,23 @@ Both refuse, and change nothing at all, when:
 Run it after changing the script. Run an older version of the script against it only with
 `TEST_IMAGE` set to a throwaway image.
 
+## Merge groups: a change across repos
+
+A change that spans repos (app, server, box, gateway) merges as a **group**: all of it, in one
+sitting, in order, or none of it. One PR merged without its siblings leaves main broken.
+
+- **Each PR's description opens with a "Merge group" block** naming every sibling (`repo#n`) and
+  the order, for example box → server → app.
+- **Each PR is safe on its own where it can be.** Changes are additive, and the newer side checks
+  for what it needs. Then a missing sibling degrades a feature instead of breaking main.
+- **`scripts/dev-instance.sh group <topic>`** lists the topic's PRs in every repo, and says
+  whether the group is *ready* (every PR open, with green CI), *not ready*, *INCOMPLETE* (some
+  merged, some open: merge the rest now), or *fully merged*.
+- **Merge only when it says ready**, all in one sitting, in the order given, then run `group`
+  again until it says fully merged.
+- **If one won't merge, stop and fix it straight away.** Never leave a group half merged.
+- `finish <topic>` refuses until every repo's branch has a merged PR.
+
 ## Don'ts, each from a real clash
 
 - **`pkill -x nativechat`, `pkill -f target/debug/nativechat`:** these close every agent's app.
@@ -192,3 +260,6 @@ Run it after changing the script. Run an older version of the script against it 
 - **Signing in to the owner's account, or reusing its cookie jar:** use your instance's test
   account.
 - **Messaging other agents' sessions** about your instance: don't, unless the owner asks.
+- **Testing on the owner's :1447:** use the baseline. Bots made there land on the owner's real
+  account.
+- **Committing the seed file, or putting its values in a script or this guide:** don't.

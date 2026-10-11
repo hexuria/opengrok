@@ -18,6 +18,10 @@ IMG="${TEST_IMAGE:-grok-box:local}"
 TMP="$(mktemp -d)"
 export NATIVECHAT_INSTANCES="$TMP/instances"
 RUN="t$(openssl rand -hex 3)"
+# The baseline's database is `og_inst_<name>` in the shared Postgres: never the real one's name.
+export DEV_BASELINE="$RUN-base"
+# No seed unless a check gives one, so a seed file on this Mac doesn't change what is checked.
+export OG_SEED_FILE="$TMP/no-seed.env"
 FAILS=0
 # What this run made, one per line. Files, not arrays: `container` and `database` run inside
 # $(...), and a subshell's array changes never reach the cleanup.
@@ -35,7 +39,11 @@ container() { local c; c=$(docker create "$@" "$IMG") && echo "$c" >> "$MADE/con
 database() { sql postgres "create database $1" >/dev/null && echo "$1" >> "$MADE/databases"; }
 
 cleanup() {
-  local c d
+  local c d f
+  # Stand-in servers and apps a failed check left running.
+  for f in "$NATIVECHAT_INSTANCES"/*/server.pid "$NATIVECHAT_INSTANCES"/*/app.pid; do
+    [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null
+  done
   while read -r c; do docker rm -f "$c" >/dev/null 2>&1; done < "$MADE/containers"
   docker volume ls -q | grep "^ogbox-$RUN-" | xargs -r docker volume rm >/dev/null 2>&1
   while read -r d; do sql postgres "drop database if exists $d with (force)" >/dev/null 2>&1; done < "$MADE/databases"
@@ -113,8 +121,25 @@ check "down goes through once the other databases can be checked" "! exists $min
 mkdir -p "$TMP/fake"
 cat > "$TMP/fake/server" <<'EOF'
 #!/usr/bin/env bash
-# `admin org create` makes the test account; every request answers 200, so its sign-in succeeds.
-[ "${1:-}" = admin ] && exit 0
+# A stand-in opengrok: `admin` commands log their arguments and answer the way the server prints
+# them (an account goes into account_view, as the real one does); otherwise it creates
+# account_view, as migrations would, and answers every request 200, so sign-ins succeed.
+db=$(printf %s "$OG_DATABASE_URL" | sed -E 's#.*/([^/?]+).*#\1#')
+q() { docker exec opengrok-postgres sh -c 'psql -X -U "$POSTGRES_USER" -d "$1" -qAt -c "$2"' sh "$db" "$1"; }
+if [ "${1:-}" = admin ]; then
+  echo "$*" >> "$FAKE_ADMIN_LOG"
+  email=""; prev=""
+  for a in "$@"; do [ "$prev" = --email ] && email=$a; prev=$a; done
+  case "$2 $3" in
+    "org create") echo "org created"; echo "  org id:   org_$db" ;;
+    "account create")
+      [ "$(q "select count(*) from account_view where email = '$email'")" = 0 ] || { echo "error: $email exists"; exit 1; }
+      q "insert into account_view values ('acc_$RANDOM$RANDOM', '$email', 'free', false, 0)" >/dev/null
+      echo "account created" ;;
+  esac
+  exit 0
+fi
+q "create table if not exists account_view (id text primary key, email text not null unique, plan text not null, trial boolean not null, updated_at_ms bigint not null)" >/dev/null
 exec python3 -I -c '
 import http.server, os
 class OK(http.server.BaseHTTPRequestHandler):
@@ -127,9 +152,11 @@ EOF
 printf '#!/usr/bin/env bash\nexec sleep 300\n' > "$TMP/fake/app"
 chmod +x "$TMP/fake/server" "$TMP/fake/app"
 echo "OG_DATABASE_URL=postgres://u:p@127.0.0.1:5455/unused" > "$TMP/fake/env"
+export OG_BASE_ENV="$TMP/fake/env" OG_BASELINE_SERVER="$TMP/fake/server" OG_BASELINE_IMAGE="$IMG" FAKE_ADMIN_LOG="$TMP/admin.log"
+touch "$FAKE_ADMIN_LOG"
 name="$RUN-up"
 echo "og_inst_$(echo "$name" | tr - _)" >> "$MADE/databases"
-(OG_BASE_ENV="$TMP/fake/env" "$DI" up "$name" --server "$TMP/fake/server" --app "$TMP/fake/app" | cat > "$TMP/up.out" 2>&1) &
+("$DI" up "$name" --server "$TMP/fake/server" --app "$TMP/fake/app" | cat > "$TMP/up.out" 2>&1) &
 upper=$!
 for _ in $(seq 1 90); do kill -0 "$upper" 2>/dev/null || break; sleep 1; done
 if kill -0 "$upper" 2>/dev/null; then fail "up returns once the app is started"; pkill -P "$upper"; kill "$upper"
@@ -141,13 +168,73 @@ check "up records the server's own pid" "ps -o command= -p ${srv:-0} | grep -q '
 "$DI" down "$name" > "$TMP/up-down.out" 2>&1
 check "down stops that server and app" "! kill -0 ${srv:-0} 2>/dev/null && ! kill -0 ${app:-0} 2>/dev/null"
 
+# --- a fresh database is seeded from the seed file, or gets a random account without one --------
+cat > "$TMP/seed.env" <<'EOF'
+OG_SEED_ORG_NAME=SeedOrg
+OG_SEED_DOMAIN=seed.test
+OG_SEED_EMAIL=ceo@seed.test
+OG_SEED_PASSWORD='Pw$12345x'
+EOF
+name="$RUN-seeded"; d="$NATIVECHAT_INSTANCES/$name"
+echo "og_inst_$(echo "$name" | tr - _)" >> "$MADE/databases"
+OG_SEED_FILE="$TMP/seed.env" "$DI" up "$name" --server "$TMP/fake/server" --gateway http://127.0.0.1:39999 > "$TMP/seeded.out" 2>&1
+check "a fresh database's org is the seed's" "grep -q -- '--name SeedOrg --admin-email ceo@seed.test --domain seed.test --password Pw\$12345x' $FAKE_ADMIN_LOG"
+check "the instance signs in as the seed's admin" "[ \"\$(cat $d/email)\" = ceo@seed.test ] && [ \"\$(cat $d/org)\" = org_og_inst_$(echo "$name" | tr - _) ]"
+check "up never prints the seed's password" "! grep -q 'Pw\$12345x' $TMP/seeded.out"
+check "--gateway points the instance's server at that gateway" "grep -qx 'export OG_GATEWAY_URL=http://127.0.0.1:39999' $d/server.env"
+"$DI" down "$name" >/dev/null 2>&1
+
+name="$RUN-plain"; d="$NATIVECHAT_INSTANCES/$name"
+echo "og_inst_$(echo "$name" | tr - _)" >> "$MADE/databases"
+"$DI" up "$name" --server "$TMP/fake/server" > "$TMP/plain.out" 2>&1
+check "without a seed file the instance gets an account of its own" "[ \"\$(cat $d/email)\" = $name@instance.test ] && grep -q -- '--admin-email $name@instance.test --domain instance.test' $FAKE_ADMIN_LOG"
+"$DI" down "$name" >/dev/null 2>&1
+
+# --- an app-only instance shares the baseline, with an account and computers of its own ---------
+base="$NATIVECHAT_INSTANCES/$DEV_BASELINE"; bdb="og_inst_$(echo "$DEV_BASELINE" | tr - _)"
+echo "$bdb" >> "$MADE/databases"
+name="$RUN-app"; d="$NATIVECHAT_INSTANCES/$name"
+"$DI" up "$name" --image "$IMG" > "$TMP/attach-image.out" 2>&1
+code=$?
+check "an instance without its own server refuses --image" "[ $code != 0 ] && grep -q 'add --server' $TMP/attach-image.out"
+OG_SEED_FILE="$TMP/seed.env" "$DI" up "$name" > "$TMP/attach.out" 2>&1
+check "the first app-only instance starts the baseline" "[ -f $base/server.pid ] && kill -0 \$(cat $base/server.pid) 2>/dev/null"
+check "the baseline's computers come from main's image" "grep -qx 'export OG_COMPUTER=docker OG_DOCKER_IMAGE=grok-box-inst-$DEV_BASELINE:local' $base/server.env"
+check "the app-only instance talks to the baseline's server" "[ \"\$(cat $d/server_port)\" = \"\$(cat $base/port)\" ] && [ \"\$(cat $d/port)\" != \"\$(cat $base/port)\" ]"
+check "it has an account of its own in the baseline's org" "[ \"\$(cat $d/email)\" = $name@seed.test ] && grep -q -- 'account create --email $name@seed.test --org org_$bdb' $FAKE_ADMIN_LOG && [ -s $d/account ]"
+check "it makes no database of its own" "! db_exists og_inst_$(echo "$name" | tr - _)"
+
+acct=$(cat "$d/account")
+sql "$bdb" "create table scoped_computer (scope text, scope_id text, box_id text); create table account_computer (account_id text, box_id text); create table coworker_view (account_id text, box_id text)" >/dev/null
+own=$(container); bots=$(container); org_box=$(container); others=$(container); both=$(container)
+sql "$bdb" "insert into scoped_computer values ('account', '$acct', '$own'), ('org', 'org_x', '$org_box'), ('account', 'acc_other', '$others'); insert into coworker_view values ('$acct', '$bots'), ('$acct', '$both'), ('acc_other', '$both')" >/dev/null
+
+"$DI" down "$DEV_BASELINE" > "$TMP/base-busy.out" 2>&1
+code=$?
+check "the baseline refuses to go down while an instance uses it" "[ $code != 0 ] && grep -q $name $TMP/base-busy.out && kill -0 \$(cat $base/server.pid) 2>/dev/null"
+
+"$DI" down "$name" > "$TMP/attach-down.out" 2>&1
+check "down removes its account's computer and its Bots' boxes" "! exists $own && ! exists $bots"
+check "down keeps the org's computer and another account's" "exists $org_box && exists $others"
+check "down keeps a box another account shares" "exists $both && grep -q 'kept computer ${both:0:12}' $TMP/attach-down.out"
+check "the baseline and its database stay up" "db_exists $bdb && kill -0 \$(cat $base/server.pid) 2>/dev/null && [ ! -d $d ]"
+
+OG_SEED_FILE="$TMP/seed.env" "$DI" up "$name" > "$TMP/attach-again.out" 2>&1
+check "made again under the same name, it gets its account back with a new password" "grep -q -- 'account password --email $name@seed.test' $FAKE_ADMIN_LOG && [ \"\$(cat $d/account)\" = $acct ]"
+"$DI" down "$name" >/dev/null 2>&1
+"$DI" down "$DEV_BASELINE" > "$TMP/base-down.out" 2>&1
+check "with no instance on it, the baseline goes down" "! db_exists $bdb && [ ! -d $base ]"
+
 # --- finish and abort -------------------------------------------------------------------------
-# A stand-in gh: `pr list` prints $FAKE_GH_PRS ("number state head url" lines), `pr close` is logged.
+# A stand-in gh: `pr list` prints $FAKE_GH_DIR/<repo dir name> if there is one, else $FAKE_GH_PRS
+# ("number state head ci url" lines); `pr close` is logged.
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
-  "pr list") [ -n "${FAKE_GH_PRS:-}" ] && printf '%s\n' "$FAKE_GH_PRS" ;;
+  "pr list")
+    if [ -f "${FAKE_GH_DIR:-/nonexistent}/$(basename "$PWD")" ]; then cat "$FAKE_GH_DIR/$(basename "$PWD")"
+    elif [ -n "${FAKE_GH_PRS:-}" ]; then printf '%s\n' "$FAKE_GH_PRS"; fi ;;
   "pr close") echo "close $3" >> "$FAKE_GH_LOG" ;;
 esac
 exit 0
@@ -179,7 +266,7 @@ wt=$(topic_with_worktree "$topic")
 head=$(git -C "$wt" rev-parse HEAD)
 
 touch "$wt/unsaved"
-FAKE_GH_PRS="7 MERGED $head https://pr/7" "$DI" finish "$topic" --yes > "$TMP/f1.out" 2>&1
+FAKE_GH_PRS="7 MERGED $head green https://pr/7" "$DI" finish "$topic" --yes > "$TMP/f1.out" 2>&1
 code=$?
 check "finish refuses a worktree with uncommitted changes" "[ $code = 1 ] && grep -q 'uncommitted changes' $TMP/f1.out"
 check "a refused finish leaves the worktree and branch" "[ -d $wt ] && git -C $repo show-ref --quiet refs/heads/gol/$topic"
@@ -189,18 +276,18 @@ FAKE_GH_PRS="" "$DI" finish "$topic" --yes > "$TMP/f2.out" 2>&1
 code=$?
 check "finish refuses a branch with no merged PR" "[ $code = 1 ] && grep -q 'no merged PR' $TMP/f2.out && [ -d $wt ]"
 
-FAKE_GH_PRS="8 OPEN $head https://pr/8" "$DI" finish "$topic" --yes > "$TMP/f3.out" 2>&1
+FAKE_GH_PRS="8 OPEN $head green https://pr/8" "$DI" finish "$topic" --yes > "$TMP/f3.out" 2>&1
 code=$?
 check "finish refuses while a PR is still open" "[ $code = 1 ] && grep -q 'still open' $TMP/f3.out && [ -d $wt ]"
 
 commit "$wt" "made after the merge"
-FAKE_GH_PRS="7 MERGED $head https://pr/7" "$DI" finish "$topic" --yes > "$TMP/f4.out" 2>&1
+FAKE_GH_PRS="7 MERGED $head green https://pr/7" "$DI" finish "$topic" --yes > "$TMP/f4.out" 2>&1
 code=$?
 check "finish refuses a branch with commits its merged PR doesn't have" "[ $code = 1 ] && grep -q \"commits its merged PR doesn't\" $TMP/f4.out && [ -d $wt ]"
 
 head=$(git -C "$wt" rev-parse HEAD)
 docker tag "$IMG" "grok-box-$topic:local"
-FAKE_GH_PRS="7 MERGED $head https://pr/7" "$DI" finish "$topic" --yes > "$TMP/f5.out" 2>&1
+FAKE_GH_PRS="7 MERGED $head green https://pr/7" "$DI" finish "$topic" --yes > "$TMP/f5.out" 2>&1
 code=$?
 check "finish --yes on a merged topic removes the worktree and branch" "[ $code = 0 ] && [ ! -d $wt ] && ! git -C $repo show-ref --quiet refs/heads/gol/$topic"
 check "finish untags the topic's own box image and leaves $IMG" "! docker image inspect grok-box-$topic:local >/dev/null 2>&1 && docker image inspect $IMG >/dev/null 2>&1"
@@ -209,7 +296,7 @@ check "finish leaves the remote branch (the merge is the record)" "git -C $repo 
 topic="$RUN-abort"
 wt=$(topic_with_worktree "$topic")
 head=$(git -C "$wt" rev-parse HEAD)
-export FAKE_GH_PRS="9 OPEN $head https://pr/9"
+export FAKE_GH_PRS="9 OPEN $head green https://pr/9"
 
 "$DI" abort "$topic" > "$TMP/a1.out" 2>&1
 code=$?
@@ -230,6 +317,27 @@ check "abort --yes removes the worktree and both branches" "[ ! -d $wt ] && ! gi
 FAKE_GH_PRS="" "$DI" finish "$RUN-none" --yes > "$TMP/n.out" 2>&1
 code=$?
 check "finish on a topic with nothing left says so and succeeds" "[ $code = 0 ] && grep -q 'nothing of' $TMP/n.out"
+
+# --- group: a topic's PRs across repos merge together or not at all -----------------------------
+repo2="$TMP/repo2"
+git init -q -b main "$repo2"
+git -C "$repo2" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "$repo2" remote add origin "$TMP/origin.git"
+export DEV_REPOS="$repo
+$repo2" FAKE_GH_DIR="$TMP/ghprs"
+mkdir -p "$FAKE_GH_DIR"
+group_says() { printf '%s\n' "$2" > "$FAKE_GH_DIR/repo"; printf '%s\n' "$3" > "$FAKE_GH_DIR/repo2"; FAKE_GH_PRS="" "$DI" group "$1" > "$TMP/group.out" 2>&1; echo $?; }
+code=$(group_says g1 "1 MERGED aaa green https://pr/1" "2 OPEN bbb green https://pr/2")
+check "group calls one merged and one open PR incomplete" "[ $code = 1 ] && grep -q INCOMPLETE $TMP/group.out"
+code=$(group_says g2 "1 OPEN aaa green https://pr/1" "2 OPEN bbb green https://pr/2")
+check "group calls every PR open with green CI ready" "[ $code = 0 ] && grep -q '^ready' $TMP/group.out"
+code=$(group_says g3 "1 OPEN aaa green https://pr/1" "2 OPEN bbb pending https://pr/2")
+check "group calls a PR without green CI not ready" "[ $code = 1 ] && grep -q 'not ready' $TMP/group.out"
+code=$(group_says g4 "1 MERGED aaa green https://pr/1" "2 MERGED bbb green https://pr/2")
+check "group calls every PR merged fully merged" "[ $code = 0 ] && grep -q 'fully merged' $TMP/group.out"
+git -C "$repo2" branch -q gol/g5
+code=$(group_says g5 "1 OPEN aaa green https://pr/1" "")
+check "group calls a branch with no PR not ready" "[ $code = 1 ] && grep -q 'no PR' $TMP/group.out"
 
 echo
 [ "$FAILS" = 0 ] && echo "all passed" || { echo "$FAILS failed"; exit 1; }
