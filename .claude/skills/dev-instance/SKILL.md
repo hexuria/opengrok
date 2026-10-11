@@ -127,7 +127,10 @@ This:
   `coworker_view` in `og_inst_<name>`), with their `ogbox-*` volumes;
 - untags its image, drops its database and deletes the instance dir.
 
-A computer that another server's database also records is kept, and `down` says so.
+A computer that another server's database also records is kept, and `down` says so. When `down`
+can't read its own record, or can't check another server's database, it removes nothing more
+and stops, keeping its database and dir. Run it again once Postgres answers. Test databases
+(`*_gate`) aren't checked.
 
 Why the database, and never the image: every server's computers come from the same image, so a
 tag points at that same image. `docker ps --filter ancestor=<tag>` matches the image underneath,
@@ -159,12 +162,18 @@ Both refuse, and change nothing at all, when:
 - a process is running from a worktree, such as an app or server started there (the owner's app
   can be one of them);
 - the worktree is a repo's main checkout, or the one the script runs from;
-- for `finish` only: a branch has no merged PR, or a PR is still open.
+- for `finish` only: a branch has no merged PR, a PR is still open, or the local branch has
+  commits its merged PR doesn't (they would be lost).
+
+`abort` lists how many commits are on no remote before you say `--yes`.
 
 `scripts/test-dev-instance.sh` checks all of this against the real Docker and Postgres:
 - `down` next to a look-alike computer from the same image;
 - `down` next to a computer another server records;
-- a dirty worktree, an unmerged branch, a busy worktree, and `abort` without `--yes`.
+- `down` stopping when another database can't be checked;
+- `finish` and `abort` on a throwaway repo with a stand-in `gh`: a dirty worktree, no merged PR,
+  an open PR, commits after the merge, a busy worktree, `abort` without `--yes`, and both going
+  through.
 
 Run it after changing the script. Run an older version of the script against it only with
 `TEST_IMAGE` set to a throwaway image.

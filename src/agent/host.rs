@@ -10941,7 +10941,8 @@ impl NativeChatHost {
 impl AgentHost for NativeChatHost {
     fn hello(&self) -> HelloInfo {
         // The same identity the discovery record carries, so `hello` says which app answered
-        // when several are running.
+        // when several are running. `bundle_id` and `executable` joined `HelloInfo` in
+        // hexuria/gpui-agent 83630da ("connect by app id", #42), pinned here at 19d2033.
         let identity = gpui_agent::discovery::detect_identity();
         HelloInfo {
             protocol: PROTOCOL_VERSION,
