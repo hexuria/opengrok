@@ -6,11 +6,13 @@
 # wanted :1447, two apps shared one sqlite, a retagged `grok-box:local` changed the owner's real
 # computers, and nobody could tell whose Docker containers were whose. An instance here owns,
 # under one name, everything it starts: a server port, a database, a copy of each binary, an app
-# data dir, a gpui-agent port and an image tag. `down` takes all of it away again and touches
-# nothing else.
+# data dir, a gpui-agent port, an image tag, a test account and an AeroSpace workspace. `down`
+# takes all of it away again and touches nothing else.
 #
 #   scripts/dev-instance.sh up <name> --server <opengrok bin> [--app <nativechat bin>]
-#                                     [--image <docker image>]
+#                                     [--image <docker image>] [--mock]
+#   scripts/dev-instance.sh status [<name>]
+#   scripts/dev-instance.sh env <name>       # exports for gpui-agent and the og() curl helper
 #   scripts/dev-instance.sh down <name>
 #   scripts/dev-instance.sh finish <topic> [--yes]   # after the merge: instance, worktrees, branch
 #   scripts/dev-instance.sh abort <topic> [--yes]    # drop it: the same, plus open PRs and remote branches
@@ -18,7 +20,7 @@
 # The guide is .claude/skills/dev-instance/SKILL.md.
 set -euo pipefail
 # Everything an instance writes is private to this user: its server env holds the main server's
-# keys.
+# keys, and its cookie jar and test password sign in to it.
 umask 077
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -92,6 +94,8 @@ server_env() {
     else
       echo "export OG_COMPUTER=none"
     fi
+    [ -f "$d/mock" ] && echo "export OG_MODEL_DOOR=mock"
+    true
   } > "$d/server.env"
 }
 
@@ -104,22 +108,35 @@ wait_http() {
   return 1
 }
 
+# The password goes to curl on stdin (printf is a shell builtin), never on a command line `ps`
+# can read.
+login() {
+  local d=$1 port=$2
+  printf '{"email":"%s","password":"%s"}' "$(cat "$d/email")" "$(cat "$d/password")" |
+    curl -s -c "$d/jar.txt" -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+      --data-binary @- "http://127.0.0.1:$port/auth/login"
+}
+
+agent() {
+  local d=$1; shift
+  GPUI_AGENT_ADDR="127.0.0.1:$(agent_port_of "$(cat "$d/port")")" GPUI_AGENT_TOKEN=dev-secret \
+    GPUI_AGENT_RUNTIME_DIR="$d/gpui-agent" gpui-agent "$@"
+}
+
 up() {
-  local name="" server="" app="" image=""
+  local name="" server="" app="" image="" mock=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --server) server=$2; shift 2 ;;
       --app) app=$2; shift 2 ;;
       --image) image=$2; shift 2 ;;
+      --mock) mock=1; shift ;;
       -*) die "unknown flag $1" ;;
       *) name=$1; shift ;;
     esac
   done
   valid_name "$name"
   local d; d=$(dir_of "$name")
-  if alive "$(read_or_empty "$d/server.pid")" || alive "$(read_or_empty "$d/app.pid")"; then
-    die "$name is running; take it down first (scripts/dev-instance.sh down $name)"
-  fi
   mkdir -p "$d/logs" "$d/app-data" "$d/shots"
 
   local port; port=$(read_or_empty "$d/port")
@@ -130,12 +147,14 @@ up() {
   # out from under a running instance, and so `ps` names whose process it is.
   if [ -n "$server" ]; then
     [ -x "$server" ] || die "no server binary at $server (build it with: cargo build -p opengrok)"
+    stop_pid "$d/server.pid"
     cp "$server" "$d/opengrok-$name"
     codesign -f -s - "$d/opengrok-$name" 2>/dev/null || true
   fi
   [ -x "$d/opengrok-$name" ] || die "first up needs --server <path to target/…/opengrok>"
   if [ -n "$app" ]; then
     [ -x "$app" ] || die "no app binary at $app"
+    stop_pid "$d/app.pid"
     # cp keeps the dev signature, so saved logins don't bring up the keychain sheet.
     cp "$app" "$d/nativechat-$name"
   fi
@@ -143,6 +162,7 @@ up() {
   # The image gets this instance's own tag, so the server never pulls it (a `:local` tag) and the
   # owner's `grok-box:local` stays as it is. A tag says nothing about whose a container is; `down`
   # goes by the instance's database for that.
+  [ "$mock" = 1 ] && touch "$d/mock"
   if [ -n "$image" ]; then
     docker image inspect "$image" >/dev/null 2>&1 || die "no docker image $image"
     docker tag "$image" "$(tag_of "$name")"
@@ -164,21 +184,118 @@ up() {
     say "server :$port up (pid $(cat "$d/server.pid"))"
   fi
 
-  if [ -x "$d/nativechat-$name" ]; then
+  # A test account of the instance's own: generated, kept in the instance dir, never echoed. The
+  # server's admin command takes the password as an argument; it is a test credential for a
+  # loopback server, there for the moment the command runs.
+  if [ ! -f "$d/account-made" ]; then
+    echo "$name@instance.test" > "$d/email"
+    openssl rand -hex 12 > "$d/password"
+    (set -a; . "$d/server.env"; "$d/opengrok-$name" admin org create --name "$name" \
+      --admin-email "$(cat "$d/email")" --domain instance.test --password "$(cat "$d/password")") \
+      > "$d/logs/account.log" 2>&1 || die "could not make the test account; see $d/logs/account.log"
+    touch "$d/account-made"
+  fi
+  [ "$(login "$d" "$port")" = 200 ] || die "the test account could not sign in on :$port"
+
+  if [ -x "$d/nativechat-$name" ] && ! alive "$(read_or_empty "$d/app.pid")"; then
     port_free "$agent_port" || die "gpui-agent port $agent_port is taken"
     # GPUI_AGENT_BACKGROUND keeps the window from taking focus from whoever is at the keyboard.
-    # The app finds its themes and assets relative to where it starts, so it starts in this repo.
+    # Its own gpui-agent discovery dir and connect id: the CLI saves its last `--connect` choice
+    # there, and in the shared per-user dir one agent's choice would steer another's commands
+    # (hexuria/gpui-agent#48). The app finds its themes and assets relative to where it starts,
+    # so it starts in this repo.
     # One simple command goes into the background, so `$!` is the app itself: backgrounding a
     # `cd && …` list recorded the shell around it, which `down` would stop instead of the app.
     (cd "$REPO" || exit 1
       GPUI_AGENT=1 GPUI_AGENT_BACKGROUND=1 GPUI_AGENT_TOKEN=dev-secret \
+        GPUI_AGENT_CONNECT_ID="nativechat-$name" GPUI_AGENT_RUNTIME_DIR="$d/gpui-agent" \
         GPUI_AGENT_ADDR="127.0.0.1:$agent_port" GPUI_AGENT_SCREENSHOT_DIR="$d/shots" \
         NATIVECHAT_DATA_DIR="$d/app-data" OPENGROK_BASE_URL="http://127.0.0.1:$port" \
         nohup "$d/nativechat-$name" >> "$d/logs/app.log" 2>&1 < /dev/null &
       echo $! > "$d/app.pid")
-    say "app up (pid $(cat "$d/app.pid"), gpui-agent 127.0.0.1:$agent_port, token dev-secret)"
+    # Signing in and placing the window go through the app's gpui-agent; an app that never
+    # answers is left running as it is. Either step failing leaves an app that runs, and `up`
+    # still reports it.
+    if agent "$d" wait --timeout-ms 60000 >/dev/null 2>&1; then
+      sign_in_app "$d" || true
+      place_window "$d" || true
+    else
+      say "the app's gpui-agent did not answer; it is not signed in or placed"
+    fi
+    say "app up (pid $(cat "$d/app.pid"), gpui-agent :$agent_port)"
   fi
-  say "server env: $d/server.env; logs: $d/logs; data: $d/app-data"
+  status "$name"
+}
+
+# The test account is a local test credential on a loopback server, so the app is signed in for
+# you; a real password never goes through here.
+sign_in_app() {
+  local d=$1 tree
+  for _ in $(seq 1 20); do
+    tree=$(agent "$d" snapshot 2>/dev/null || true)
+    if grep -q '"login-email"' <<<"$tree"; then
+      agent "$d" set-value login-email "$(cat "$d/email")" >/dev/null || return 1
+      agent "$d" set-value login-password "$(cat "$d/password")" >/dev/null || return 1
+      agent "$d" click login-submit >/dev/null || return 1
+      return 0
+    fi
+    grep -q '"nav-new-chat"' <<<"$tree" && return 0
+    sleep 1
+  done
+  say "the app did not show its sign-in screen; sign in with $(cat "$d/email") and the password in $d/password"
+}
+
+# The window on an empty AeroSpace workspace of its own, without switching to it.
+place_window() {
+  local d=$1 pid wid="" ws
+  command -v aerospace >/dev/null || return 0
+  pid=$(cat "$d/app.pid")
+  # The window can take a minute to reach AeroSpace on a busy Mac.
+  for _ in $(seq 1 90); do
+    wid=$(aerospace list-windows --all --format '%{window-id} %{app-pid}' | awk -v p="$pid" '$2==p{print $1; exit}')
+    [ -n "$wid" ] && break
+    sleep 1
+  done
+  [ -n "$wid" ] || { say "the window never reached AeroSpace; it stays where it opens"; return 0; }
+  echo "$wid" > "$d/window"
+  ws=$(aerospace list-workspaces --monitor all --empty | awk '/^[0-9]+$/{print; exit}')
+  [ -n "$ws" ] || { say "no empty workspace; the window stays where it opened"; return 0; }
+  if aerospace move-node-to-workspace --window-id "$wid" "$ws"; then
+    echo "$ws" > "$d/workspace"
+  else
+    say "could not move the window to workspace $ws; it stays where it opened"
+  fi
+}
+
+status() {
+  local names name d port s a
+  if [ -n "${1:-}" ]; then names=$1; else names=$(ls "$ROOT" 2>/dev/null || true); fi
+  [ -n "$names" ] || { echo "no instances"; return; }
+  for name in $names; do
+    d=$(dir_of "$name")
+    [ -f "$d/port" ] || continue
+    port=$(cat "$d/port")
+    s="down"; a="none"
+    alive "$(read_or_empty "$d/server.pid")" && s="up pid $(cat "$d/server.pid")"
+    [ -x "$d/nativechat-$name" ] && a="down"
+    alive "$(read_or_empty "$d/app.pid")" && a="up pid $(cat "$d/app.pid")"
+    echo "$name"
+    echo "  server   http://127.0.0.1:$port ($s), database $(db_of "$name")"
+    echo "  app      $a, gpui-agent 127.0.0.1:$(agent_port_of "$port") (--connect nativechat-$name), workspace $(read_or_empty "$d/workspace")"
+    echo "  account  $(read_or_empty "$d/email") (password in $d/password)"
+    echo "  computer $(if [ -s "$d/image" ]; then cat "$d/image"; else echo "none (OG_COMPUTER=none)"; fi)"
+    echo "  dir      $d"
+  done
+}
+
+env_of() {
+  local name=$1 d port; valid_name "$name"; d=$(dir_of "$name")
+  [ -f "$d/port" ] || die "no instance $name"
+  port=$(cat "$d/port")
+  echo "export GPUI_AGENT_ADDR=127.0.0.1:$(agent_port_of "$port") GPUI_AGENT_TOKEN=dev-secret GPUI_AGENT_RUNTIME_DIR=$d/gpui-agent"
+  echo "# or, without GPUI_AGENT_ADDR: gpui-agent --connect nativechat-$name <command>"
+  echo "export OG_INSTANCE_URL=http://127.0.0.1:$port"
+  echo "og() { local tok; tok=\$(awk '\$6==\"og_access\"{print \$7}' $d/jar.txt); curl -s -X \"\$1\" -H \"authorization: Bearer \$tok\" -H 'content-type: application/json' \${3:+-d \"\$3\"} \"http://127.0.0.1:$port\$2\"; }"
 }
 
 stop_pid() {
@@ -402,8 +519,10 @@ wrap_up() {
 
 case "${1:-}" in
   up) shift; up "$@" ;;
+  status) shift; status "${1:-}" ;;
+  env) shift; env_of "${1:-}" ;;
   down) shift; down "${1:-}" ;;
   finish) shift; wrap_up finish "$@" ;;
   abort) shift; wrap_up abort "$@" ;;
-  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
