@@ -3940,6 +3940,11 @@ pub struct SavedLoginCheck {
 /// from the one-skill read.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PluginSkill {
+    /// The id a turn names to pick this skill (`forwardedProps.skill`),
+    /// `plugin/<bot>/<plugin>/<revision>/<skill>`. A server from before sends none, and a row
+    /// without one cannot be picked.
+    #[serde(default)]
+    pub id: String,
     pub plugin: String,
     pub skill: String,
     #[serde(default)]
@@ -13492,7 +13497,9 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/coworkers/cw_1/plugin-skills"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "skills": [
-                { "plugin": "demo", "skill": "triage", "description": "Triage safely", "on": false }
+                { "plugin": "demo", "skill": "triage", "description": "Triage safely", "on": false },
+                { "id": "plugin/cw_1/bir/server/file-tax", "plugin": "bir", "source": "server",
+                  "skill": "file-tax", "description": "File a BIR return", "on": true }
             ]})))
             .mount(&server)
             .await;
@@ -13515,6 +13522,8 @@ mod tests {
         let client = OpenGrokClient::new(&server.uri()).unwrap();
         let listed = client.plugin_skills("cw_1").await.unwrap();
         assert_eq!(listed[0].skill, "triage");
+        assert_eq!(listed[0].id, "", "a server from before names no id");
+        assert_eq!(listed[1].id, "plugin/cw_1/bir/server/file-tax");
         assert!(!listed[0].on);
         assert_eq!(listed[0].body, None);
         let page = client.plugin_skill("cw_1", "demo", "triage").await.unwrap();

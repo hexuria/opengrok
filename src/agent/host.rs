@@ -4341,6 +4341,7 @@ impl NativeChatHost {
                             skills: &state.your_skills,
                             loading: state.your_skills_loading,
                             error: state.your_skills_error.as_deref(),
+                            plugin_skills: state.slash_plugin_skills(),
                         },
                         state.active_recipe.as_ref(),
                         &ToolSource::of(state),
@@ -12901,6 +12902,7 @@ mod tests {
             skills,
             loading: false,
             error: None,
+            plugin_skills: Vec::new(),
         }
     }
 

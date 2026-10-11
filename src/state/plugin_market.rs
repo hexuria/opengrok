@@ -706,8 +706,9 @@ impl AppState {
         cx.notify();
     }
 
-    /// The open Bot's plugin skills and their switches, for a plugin's Skills rows. A failed read
-    /// leaves the rows without switches rather than guessing them on.
+    /// The open Bot's plugin skills and their switches, for a plugin's Skills rows and for `/`.
+    /// A failed read leaves the rows without switches rather than guessing them on. The rows
+    /// remember the Bot they were read for, so `/` never offers one Bot's on another.
     pub fn read_plugin_skills(&mut self, cx: &mut Context<Self>) {
         let (Some(client), Some(bot)) = (self.opengrok.clone(), self.active_coworker_id.clone())
         else {
@@ -717,6 +718,7 @@ impl AppState {
             let read = client.plugin_skills(&bot).await;
             let _ = this.update(cx, |state, cx| {
                 state.plugin_skills = read.unwrap_or_default();
+                state.plugin_skills_bot = Some(bot);
                 cx.notify();
             });
         })
