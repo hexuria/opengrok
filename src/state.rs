@@ -14074,8 +14074,22 @@ impl AppState {
                 ..WindowOptions::default()
             };
             let app = cx.entity();
+            let (docs, live, client) = (
+                self.office_docs.clone(),
+                self.office_active.clone(),
+                self.opengrok.clone(),
+            );
             let opened = cx.open_window(options, move |window, cx| {
-                cx.new(|cx| crate::components::office_doc::OfficeDocWindow::new(app, window, cx))
+                cx.new(|cx| {
+                    crate::components::office_doc::OfficeDocWindow::new(
+                        app,
+                        docs.clone(),
+                        live.clone(),
+                        client.clone(),
+                        window,
+                        cx,
+                    )
+                })
             });
             match opened {
                 Ok(handle) => self.office_window = Some(handle),

@@ -300,7 +300,19 @@ pub struct OfficeDocWindow {
 }
 
 impl OfficeDocWindow {
-    pub fn new(app: Entity<AppState>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+    /// `docs`, `live` and `client` come in by value — the caller reads them off AppState
+    /// before `open_window` starts: the first paint happens inside `open_window`'s nested
+    /// flush, where a deferred read still sees the pre-open state and a `cx.notify` from a
+    /// sync that lands inside the same flush never schedules another frame. That left a
+    /// window stuck on "No documents yet" while its `docs` already held the doc.
+    pub fn new(
+        app: Entity<AppState>,
+        docs: Vec<OfficeDocSpec>,
+        live: Option<String>,
+        client: Option<OpenGrokClient>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         // The read is deferred onto a spawn: this observer can run inside `open_window`'s
         // nested flush while the AppState lease that opened the window is still held.
         cx.observe(&app, |_this, app, cx| {
@@ -326,9 +338,9 @@ impl OfficeDocWindow {
         .detach();
         let this = Self {
             app,
-            client: None,
-            docs: Vec::new(),
-            live: None,
+            client,
+            docs,
+            live,
             pinned: None,
             page: 1,
             shown: None,
