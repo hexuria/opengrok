@@ -42039,6 +42039,126 @@ mod tests {
         );
     }
 
+    /// A plugin the server loaded from its own folder, as `GET /plugins/installations` lists it
+    /// beside the account's installs: `"source": "server"`, with no registry or pinned commit.
+    fn server_install() -> crate::opengrok::PluginInstallation {
+        serde_json::from_value(serde_json::json!({
+            "name": "bir",
+            "source": "server",
+            "bundle": {
+                "manifest": {"name": "bir", "description": "BIR forms"},
+                "parts": [
+                    {"kind": "mcp", "name": "bir-mcp", "supported": true, "reason": null},
+                    {"kind": "skill", "name": "file-tax", "supported": true, "reason": null}
+                ]
+            },
+            "connectors": [],
+            "accounts": []
+        }))
+        .unwrap()
+    }
+
+    /// An install that does not say where it came from is the account's, as every install was
+    /// before the server listed its own plugins.
+    #[test]
+    fn an_install_without_a_source_is_the_accounts() {
+        let installs = recorded_installs();
+        assert!(!installs.is_empty());
+        assert!(installs.iter().all(|install| !install.from_server()));
+        assert!(server_install().from_server());
+    }
+
+    /// A plugin the server loaded itself is on Installed with the account's installs, even when
+    /// the marketplace's catalog could not be read.
+    #[test]
+    fn a_server_plugin_is_listed_on_installed_without_the_catalog() {
+        use crate::components::marketplace::{self, RowAction};
+        use crate::components::monitor_modal::{
+            MarketPage, MonitorKind, MonitorModal, PluginSelection,
+        };
+        let mut state = signed_in_state();
+        state.plugin_market.catalog = Some(crate::state::Loaded::Failed("down".into()));
+        let mut installs = recorded_installs();
+        installs.push(server_install());
+        state.plugin_market.installations = Some(crate::state::Loaded::Ready(installs));
+        let mut modal = MonitorModal::new("cw_1".into(), MonitorKind::Plugins);
+        modal.page = MarketPage::Installed;
+        state.monitor_modal = Some(modal);
+        let rows = marketplace::visible_rows(&state);
+        let bir = rows
+            .iter()
+            .find(|row| row.selection == PluginSelection::Plugin("bir".into()))
+            .expect("the server plugin is on Installed");
+        assert_eq!(bir.action, RowAction::Added);
+        assert!(
+            rows.iter()
+                .any(|row| row.selection == PluginSelection::Plugin("demo".into()))
+        );
+    }
+
+    /// A server plugin's page has its tools with their choices and its skills like any install,
+    /// and no Uninstall: the server put it there, and only the server takes it away.
+    #[test]
+    fn a_server_plugins_page_has_no_uninstall() {
+        use crate::components::monitor_modal::{MonitorKind, MonitorModal, PluginSelection};
+        use crate::opengrok::{CoworkerTool, PluginSkill};
+        let mut state = signed_in_state();
+        state.active_coworker_id = Some("cw_1".into());
+        state.plugin_market.installations =
+            Some(crate::state::Loaded::Ready(vec![server_install()]));
+        state.coworker_tools = Some((
+            "cw_1".into(),
+            crate::state::ToolList::Listed(vec![CoworkerTool {
+                name: "bir_form_fill".into(),
+                kind: "plugin".into(),
+                plugin: Some("bir".into()),
+                qualified: Some("bir.bir-mcp.bir_form_fill".into()),
+                mode: Some("ask".into()),
+                ..Default::default()
+            }]),
+        ));
+        state.plugin_skills = vec![PluginSkill {
+            plugin: "bir".into(),
+            skill: "file-tax".into(),
+            description: "File a return".into(),
+            on: true,
+            body: None,
+        }];
+        let mut modal = MonitorModal::new("cw_1".into(), MonitorKind::Plugins);
+        modal.confirming = true;
+        state.monitor_modal = Some(modal);
+        let detail =
+            crate::components::marketplace::detail(&state, &PluginSelection::Plugin("bir".into()))
+                .expect("the server plugin has a page");
+        assert_eq!(detail.action, None, "no Uninstall on a server plugin");
+        assert_eq!(detail.question, None, "nothing asks to uninstall it");
+        assert_eq!(detail.subtitle.as_deref(), Some("Installed on this server"));
+        assert_eq!(detail.skills, ["file-tax"]);
+        assert_eq!(detail.tools.len(), 1);
+        assert_eq!(detail.tools[0].qualified, "bir.bir-mcp.bir_form_fill");
+        assert_eq!(detail.tools[0].mode, "ask");
+    }
+
+    /// Asking to uninstall a server plugin, by any path, asks nothing and sends nothing.
+    #[gpui_kit::test]
+    fn a_server_plugin_cannot_be_uninstalled(cx: &mut gpui_kit::TestAppContext) {
+        use crate::components::monitor_modal::{MonitorKind, MonitorModal, PluginSelection};
+        use gpui_kit::AppContext as _;
+        let app = cx.new(|_| signed_in_state());
+        app.update(cx, |state, cx| {
+            state.plugin_market.installations =
+                Some(crate::state::Loaded::Ready(vec![server_install()]));
+            let mut modal = MonitorModal::new("cw_1".into(), MonitorKind::Plugins);
+            modal.selected = Some(PluginSelection::Plugin("bir".into()));
+            state.monitor_modal = Some(modal);
+            state.ask_market_uninstall(true, cx);
+            assert!(!state.monitor_modal.as_ref().unwrap().confirming);
+            state.monitor_modal.as_mut().unwrap().confirming = true;
+            state.uninstall_market_plugin(cx);
+            assert_eq!(state.plugin_market.changing, None);
+        });
+    }
+
     /// "@demo:execute" and "@routines:create_routine" name one tool each, as the Bot's own
     /// listing names it, so the server can name it to the model (`preferTools`); a bare
     /// "@routines" names the whole group. A function the Bot does not have is a word.
