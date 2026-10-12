@@ -14007,14 +14007,14 @@ impl AppState {
                 .office_doc_page(&doc_id, 1, Some(version))
                 .await
                 .ok()
-                .flatten()
+                .and_then(crate::opengrok::OfficeDocPageAnswer::into_page)
                 .map(|page| page.bytes);
             if png.is_none() {
                 png = client
                     .office_doc_page(&doc_id, 1, None)
                     .await
                     .ok()
-                    .flatten()
+                    .and_then(crate::opengrok::OfficeDocPageAnswer::into_page)
                     .map(|page| page.bytes);
             }
             let _ = this.update(cx, |this, cx| {
@@ -26119,6 +26119,58 @@ mod tests {
                 .is_ok(),
             "database work did not run on the kept runtime"
         );
+    }
+
+    /// The globe's click on a box created without the tunnel's port still records the
+    /// person's intent: the next box made carries it. The switch once returned early on such
+    /// a box, so the icon looked alive and the click did nothing at all.
+    #[gpui_kit::test]
+    fn the_route_traffic_click_records_intent_on_a_box_without_the_tunnel(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::AppContext as _;
+        let app = cx.new(|_| super::AppState::new());
+        app.update(cx, |state, cx| {
+            // Off to start with, whatever the environment's default was, so the click is
+            // what turns it on.
+            state.egress_tunnel_enabled = false;
+            assert!(
+                !state.box_egress_provisioned(),
+                "the box on screen has no tunnel"
+            );
+            state.set_egress_tunnel_enabled(true, cx);
+            assert!(state.egress_tunnel_enabled, "the intent was recorded");
+            state.set_egress_tunnel_enabled(false, cx);
+            assert!(!state.egress_tunnel_enabled, "and turned off again");
+        });
+    }
+
+    /// A card's thumbnail that already failed is not asked for again: the failure is the
+    /// answer. Without the gate every card render re-armed the fetch — a dead session ran it
+    /// tens of thousands of times a minute.
+    #[gpui_kit::test]
+    fn a_failed_office_thumbnail_is_not_fetched_again(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::AppContext as _;
+        let app = cx.new(|_| super::AppState::new());
+        let spec = crate::opengrok::OfficeDocSpec {
+            doc_id: "odoc_1".into(),
+            path: "~/office/deck.pptx".into(),
+            kind: "pptx".into(),
+            version: 2,
+            artifact_id: None,
+            changed: serde_json::json!({"type": "edited"}),
+        };
+        app.update(cx, |state, cx| {
+            state.opengrok = Some(OpenGrokClient::new("http://127.0.0.1:9").expect("a URL"));
+            state
+                .office_thumb_failed
+                .insert((spec.doc_id.clone(), spec.version));
+            state.ensure_office_thumb(&spec, cx);
+            assert!(
+                state.office_thumb_fetching.is_empty(),
+                "a failed thumbnail starts no second fetch"
+            );
+        });
     }
 
     #[gpui_kit::test]

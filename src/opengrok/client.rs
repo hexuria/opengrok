@@ -780,18 +780,18 @@ impl OpenGrokClient {
     /// `GET /office/docs/{id}/pages/{page}.png`: one rendered page/slide/used-range, one-based
     /// like the `office_render` tool's `page`. `version` names a kept version's bytes, so
     /// the window can show what the document was; `None` is the live head off the box.
-    /// `None` on a 404 — past the last page, a version nothing kept, or a doc the box no
-    /// longer has — rather than an error the pager would have to read twice.
     ///
-    /// The answer carries the server's `x-office-pages` count when it sends one, so the
-    /// pager learns the last page from the fetch itself instead of from a failed click past
-    /// it; an older server sends none and the probe behaviour still applies.
+    /// "No page there" is an answer, not an error the pager would have to read twice: a 404
+    /// (past the last page on an older server, a version nothing kept, a doc the box no
+    /// longer has) and the 422 this server answers past the end with — which it marks by
+    /// carrying `x-office-pages` (opengrok-server `office_routes.rs` `page_png`). A 422
+    /// WITHOUT the count is a page that could not be drawn (a DOCX today) and stays an error.
     pub async fn office_doc_page(
         &self,
         id: &str,
         page: u32,
         version: Option<u64>,
-    ) -> Result<Option<OfficeDocPage>, OpenGrokError> {
+    ) -> Result<OfficeDocPageAnswer, OpenGrokError> {
         let at = version
             .map(|version| format!("?version={version}"))
             .unwrap_or_default();
@@ -799,28 +799,43 @@ impl OpenGrokClient {
         let response = self
             .send_json::<()>(reqwest::Method::GET, &format!("{route}{at}"), None)
             .await?;
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        };
+        let page_count = header("x-office-pages").and_then(|raw| raw.parse::<u32>().ok());
+        let served = header("x-office-version").and_then(|raw| raw.parse::<u64>().ok());
+        let stale = header("x-office-stale").is_some_and(|raw| raw == "1");
         match response.status().as_u16() {
-            404 => Ok(None),
+            404 => Ok(OfficeDocPageAnswer::Missing {
+                version: served,
+                page_count,
+            }),
+            422 if page_count.is_some() => Ok(OfficeDocPageAnswer::Missing {
+                version: served,
+                page_count,
+            }),
             _ if response.status().is_success() => {
-                let page_count = response
-                    .headers()
-                    .get("x-office-pages")
-                    .and_then(|value| value.to_str().ok())
-                    .and_then(|raw| raw.parse::<u32>().ok());
-                let served_version = response
-                    .headers()
-                    .get("x-office-version")
-                    .and_then(|value| value.to_str().ok())
-                    .and_then(|raw| raw.parse::<u64>().ok());
                 let bytes = response
                     .bytes()
                     .await
                     .map_err(|e| OpenGrokError::transport(&e))?;
-                Ok((!bytes.is_empty()).then(|| OfficeDocPage {
-                    bytes: bytes.to_vec(),
-                    version: served_version,
-                    page_count,
-                }))
+                Ok(if bytes.is_empty() {
+                    OfficeDocPageAnswer::Missing {
+                        version: served,
+                        page_count,
+                    }
+                } else {
+                    OfficeDocPageAnswer::Page(OfficeDocPage {
+                        bytes: bytes.to_vec(),
+                        version: served,
+                        page_count,
+                        stale,
+                    })
+                })
             }
             _ => Err(Self::read_error(response).await),
         }
@@ -4598,17 +4613,42 @@ pub enum BotSkillScope {
 }
 
 /// One rendered office page as `GET /office/docs/{id}/pages/{page}.png` answers it: the PNG
-/// bytes plus the response's `x-office-version` / `x-office-pages` headers. The count is what
-/// a pager needs to disable its own Next at the end instead of learning the end from a failed
-/// click past it; both are `None` from a server that predates the headers.
+/// bytes plus the response's `x-office-version` / `x-office-pages` / `x-office-stale` headers
+/// (opengrok-server `office_routes.rs`). The count is what a pager needs to disable its own
+/// Next at the end instead of learning the end from a failed click past it; all three are
+/// absent from a server that predates them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OfficeDocPage {
     pub bytes: Vec<u8>,
     /// The version the bytes were rendered from — the served head can differ from the asked
-    /// one when the head moved mid-fetch.
+    /// one when the head moved mid-fetch, or when the box is gone and the server stood its
+    /// newest kept copy in.
     pub version: Option<u64>,
     /// How many pages/slides/sheets the document holds, when the server says.
     pub page_count: Option<u32>,
+    /// The server drew this from a kept copy because the box could not answer.
+    pub stale: bool,
+}
+
+/// What a page fetch found: a page, or no page at that number — with the deck's count when
+/// the server sent it, which is then the bound.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OfficeDocPageAnswer {
+    Page(OfficeDocPage),
+    Missing {
+        version: Option<u64>,
+        page_count: Option<u32>,
+    },
+}
+
+impl OfficeDocPageAnswer {
+    /// The page, when there was one — the card's thumbnail needs nothing else.
+    pub fn into_page(self) -> Option<OfficeDocPage> {
+        match self {
+            Self::Page(page) => Some(page),
+            Self::Missing { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -6668,6 +6708,39 @@ mod tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(&server)
             .await;
+        // This server's past-the-end answer: a 422 that still names the deck's length.
+        Mock::given(method("GET"))
+            .and(path("/office/docs/odoc_1/pages/5.png"))
+            .respond_with(
+                ResponseTemplate::new(422)
+                    .set_body_string(
+                        "the page could not be rendered: slide index 4 is outside the deck",
+                    )
+                    .insert_header("x-office-version", "3")
+                    .insert_header("x-office-pages", "4"),
+            )
+            .mount(&server)
+            .await;
+        // A page that could not be drawn at all — no count rides it — is still an error.
+        Mock::given(method("GET"))
+            .and(path("/office/docs/odoc_1/pages/7.png"))
+            .respond_with(
+                ResponseTemplate::new(422)
+                    .set_body_string("the page could not be rendered: docx page render needs the editing-session layout pipeline"),
+            )
+            .mount(&server)
+            .await;
+        // A page the server drew from a kept copy says so.
+        Mock::given(method("GET"))
+            .and(path("/office/docs/odoc_1/pages/3.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(vec![0x89, 0x52])
+                    .insert_header("x-office-version", "2")
+                    .insert_header("x-office-stale", "1"),
+            )
+            .mount(&server)
+            .await;
 
         Mock::given(method("GET"))
             .and(path("/office/docs/odoc_1/pages/2.png"))
@@ -6686,8 +6759,10 @@ mod tests {
             .office_doc_page("odoc_1", 1, None)
             .await
             .expect("the page")
+            .into_page()
             .expect("page 1 exists");
         assert_eq!(page.bytes, vec![0x89, 0x50]);
+        assert!(!page.stale, "a page off the live box is not stale");
         assert_eq!(
             page.page_count,
             Some(4),
@@ -6703,6 +6778,7 @@ mod tests {
                 .office_doc_page("odoc_1", 2, Some(1))
                 .await
                 .expect("the old page")
+                .into_page()
                 .map(|page| page.bytes),
             Some(vec![0x89, 0x51]),
             "a kept version's page is fetched with ?version="
@@ -6712,9 +6788,36 @@ mod tests {
                 .office_doc_page("odoc_1", 9, None)
                 .await
                 .expect("the end"),
-            None,
-            "past the last page is None, not an error"
+            OfficeDocPageAnswer::Missing {
+                version: None,
+                page_count: None
+            },
+            "a 404 is no page there, not an error"
         );
+        assert_eq!(
+            client
+                .office_doc_page("odoc_1", 5, None)
+                .await
+                .expect("past the end"),
+            OfficeDocPageAnswer::Missing {
+                version: Some(3),
+                page_count: Some(4)
+            },
+            "a 422 carrying the count is past the end, and the count is the bound"
+        );
+        let refused = client
+            .office_doc_page("odoc_1", 7, None)
+            .await
+            .expect_err("an undrawable page is an error");
+        assert_eq!(refused.status, Some(422));
+        let stand_in = client
+            .office_doc_page("odoc_1", 3, None)
+            .await
+            .expect("a stand-in page")
+            .into_page()
+            .expect("drawn");
+        assert!(stand_in.stale, "x-office-stale is read");
+        assert_eq!(stand_in.version, Some(2), "and names the kept version");
     }
 
     /// A server that answers with nothing where a list would be is still a thread that reads.

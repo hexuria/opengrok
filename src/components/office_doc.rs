@@ -289,6 +289,43 @@ fn cache_page<T>(
     }
 }
 
+/// The version a page of the asked version is filed under. Asking for the live head can be
+/// answered with a different version — the server stands its newest kept copy in when the box
+/// is gone — and the page then lives under what it IS. The window keeps asking for the head
+/// and finds the answer here; filed under the asked version instead, the answer was never
+/// found, nothing was marked failed, and the same page was asked for again, forever.
+fn filed_version(stand_ins: &std::collections::BTreeMap<u64, u64>, asked: u64) -> u64 {
+    stand_ins.get(&asked).copied().unwrap_or(asked)
+}
+
+/// The last page after "no page at `page`". The server's count wins when it sent one — a
+/// version with fewer slides than the pointer is past says where its end is, not one page
+/// back. Without a count (an older server's 404) the end is at most the page before, and
+/// never past an end already known.
+fn bound_after_missing(page: u32, page_count: Option<u32>, known: Option<u32>) -> u32 {
+    match page_count {
+        Some(count) => count.max(1),
+        None => {
+            let before = page.saturating_sub(1);
+            known.map_or(before, |known| known.min(before)).max(1)
+        }
+    }
+}
+
+/// What the page area says when a page could not be drawn: the server's own words, except
+/// for the one refusal that is not a failure — a Word document has no page preview yet
+/// (`DocxLayoutNotWired`, a 422 without a page count), which a person should read as a fact
+/// about the format, not as something broken.
+fn page_failure_text(kind: &str, status: Option<u16>, message: &str) -> String {
+    if kind == "docx" && status == Some(422) {
+        "Word documents don't have a page preview yet. The file itself is fine — save a copy \
+         to open it."
+            .to_string()
+    } else {
+        message.to_string()
+    }
+}
+
 /// The window. Its state is a cache of AppState's — never `app.read` in `render`, because
 /// `open_window` paints before the lease that opened it ends (the same constraint
 /// `ComputerScreen` documents).
@@ -351,6 +388,14 @@ pub struct OfficeDocWindow {
     /// The `(doc, version)` whose detail fetch already failed — the page's gate is a
     /// different key shape, so the detail's retry gets its own.
     detail_failed: Option<(String, u64)>,
+    /// Asked version → the version the server answered with in its place (`filed_version`).
+    stand_ins: std::collections::BTreeMap<u64, u64>,
+    /// Versions the server could only draw from a kept copy (`x-office-stale`) — the footer
+    /// says "offline copy" for these even before the detail catches up.
+    stale_versions: std::collections::BTreeSet<u64>,
+    /// A page answer and the detail's `boxLive` disagree — the box died, or came back,
+    /// since the detail was read — so the detail is fetched again.
+    detail_refresh: bool,
 }
 
 impl OfficeDocWindow {
@@ -413,6 +458,9 @@ impl OfficeDocWindow {
             window: window.window_handle(),
             failed: std::collections::BTreeSet::new(),
             detail_failed: None,
+            stand_ins: std::collections::BTreeMap::new(),
+            stale_versions: std::collections::BTreeSet::new(),
+            detail_refresh: false,
         };
         // The first sync may land before observe's first spawn: open_window draws at once,
         // and the window's first answer to "which doc" should not wait for an event.
@@ -478,6 +526,9 @@ impl OfficeDocWindow {
             self.detail = None;
             self.failed.clear();
             self.detail_failed = None;
+            self.stand_ins.clear();
+            self.stale_versions.clear();
+            self.detail_refresh = false;
             self.view_version = None;
             self.picker = None;
         }
@@ -511,10 +562,7 @@ impl OfficeDocWindow {
     /// `x-office-pages` a step past the last page still lands on the 404 path, which
     /// learns the end and steps back.
     pub(crate) fn step_page(&mut self, delta: i64, cx: &mut Context<Self>) {
-        let end = self
-            .active_doc()
-            .map(|spec| self.shown_version(spec))
-            .and_then(|version| self.page_ends.get(&version).copied());
+        let end = self.known_end();
         let mut page = (i64::from(self.page) + delta).max(1);
         if let Some(end) = end {
             page = page.min(i64::from(end));
@@ -536,10 +584,7 @@ impl OfficeDocWindow {
     /// (the driver's step among them) are already inside an AppState update and a nested
     /// one would panic.
     fn publish_pager(&self, cx: &mut Context<Self>) {
-        let end = self
-            .active_doc()
-            .map(|spec| self.shown_version(spec))
-            .and_then(|version| self.page_ends.get(&version).copied());
+        let end = self.known_end();
         let app = self.app.clone();
         let owner = self.owner.clone();
         let page = self.page;
@@ -575,23 +620,31 @@ impl OfficeDocWindow {
         let Some(spec) = self.active_doc().cloned() else {
             return;
         };
-        let version = self.shown_version(&spec);
+        // Fetches are keyed by the version ASKED for — that is the question, and its failure
+        // gate. What came back is filed under the version it is, so the cache and the bound
+        // are read through `filed`.
+        let asked = self.shown_version(&spec);
+        let filed = filed_version(&self.stand_ins, asked);
         // A pointer past a bound already learned snaps back onto real content — a deep link
         // or a fast double-click can land there even though Next greys out at the end.
-        if let Some(end) = self.page_ends.get(&version)
+        if let Some(end) = self.page_ends.get(&filed)
             && self.page > *end
         {
             self.page = (*end).max(1);
         }
-        let key = (version, self.page);
+        let key = (asked, self.page);
+        let filed_key = (filed, self.page);
         // A page already fetched paints on the spot — this is the whole deck-flip feel.
-        if let Some(image) = self.pages.get(&key).cloned() {
-            if self.shown.as_ref().map(|(v, p, _)| (*v, *p)) != Some(key) {
-                self.shown = Some((key.0, key.1, image));
+        if let Some(image) = self.pages.get(&filed_key).cloned() {
+            if self.shown.as_ref().map(|(v, p, _)| (*v, *p)) != Some(filed_key) {
+                self.shown = Some((filed_key.0, filed_key.1, image));
             }
             self.failure = None;
         }
-        let shown_current = self.shown.as_ref().is_some_and(|(v, p, _)| (*v, *p) == key);
+        let shown_current = self
+            .shown
+            .as_ref()
+            .is_some_and(|(v, p, _)| (*v, *p) == filed_key);
         // A failure is an answer too: without `failed` the resolve's own notify would ask
         // the same 401 again — a loop a dead session turned into tens of thousands of hits.
         if !shown_current && !self.failed.contains(&key) && !self.fetching.contains(&key) {
@@ -599,14 +652,11 @@ impl OfficeDocWindow {
         }
         // The next page arrives before it is asked for: sequential flips — the pager's
         // common case — are cache hits. On a server without `x-office-pages` this probe is
-        // also how the bound is learned: its 404 writes `page_ends` instead of surfacing.
-        let next = (version, self.page + 1);
-        let next_known_past = self
-            .page_ends
-            .get(&version)
-            .is_some_and(|end| next.1 > *end);
+        // also how the bound is learned: its answer writes `page_ends` instead of surfacing.
+        let next = (asked, self.page + 1);
+        let next_known_past = self.page_ends.get(&filed).is_some_and(|end| next.1 > *end);
         if !next_known_past
-            && !self.pages.contains_key(&next)
+            && !self.pages.contains_key(&(filed, next.1))
             && !self.failed.contains(&next)
             && !self.fetching.contains(&next)
         {
@@ -614,14 +664,17 @@ impl OfficeDocWindow {
         }
         // Detail is current when it carries a head at least as new as the spec's: a restored
         // card can name a version behind the server's (the detail then still answers it),
-        // while a live frame bumping the spec ahead refetches for the new proposals.
+        // while a live frame bumping the spec ahead refetches for the new proposals. A page
+        // answer that disagrees with its `boxLive` makes it old too.
         let dkey = (spec.doc_id.clone(), spec.version);
-        let detail_current = self
-            .detail
-            .as_ref()
-            .is_some_and(|detail| detail.doc_id == dkey.0 && detail.version >= spec.version);
+        let detail_current = !self.detail_refresh
+            && self
+                .detail
+                .as_ref()
+                .is_some_and(|detail| detail.doc_id == dkey.0 && detail.version >= spec.version);
         let detail_failed = self.detail_failed.as_ref() == Some(&dkey);
         if !detail_current && !detail_failed && self.detail_fetching.as_ref() != Some(&dkey) {
+            self.detail_refresh = false;
             self.detail_fetching = Some(dkey.clone());
             let id = dkey.0.clone();
             let detail_client = client.clone();
@@ -664,13 +717,32 @@ impl OfficeDocWindow {
             let fetched = page_client.office_doc_page(&id, key.1, at).await;
             let _ = this.update(cx, |this, cx| {
                 this.fetching.remove(&key);
-                let current_version = this.active_doc().map(|spec| this.shown_version(spec));
-                let is_current = key.1 == this.page && Some(key.0) == current_version;
+                let asked_now = this.active_doc().map(|spec| this.shown_version(spec));
+                let is_current = key.1 == this.page && Some(key.0) == asked_now;
+                // Only a head ask can be answered with another version on purpose; an older
+                // version is asked by number and comes back as itself or not at all.
+                let note_stand_in = |this: &mut Self, served: u64| {
+                    if at.is_none() && served != key.0 {
+                        this.stand_ins.insert(key.0, served);
+                    }
+                };
                 match fetched {
-                    Ok(Some(fetched_page)) => {
+                    Ok(crate::opengrok::OfficeDocPageAnswer::Page(fetched_page)) => {
                         // The served version is the truth of the bytes — a head that moved
-                        // mid-fetch lands under the version it actually is, not the one asked.
+                        // mid-fetch, or a kept copy standing in for a dead box, lands under
+                        // the version it actually is, not the one asked.
                         let served = fetched_page.version.unwrap_or(key.0);
+                        note_stand_in(this, served);
+                        if fetched_page.stale {
+                            this.stale_versions.insert(served);
+                        }
+                        let detail_offline = this
+                            .detail
+                            .as_ref()
+                            .is_some_and(|detail| detail.box_live == Some(false));
+                        if at.is_none() && fetched_page.stale != detail_offline {
+                            this.detail_refresh = true;
+                        }
                         if let Some(count) = fetched_page.page_count {
                             this.page_ends.insert(served, count.max(1));
                         }
@@ -678,28 +750,35 @@ impl OfficeDocWindow {
                             gpui_kit::ImageFormat::Png,
                             fetched_page.bytes,
                         ));
-                        let served_key = (served, key.1);
-                        this.insert_cached(served_key, image.clone());
-                        if key.1 == this.page && current_version == Some(served) {
+                        this.insert_cached((served, key.1), image.clone());
+                        let filed_now =
+                            asked_now.map(|asked| filed_version(&this.stand_ins, asked));
+                        if key.1 == this.page && filed_now == Some(served) {
                             this.shown = Some((served, key.1, image));
                             this.failure = None;
                         }
                     }
-                    // Past the last page — remembered so the pager can stop instead of
-                    // asking again, and the pointer steps back onto real content when this
-                    // was the page on screen. Page 1 has nowhere to step: a missing first
-                    // page is a missing document, so it counts as failed — otherwise the
-                    // resolve's own notify asks the same 404 again on every repaint.
-                    Ok(None) => {
+                    // No page there — remembered so the pager can stop instead of asking
+                    // again, and the pointer lands on the last real page when this was the
+                    // one on screen. A count from the server is where that is; a version
+                    // with fewer slides than the pointer was on snaps to its own end. Page 1
+                    // has nowhere to land: a missing first page is a missing document.
+                    Ok(crate::opengrok::OfficeDocPageAnswer::Missing {
+                        version,
+                        page_count,
+                    }) => {
                         this.failed.insert(key);
-                        let end = key.1.saturating_sub(1).max(1);
-                        this.page_ends
-                            .entry(key.0)
-                            .and_modify(|bound| *bound = (*bound).min(end))
-                            .or_insert(end);
+                        let served = version.unwrap_or(key.0);
+                        note_stand_in(this, served);
+                        let bound = bound_after_missing(
+                            key.1,
+                            page_count,
+                            this.page_ends.get(&served).copied(),
+                        );
+                        this.page_ends.insert(served, bound);
                         if is_current {
-                            if this.page > 1 {
-                                this.page -= 1;
+                            if key.1 > bound {
+                                this.page = bound;
                             } else {
                                 this.failure = Some("the document has no pages".into());
                             }
@@ -708,7 +787,12 @@ impl OfficeDocWindow {
                     Err(error) => {
                         this.failed.insert(key);
                         if is_current {
-                            this.failure = Some(error.message.clone());
+                            let kind = this
+                                .active_doc()
+                                .map(|spec| spec.kind.clone())
+                                .unwrap_or_default();
+                            this.failure =
+                                Some(page_failure_text(&kind, error.status, &error.message));
                         }
                     }
                 }
@@ -758,6 +842,19 @@ impl OfficeDocWindow {
     /// The version on screen: the picked one, else the live head.
     fn shown_version(&self, spec: &OfficeDocSpec) -> u64 {
         self.view_version.unwrap_or_else(|| self.head_version(spec))
+    }
+
+    /// The version the page on screen actually is — the shown version, unless the server
+    /// answered it with a kept copy of another (`filed_version`).
+    fn filed_shown_version(&self, spec: &OfficeDocSpec) -> u64 {
+        filed_version(&self.stand_ins, self.shown_version(spec))
+    }
+
+    /// The active doc's last page as far as anything has said — the pager's bound.
+    fn known_end(&self) -> Option<u32> {
+        self.active_doc()
+            .map(|spec| self.filed_shown_version(spec))
+            .and_then(|version| self.page_ends.get(&version).copied())
     }
 
     /// The versions on offer for `spec`, newest first — the server's chain once detail has
@@ -1103,16 +1200,19 @@ impl Render for OfficeDocWindow {
             .as_ref()
             .map(|spec| self.shown_version(spec))
             .unwrap_or(0);
+        let filed_version = active
+            .as_ref()
+            .map(|spec| self.filed_shown_version(spec))
+            .unwrap_or(0);
+        let known_end = self.page_ends.get(&filed_version).copied();
 
-        // The page area: the page the pointer names when it is fetched — out of the cache
-        // on the frame, no wait — else the last page stays up while the new one loads (a
-        // deck does not blank slide N while it draws N+1), else the reason there is
-        // nothing: a failed page, a doc still on its way, a kind that cannot render yet.
         // The page area: the page the pointer names when it is fetched — out of the cache
         // on the frame, no wait — else the failure it earned, else the last page stays up
         // while the new one loads (a deck does not blank slide N while it draws N+1), else
-        // the reason there is nothing yet.
-        let current_key = (shown_version, self.page);
+        // the reason there is nothing yet. Cached pages are filed under the version they
+        // are; failures under the version asked.
+        let current_key = (filed_version, self.page);
+        let asked_key = (shown_version, self.page);
         let page_area: AnyElement = match active.as_ref() {
             Some(spec) => {
                 let placeholder = |title: String, note: String, spec: &OfficeDocSpec| {
@@ -1152,9 +1252,9 @@ impl Render for OfficeDocWindow {
                                 .object_fit(ObjectFit::Contain),
                         )
                         .into_any_element()
-                } else if self.failed.contains(&current_key) {
+                } else if self.failed.contains(&asked_key) {
                     placeholder(
-                        "This page could not be fetched".to_string(),
+                        "This page could not be shown".to_string(),
                         self.failure
                             .clone()
                             .unwrap_or_else(|| "this page could not be fetched".to_string()),
@@ -1171,7 +1271,7 @@ impl Render for OfficeDocWindow {
                         .p(px(24.))
                         .child(img(image).size_full().object_fit(ObjectFit::Contain))
                         .into_any_element()
-                } else if self.fetching.contains(&current_key) {
+                } else if self.fetching.contains(&asked_key) {
                     placeholder(
                         format!("Rendering {}…", spec.file_name()),
                         "The computer is drawing this page.".to_string(),
@@ -1222,24 +1322,20 @@ impl Render for OfficeDocWindow {
                             .map(|spec| {
                                 // A doc whose box is gone still renders — the server serves
                                 // the last kept snapshot — so the footer says which copy the
-                                // person is looking at instead of letting it pose as live.
-                                let offline = self
-                                    .detail
-                                    .as_ref()
-                                    .is_some_and(|detail| detail.box_live == Some(false));
+                                // person is looking at instead of letting it pose as live:
+                                // the version the page IS, and that it is a kept copy,
+                                // whichever of the detail and the page said so first.
+                                let offline = self.stale_versions.contains(&filed_version)
+                                    || self
+                                        .detail
+                                        .as_ref()
+                                        .is_some_and(|detail| detail.box_live == Some(false));
                                 let live = if offline { " · offline copy" } else { "" };
-                                match self.view_version {
-                                    Some(viewed) => format!(
-                                        "{} · v{viewed} (live v{}){live}",
-                                        spec.path,
-                                        self.head_version(spec)
-                                    ),
-                                    None => format!(
-                                        "{} · v{}{}",
-                                        spec.path,
-                                        self.head_version(spec),
-                                        live
-                                    ),
+                                let head = self.head_version(spec);
+                                if self.view_version.is_some() || filed_version != head {
+                                    format!("{} · v{filed_version} (live v{head}){live}", spec.path)
+                                } else {
+                                    format!("{} · v{head}{live}", spec.path)
                                 }
                             })
                             .unwrap_or_default(),
@@ -1277,8 +1373,8 @@ impl Render for OfficeDocWindow {
                             })),
                     )
                     .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        match self.page_ends.get(&shown_version) {
-                            Some(end) if *end > 0 => format!("{} / {}", self.page, end),
+                        match known_end {
+                            Some(end) if end > 0 => format!("{} / {}", self.page, end),
                             _ => format!("{}", self.page),
                         },
                     ))
@@ -1287,11 +1383,7 @@ impl Render for OfficeDocWindow {
                             .label("›")
                             .ghost()
                             .small()
-                            .disabled(
-                                self.page_ends
-                                    .get(&shown_version)
-                                    .is_some_and(|end| self.page >= *end),
-                            )
+                            .disabled(known_end.is_some_and(|end| self.page >= end))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 // The end learned from a page response greys this button
                                 // out, but a click can still land faster than the bound —
@@ -1427,5 +1519,69 @@ mod tests {
         assert_eq!(pages.len(), PAGE_CACHE_MAX);
         assert!(pages.contains_key(&on_screen), "the shown page stayed");
         assert!(!pages.contains_key(&(0, 2)), "the next-oldest went instead");
+    }
+
+    /// The head asked, a kept copy answered: the window keeps asking for the head (v3) and
+    /// must find the page under the version it is (v1). Filed under the ask instead, the
+    /// lookup missed every time and the page was fetched again in a loop.
+    #[test]
+    fn a_stand_in_answer_is_found_under_the_version_asked() {
+        let mut stand_ins = std::collections::BTreeMap::new();
+        assert_eq!(
+            super::filed_version(&stand_ins, 3),
+            3,
+            "no stand-in: itself"
+        );
+        stand_ins.insert(3, 1);
+        assert_eq!(super::filed_version(&stand_ins, 3), 1);
+        assert_eq!(
+            super::filed_version(&stand_ins, 2),
+            2,
+            "other versions untouched"
+        );
+    }
+
+    /// The server's count is the bound, wherever the pointer was: a new version with three
+    /// slides, asked for slide 7, ends at 3 — not at 6. Without a count the bound is at
+    /// most the page before, never past one already known.
+    #[test]
+    fn past_the_end_lands_on_the_last_real_page() {
+        assert_eq!(super::bound_after_missing(7, Some(3), None), 3);
+        assert_eq!(super::bound_after_missing(13, Some(12), Some(12)), 12);
+        assert_eq!(
+            super::bound_after_missing(5, None, None),
+            4,
+            "older server: one back"
+        );
+        assert_eq!(
+            super::bound_after_missing(5, None, Some(2)),
+            2,
+            "a known end holds"
+        );
+        assert_eq!(
+            super::bound_after_missing(1, None, None),
+            1,
+            "page 1 has nowhere to go"
+        );
+        assert_eq!(super::bound_after_missing(1, Some(0), None), 1);
+    }
+
+    /// A Word document's missing preview reads as a fact about the format; every other
+    /// failure keeps the server's own words.
+    #[test]
+    fn a_word_documents_missing_preview_is_not_an_error_message() {
+        let docx = super::page_failure_text("docx", Some(422), "the page could not be rendered");
+        assert!(
+            docx.contains("Word documents don't have a page preview yet"),
+            "{docx}"
+        );
+        assert_eq!(
+            super::page_failure_text("pptx", Some(422), "the page could not be rendered"),
+            "the page could not be rendered"
+        );
+        assert_eq!(
+            super::page_failure_text("docx", Some(503), "the computer could not be woken"),
+            "the computer could not be woken"
+        );
     }
 }
