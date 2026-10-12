@@ -228,6 +228,12 @@ pub mod ids {
         format!("step-{call_id}")
     }
 
+    /// An open step's copy affordance on one of its blocks — `part` is `arguments` or
+    /// `result`, the two blocks `steps::mono_block` draws.
+    pub fn step_copy(part: &str, call_id: &str) -> String {
+        format!("step-copy-{part}-{call_id}")
+    }
+
     pub fn session(id: &str) -> String {
         format!("session-{id}")
     }
@@ -1492,6 +1498,10 @@ pub enum Command {
         keys: Vec<String>,
         open: bool,
     },
+    /// A copy affordance's click: these words onto the clipboard, as the pointer's does.
+    CopyText {
+        text: String,
+    },
     /// Settings → Computer's Save, on this computer's card, which keeps this computer's half of the
     /// relay.
     SaveReplySource,
@@ -1866,6 +1876,9 @@ impl Command {
                 lent,
             } => state.set_connection_lent(connection_id, lent, cx),
             Self::SetStepsOpen { keys, open } => state.set_steps_open(&keys, open, cx),
+            Self::CopyText { text } => {
+                cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
+            }
             Self::SaveReplySource => state.save_reply_source(cx),
             Self::SendOnServer => state.send_on_server(cx),
             Self::SetComputerRelay { machine_id, on } => {
@@ -2375,6 +2388,10 @@ struct StepSnap {
     /// How long the call took, as the end of its row says it (`StepSpec::took`), while the row
     /// says it.
     took: Option<String>,
+    /// The words each open block's copy puts on the clipboard — the same text the row draws
+    /// (`shown_arguments`, `result`), so the driver's copy and the pointer's agree.
+    arguments: Option<String>,
+    result: Option<String>,
 }
 
 impl ReplyRunSnap {
@@ -2405,6 +2422,8 @@ impl ReplyRunSnap {
                         open: open.contains(&key),
                         key,
                         took: show_timing.then(|| step.took()).flatten(),
+                        arguments: step.shown_arguments(),
+                        result: step.result.clone(),
                     });
                 }
                 ChatPart::Reasoning(thought) => {
@@ -5404,6 +5423,18 @@ impl NativeChatHost {
                                         .with_value(step.status.word());
                                 if step.open {
                                     node.states.push("expanded".into());
+                                    // The copies are drawn only on an open row, so only an
+                                    // open row lists them.
+                                    for (part, text) in
+                                        [("arguments", &step.arguments), ("result", &step.result)]
+                                    {
+                                        if text.is_some() {
+                                            node = node.with_child(UiNode::button(
+                                                ids::step_copy(part, &step.call_id),
+                                                "Copy",
+                                            ));
+                                        }
+                                    }
                                 }
                                 if let Some(took) = &step.took {
                                     node.states.push(format!("took-{took}"));
@@ -5466,6 +5497,24 @@ impl NativeChatHost {
                 keys: thoughts.iter().map(|(key, _, _)| key.clone()).collect(),
                 open: !thoughts.iter().all(|(_, open, _)| *open),
             }));
+        }
+        // Read before the row's own `step-` prefix, which would take a copy id for a row id.
+        if let Some(rest) = target.strip_prefix("step-copy-") {
+            let (part, call_id) = rest
+                .split_once('-')
+                .filter(|(part, _)| matches!(*part, "arguments" | "result"))?;
+            return Some(
+                self.reply_run
+                    .steps
+                    .iter()
+                    .find(|step| step.call_id == call_id && step.open)
+                    .and_then(|step| match part {
+                        "arguments" => step.arguments.clone(),
+                        _ => step.result.clone(),
+                    })
+                    .map(|text| Command::CopyText { text })
+                    .ok_or_else(|| format!("no open step block `{target}` in the newest reply")),
+            );
         }
         let call_id = target.strip_prefix("step-")?;
         Some(
@@ -14552,8 +14601,28 @@ mod tests {
         click(&mut state, &ids::step("c1"));
         assert!(expanded(&state, &ids::step("c1")));
         assert!(!expanded(&state, &ids::step("c2")));
+        // An open row lists a copy per block, each its own id, and a click copies that
+        // block's words — a shut row lists none.
+        let tree = host(&state).snapshot();
+        assert!(tree.ids_are_unique());
+        assert!(tree.find(&ids::step_copy("result", "c1")).is_some());
+        assert!(tree.find(&ids::step_copy("arguments", "c1")).is_some());
+        assert!(
+            tree.find(&ids::step_copy("result", "c2")).is_none(),
+            "c2 is shut"
+        );
+        let mut driver = host(&state);
+        driver.click(&ids::step_copy("result", "c1")).unwrap();
+        let Some(Command::CopyText { text }) = driver.take_command() else {
+            panic!("a copy's click copies");
+        };
+        assert_eq!(text, "a.txt");
         click(&mut state, &ids::step("c1"));
         assert!(!expanded(&state, &ids::step("c1")));
+        assert!(
+            host(&state).click(&ids::step_copy("result", "c1")).is_err(),
+            "a shut row's copy is not there to click"
+        );
         click(&mut state, ids::REPLY_REASONING);
         assert!(expanded(&state, ids::REPLY_REASONING));
         assert!(host(&state).click(&ids::step("c9")).is_err());

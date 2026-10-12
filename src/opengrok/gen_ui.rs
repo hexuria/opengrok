@@ -435,8 +435,6 @@ fn push_capped(kept: &mut String, seen: &mut usize, delta: &str) {
     }
 }
 
-/// The step for `call_id`, wherever it is in the turn. Searched from the end, where an open
-/// call is.
 /// `office_render` answers `{"document":"odoc_…","page":N,"pageCount":M,…}` — nothing for a
 /// person to read (opengrok-server `office_desk.rs`). As a shot's caption it is
 /// "Page N of M"; any other shape is kept as-is so a surprise still shows.
@@ -453,6 +451,8 @@ fn office_render_caption(result: &str) -> String {
     }
 }
 
+/// The step for `call_id`, wherever it is in the turn. Searched from the end, where an open
+/// call is.
 fn step_mut<'a>(parts: &'a mut [ChatPart], call_id: &str) -> Option<&'a mut StepSpec> {
     parts.iter_mut().rev().find_map(|part| match part {
         ChatPart::Step(step) if step.call_id == call_id => Some(step),

@@ -70,10 +70,16 @@
 //! added), `plugin-needs-remember-{message}`, `plugin-needs-open-{message}-{plugin}` and
 //! `plugin-needs-again-{message}`, each disabled once the card is not the thread's last turn,
 //! `office-card-{message}-{doc}` (an `opengrok.officeDoc` card, gol/betteroffice) holding
-//! `office-open-{message}-{doc}` (opens the document window on that doc), and in the window
-//! `office-tab-{doc}`, `office-page-prev`, `office-page-next`,
-//! `office-version-{doc}` (the version combobox's trigger), `office-version-v{n}` (a row in
-//! it) and `office-version-latest` (back to the live head),
+//! `office-open-{message}-{doc}` (opens the document window on that doc), and the window
+//! itself as `office-window-{doc}` (a second top-level node beside `app-window`, named for the
+//! file) holding `office-page-prev`, `office-page-next` (each disabled at its end; Next only
+//! once the server has said the last page) and `office-page-label` (value `page / total`, or
+//! `page` while the total is unknown); in the window also `office-tab-{doc}`,
+//! `office-version-{doc}` (the version combobox's trigger), `office-version-picker` (its open
+//! list), `office-version-v{n}` (a row in it) and `office-version-latest` (back to the live
+//! head),
+//! `step-copy-arguments-{call}` and `step-copy-result-{call}` (an open step row's copies of
+//! its two blocks, children of `step-{call}`; a click puts the block's words on the clipboard),
 //! `user-form-use-saved-{key}-{login}` (one per saved account for the card's site; a sign-in
 //! that asks for the name and the password on two pages is two cards, each with a row per
 //! password login, and on the password page the login picked on the name page in that thread
