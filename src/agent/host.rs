@@ -1372,6 +1372,11 @@ pub enum Command {
     StepOfficePage(i64),
     /// The deep jump a `office.page` verb asks for — one doc window's pager set to a page.
     GoOfficePage(u32),
+    /// A document window's Accept or Reject on a pending proposal.
+    AnswerOfficeProposal {
+        proposal: String,
+        accept: bool,
+    },
     ResendAfterNeeds {
         message_id: String,
     },
@@ -1760,6 +1765,9 @@ impl Command {
             Self::PickOfficeVersion(version) => state.office_doc_version_pick(version, cx),
             Self::StepOfficePage(delta) => state.office_doc_page_step(delta, cx),
             Self::GoOfficePage(page) => state.office_doc_page_go(page, cx),
+            Self::AnswerOfficeProposal { proposal, accept } => {
+                state.office_doc_answer_proposal(proposal, accept, cx)
+            }
             Self::ResendAfterNeeds { message_id } => state.resend_after_needs(message_id, cx),
             Self::DeleteSiteLogin { id } => state.delete_site_login(id, cx),
             Self::SetAppSettingsTab(tab) => state.set_app_settings_tab(tab, cx),
@@ -2546,6 +2554,8 @@ struct OfficeWindowSnap {
     page: u32,
     /// The last page the server owns up to (`x-office-pages`), when the window knows it.
     end: Option<u32>,
+    /// The proposals its review list draws Accept and Reject for.
+    proposals: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -3471,6 +3481,18 @@ fn office_window_node(window: &OfficeWindowSnap) -> UiNode {
     .with_child(
         UiNode::button(ids::doc_page_next_id(), "›")
             .with_enabled(window.end.is_none_or(|end| window.page < end)),
+    )
+    .with_children(
+        window
+            .proposals
+            .iter()
+            .flat_map(|proposal| {
+                [
+                    UiNode::button(ids::doc_proposal_accept_id(proposal), "Accept"),
+                    UiNode::button(ids::doc_proposal_reject_id(proposal), "Reject"),
+                ]
+            })
+            .collect(),
     )
 }
 
@@ -4664,6 +4686,11 @@ impl NativeChatHost {
                         .unwrap_or_else(|| doc_id.clone()),
                     page: *page,
                     end: *end,
+                    proposals: state
+                        .office_proposals
+                        .get(doc_id)
+                        .cloned()
+                        .unwrap_or_default(),
                 })
                 .collect(),
             site_logins: state
@@ -5998,6 +6025,24 @@ impl NativeChatHost {
         }
         if target == ids::doc_page_prev_id() {
             return Some(Command::StepOfficePage(-1));
+        }
+        // Only a proposal an open window lists: an id the tree never offered is not a click.
+        for window in &self.office_windows {
+            for proposal in &window.proposals {
+                for accept in [true, false] {
+                    let id = if accept {
+                        ids::doc_proposal_accept_id(proposal)
+                    } else {
+                        ids::doc_proposal_reject_id(proposal)
+                    };
+                    if target == id {
+                        return Some(Command::AnswerOfficeProposal {
+                            proposal: proposal.clone(),
+                            accept,
+                        });
+                    }
+                }
+            }
         }
         None
     }
@@ -14690,6 +14735,61 @@ mod tests {
         let mut host = NativeChatHost::from_app(state);
         host.signed_in = true;
         host
+    }
+
+    /// A host carrying one open document window: its review list exposes Accept and Reject
+    /// buttons per pending proposal, each routed to that proposal's answer, and a proposal
+    /// the window does not list is not a target.
+    #[test]
+    fn a_document_windows_pending_proposals_are_answerable_from_the_tree() {
+        let host = NativeChatHost {
+            ready: true,
+            signed_in: true,
+            sessions: vec![SessionSnap {
+                id: "bot-1".into(),
+                title: "Ada".into(),
+                active: true,
+                preview: None,
+                listed: false,
+            }],
+            office_windows: vec![OfficeWindowSnap {
+                doc_id: "odoc_1".into(),
+                title: "deck.pptx".into(),
+                page: 1,
+                end: Some(3),
+                proposals: vec!["p1".into(), "p2".into()],
+            }],
+            ..Default::default()
+        };
+        let tree = host.snapshot();
+        let window = tree.find("office-window-odoc_1").expect("the window node");
+        for id in [
+            "office-proposal-accept-p1",
+            "office-proposal-reject-p1",
+            "office-proposal-accept-p2",
+            "office-proposal-reject-p2",
+        ] {
+            assert!(window.find(id).is_some(), "{id} is on the tree");
+        }
+        assert!(tree.ids_are_unique());
+
+        let mut driver = host;
+        driver.click("office-proposal-reject-p2").unwrap();
+        let Some(Command::AnswerOfficeProposal { proposal, accept }) = driver.take_command() else {
+            panic!("a review button answers its proposal");
+        };
+        assert_eq!((proposal.as_str(), accept), ("p2", false));
+        driver.click("office-proposal-accept-p1").unwrap();
+        let Some(Command::AnswerOfficeProposal { proposal, accept }) = driver.take_command() else {
+            panic!("a review button answers its proposal");
+        };
+        assert_eq!((proposal.as_str(), accept), ("p1", true));
+        let mut no_such = driver;
+        no_such.office_windows.clear();
+        assert!(
+            no_such.click("office-proposal-accept-p9").is_err(),
+            "a proposal no window lists"
+        );
     }
 
     /// With Settings → Show turn timing on, a step whose row ends with how long the call took

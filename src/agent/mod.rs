@@ -76,8 +76,10 @@
 //! once the server has said the last page) and `office-page-label` (value `page / total`, or
 //! `page` while the total is unknown); in the window also `office-tab-{doc}`,
 //! `office-version-{doc}` (the version combobox's trigger), `office-version-picker` (its open
-//! list), `office-version-v{n}` (a row in it) and `office-version-latest` (back to the live
-//! head),
+//! list), `office-version-v{n}` (a row in it), `office-version-latest` (back to the live
+//! head), and per pending proposal `office-proposal-accept-{proposal}` and
+//! `office-proposal-reject-{proposal}` (the person's own answer, through the server's
+//! `POST /office/docs/{id}/proposals/{proposal}/accept|reject`),
 //! `step-copy-arguments-{call}` and `step-copy-result-{call}` (an open step row's copies of
 //! its two blocks, children of `step-{call}`; a click puts the block's words on the clipboard),
 //! `user-form-use-saved-{key}-{login}` (one per saved account for the card's site; a sign-in
