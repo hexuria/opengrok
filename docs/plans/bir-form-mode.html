@@ -2279,7 +2279,7 @@ checking  -errors->  showerror : errors
 showerror -fix->     editing   : fixed
 checking  -clean->   queued    : clean
 + queued  -cancel->  editing   : Cancel
-queued    -go->      sent      : hold ends
+queued    -go->      sent      : tick
 + queued  -now->     sent      : Send now
 editing   -dismiss-> dismissed : ✕
 </script>
@@ -2290,10 +2290,10 @@ editing   -dismiss-> dismissed : ✕
 <div class="ui"><div class="f here"><label><i>Line 1</i>For the Month of (MM/YYYY)</label><div class="in bad">10/2026</div><div class="el">⚠ Invalid month on Item 1. Month should not be a current Date.</div></div>
 <div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="btn pri">Submit</span></div></div></template></doc-mock></div>
     <div data-state="queued"><doc-mock frame="none" w="420"><template>
-<div class="ui"><div class="rc"><b>✓ Queued 14:06</b> · sends at 14:11<br>0619-E · 09/2026 · ₱12,500.00</div>
+<div class="ui"><div class="rc"><b>✓ Queued 14:06</b> · goes within a minute<br>0619-E · 09/2026 · ₱12,500.00</div>
 <div class="ft"><span class="btn">Cancel submission</span><span class="sp"></span><span class="btn pri">Send now</span></div></div></template></doc-mock></div>
     <div data-state="sent"><doc-mock frame="none" w="420"><template>
-<div class="ui"><div class="rc"><b>✓ Sent to BIR 14:11</b><br><span class="dim">Waiting for the confirmation email from BIR. Not paid yet.</span></div>
+<div class="ui"><div class="rc"><b>✓ Sent to BIR 14:07</b><br><span class="dim">Waiting for the confirmation email from BIR. Not paid yet.</span></div>
 <div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="dim">read only</span></div></div></template></doc-mock></div>
   </doc-machine>
     <doc-note tone="ok"><strong>Decided: one press sends</strong> The safety is the queue. The person can cancel until the hold ends.</doc-note>
@@ -2535,8 +2535,8 @@ pub fn coworker_lock(coworker: &CoworkerId) -> Arc<tokio::sync::Mutex<()>> {
   <doc-mock frame="none" w="440"><template>
 <div class="ui">
   <div class="hd"><span><b>Queued for BIR</b></span><small>2 returns</small></div>
-  <div class="f"><label><i>0619-E</i>JUAN DELA CRUZ · 09/2026 · ₱12,500.00</label><div class="dim">queued 14:06 · sends 14:11</div><div class="ft" style="padding:4px 0 8px"><span class="btn">Cancel submission</span><span class="sp"></span><span class="btn pri">Send now</span></div></div>
-  <div class="f"><label><i>1601C</i>ACME TRADING · 09/2026 · ₱4,210.00</label><div class="dim">queued 13:58 · sends 14:03 · sending…</div><div class="el"></div></div>
+  <div class="f"><label><i>0619-E</i>JUAN DELA CRUZ · 09/2026 · ₱12,500.00</label><div class="dim">queued 14:06 · goes at the next tick</div><div class="ft" style="padding:4px 0 8px"><span class="btn">Cancel submission</span><span class="sp"></span><span class="btn pri">Send now</span></div></div>
+  <div class="f"><label><i>1601C</i>ACME TRADING · 09/2026 · ₱4,210.00</label><div class="dim">queued 13:58 · sending now…</div><div class="el"></div></div>
   <div class="comp"><span class="cin off">list queued forms</span></div>
 </div></template></doc-mock>
 
@@ -2548,7 +2548,7 @@ pub fn coworker_lock(coworker: &CoworkerId) -> Arc<tokio::sync::Mutex<()>> {
 + **bir_queue_cancel** {form, tin, period}            @ buwiz-forms/crates/bir-core/src/db/queueable.rs:429
 +   cancel only while the return is still queued; the sender's claim wins a race
 + **bir_queue_send_now** {form, tin, period}          @ buwiz-forms/crates/bir-core/src/background_cron.rs:34
-+   ends the hold for that return, then wake()
++   wake(): the sender runs now, not at the next tick
 </script>
     
 <script type="text/plain" data-excerpt="buwiz-forms/crates/bir-core/src/db/drafts.rs:2899" data-start="2893">
@@ -2599,7 +2599,7 @@ pub fn wake() {
   </doc-claim>
 
   <doc-claim>
-    <p>A queued return waits a short hold before the sender takes it.</p>
+    <p>A queued return goes at the next tick. Cancel works only before it.</p>
     <doc-code src="buwiz-forms/crates/bir-core/src/background_cron.rs" lines="57-70" hl="66" file="buwiz-forms/crates/bir-core/src/background_cron.rs" start="57"><script type="text/plain">
 pub async fn start_cron_jobs(db: Arc<Mutex<Database>>) {
     info!("Background cron engine started");
@@ -2614,17 +2614,9 @@ pub async fn start_cron_jobs(db: Arc<Mutex<Database>>) {
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
             _ = rx.recv() => {</script>
-      <doc-pin line="66" tone="warn" title="Today: every tick sends all">A tick runs every 60 seconds. Without a hold, Cancel has less than a minute.</doc-pin>
+      <doc-pin line="66" tone="info" title="Every tick sends all">Cancel has until the next tick, at most 60 seconds.</doc-pin>
     </doc-code>
-    <doc-ask id="hold">
-      <p>How long does a queued return wait before it goes to BIR?</p>
-      <div class="opts-row">
-        <label><input type="radio" name="hold" value="5" checked> 5 minutes</label>
-        <label><input type="radio" name="hold" value="15"> 15 minutes</label>
-        <label><input type="radio" name="hold" value="0"> No hold <small>next tick</small></label>
-      </div>
-    </doc-ask>
-    <doc-note tone="warn"><strong>Deadline</strong> Near a due date, Send now skips the hold. The hold never makes a return late if the person presses it.</doc-note>
+    <doc-note tone="ok"><strong>Decided: no hold</strong> The sender keeps its 60-second tick. Cancel must say "too late" when the sender already took the return.</doc-note>
   </doc-claim>
 
   <doc-claim>
