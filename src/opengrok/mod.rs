@@ -35,12 +35,12 @@ pub(crate) use gen_ui::capped;
 pub use gen_ui::{
     ApprovalSpec, BarChartSpec, BarItem, CREATE_ROUTINE, ChatPart, ChoiceCard, CompletedUiTool,
     DELETE_ROUTINE, FormField, FormSpec, FrameArrivals, LIST_ROUTINES, LocalExecResolution,
-    MAX_TURN_CONTINUES, PLUGIN_NEEDS_CUSTOM, PluginNeed, PluginNeedKind, PluginNeedsSpec,
-    RUN_ROUTINE, RoutineChanges, ScreenshotSpec, StepSpec, StepStatus, ThoughtSpec, TurnAssembler,
-    UI_TOOL_RESULT, UPDATE_ROUTINE, USER_MACHINE_SHELL, UiSpec, agui_tools, approval_from_event,
-    approval_summary, choice_index, choice_letter, collapse_open_approvals, command_from_args,
-    command_from_replay_events, keep_call_times, local_exec_outcome, persons_messages,
-    place_hitl_cards_in_document_order, policy_answer,
+    MAX_TURN_CONTINUES, OFFICE_DOC_CUSTOM, OfficeDocSpec, PLUGIN_NEEDS_CUSTOM, PluginNeed,
+    PluginNeedKind, PluginNeedsSpec, RUN_ROUTINE, RoutineChanges, ScreenshotSpec, StepSpec,
+    StepStatus, ThoughtSpec, TurnAssembler, UI_TOOL_RESULT, UPDATE_ROUTINE, USER_MACHINE_SHELL,
+    UiSpec, agui_tools, approval_from_event, approval_summary, choice_index, choice_letter,
+    collapse_open_approvals, command_from_args, command_from_replay_events, keep_call_times,
+    local_exec_outcome, persons_messages, place_hitl_cards_in_document_order, policy_answer,
 };
 pub use inference::{
     DEFAULT_PROXY_URL, FallbackFor, HELD_FOR_RELAY_OFFLINE, INFERENCE_SOURCE_CUSTOM, InferenceKind,
@@ -91,9 +91,9 @@ pub use client::{
     ConnectionOwner, ConnectionPin, ConnectionView, Connector, CoworkerCeiling, CoworkerComputer,
     CoworkerSkills, CoworkerTool, CoworkerUsage, DaemonMachine, EgressTunnel, ImageStatus,
     InertRule, InstalledAccount, InstalledBundle, LocalExecMode, LocalExecPolicy,
-    MAX_ATTACHMENT_BYTES, ModelUsage, NewSchedule, NewSkill, OpenGrokClient, PluginAuthor,
-    PluginCatalog, PluginDetail, PluginInstallation, PluginManifest, PluginPart, PluginSkill,
-    QueuedApproval, RecipeBot, RecipeDetail, RecipeGrant, RecipeKind, RecipeParameter,
+    MAX_ATTACHMENT_BYTES, ModelUsage, NewSchedule, NewSkill, OfficeDocPageAnswer, OpenGrokClient,
+    PluginAuthor, PluginCatalog, PluginDetail, PluginInstallation, PluginManifest, PluginPart,
+    PluginSkill, QueuedApproval, RecipeBot, RecipeDetail, RecipeGrant, RecipeKind, RecipeParameter,
     RecipeParameterKind, RecipeRelation, RecipeRun, RecipeRunResult, RecipeScreen, RecipeShare,
     RecipeShareState, RecipeShareTarget, RecipeStep, RecipeSummary, RecipeTape, RecipeTapeEvent,
     RecipeVersion, RevealedSecrets, RunBy, RunCause, RunRecipeResponse, RunReplay,
@@ -117,6 +117,6 @@ pub use pending::{
 pub use timing::{TurnTiming, stamp_duration};
 pub use types::{
     Account, AguiMessage, Attachment, Coworker, CoworkerPatch, CoworkerSource, EFFORT_INHERIT,
-    EffortLevel, LocalProxyStatus, ModelCatalogue, ModelEntry, ProfileUpdate, ReplyQuote,
-    SentAttachment, ThreadListing, assistant_text_from_sse,
+    EffortLevel, LocalProxyStatus, ModelCatalogue, ModelEntry, OfficeDocDetail, OfficeProposal,
+    ProfileUpdate, ReplyQuote, SentAttachment, ThreadListing, assistant_text_from_sse,
 };

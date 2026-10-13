@@ -378,10 +378,10 @@ pub(crate) fn render_run_row(row: &RunRow, app: Entity<AppState>, cx: &App) -> A
             }
             let mut detail = flat_column(6.).max_w(px(DETAIL_MAX));
             if let Some(arguments) = step.shown_arguments() {
-                detail = detail.child(mono_block(arguments, cx));
+                detail = detail.child(mono_block(arguments, format!("{key}/copy-arguments"), cx));
             }
             if let Some(result) = &step.result {
-                detail = detail.child(mono_block(result.clone(), cx));
+                detail = detail.child(mono_block(result.clone(), format!("{key}/copy-result"), cx));
             }
             flat_column(4.).child(head).child(detail).into_any_element()
         }
@@ -519,9 +519,15 @@ fn heading(
 }
 
 /// A step's arguments or its result, exactly as they are kept, in the font code is read in.
-fn mono_block(text: String, cx: &App) -> Div {
+/// The words are not selectable, so the block's own copy affordance is the only way the
+/// output leaves the row — the disclosure's click is the row's toggle, not a selection.
+/// `copy_id` is the step's own (its key, then which block), so every row's copy is its own
+/// element; the driver reaches the same copy as `step-copy-{arguments|result}-{call}`.
+fn mono_block(text: String, copy_id: String, cx: &App) -> Div {
     let theme = cx.theme();
+    let copy = text.clone();
     div()
+        .relative()
         .w_full()
         .px(px(8.))
         .py(px(6.))
@@ -531,6 +537,23 @@ fn mono_block(text: String, cx: &App) -> Div {
         .font_family(theme.mono_font_family.clone())
         .text_color(theme.secondary_foreground)
         .child(text)
+        .child(
+            div()
+                .id(ElementId::Name(copy_id.into()))
+                .absolute()
+                .top(px(4.))
+                .right(px(4.))
+                .p(px(3.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_color(theme.muted_foreground)
+                .hover(|style| style.text_color(theme.foreground).bg(theme.background))
+                .child(Icon::new(IconName::Copy).size(px(12.)))
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                }),
+        )
 }
 
 #[cfg(test)]

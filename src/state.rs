@@ -1654,7 +1654,8 @@ impl Message {
                 | ChatPart::SaveLogin(_)
                 | ChatPart::Step(_)
                 | ChatPart::Reasoning(_)
-                | ChatPart::PluginNeeds(_) => true,
+                | ChatPart::PluginNeeds(_)
+                | ChatPart::OfficeDoc(_) => true,
             })
     }
 
@@ -1671,7 +1672,8 @@ impl Message {
                 | ChatPart::SaveLogin(_)
                 | ChatPart::Step(_)
                 | ChatPart::Reasoning(_)
-                | ChatPart::PluginNeeds(_) => false,
+                | ChatPart::PluginNeeds(_)
+                | ChatPart::OfficeDoc(_) => false,
             })
     }
 
@@ -1764,6 +1766,14 @@ fn saved_parts(parts: &[ChatPart]) -> Vec<MessagePart> {
             | ChatPart::UserForm(_)
             | ChatPart::SaveLogin(_)
             | ChatPart::PluginNeeds(_) => break_paragraph(&mut words),
+            // The document card keeps the frame's thin JSON — the pages and bytes are fetched
+            // again, and a replayed frame re-dedupes it by doc id.
+            ChatPart::OfficeDoc(spec) => {
+                close_text_run(&mut words, &mut saved);
+                saved.push(MessagePart::OfficeDoc {
+                    spec: spec.to_value().to_string(),
+                });
+            }
             ChatPart::Ui(spec) => {
                 close_text_run(&mut words, &mut saved);
                 saved.push(MessagePart::Ui {
@@ -1859,6 +1869,12 @@ fn restored_parts(content: &str, saved: Vec<MessagePart>) -> Vec<ChatPart> {
             MessagePart::Reasoning(thought) => Some(ChatPart::Reasoning(
                 crate::opengrok::ThoughtSpec::from_stored(&thought),
             )),
+            // A document card whose stored frame does not parse is left out like a widget's:
+            // the reply's words either side still say what they said.
+            MessagePart::OfficeDoc { spec } => serde_json::from_str::<serde_json::Value>(&spec)
+                .ok()
+                .and_then(|value| crate::opengrok::OfficeDocSpec::from_value(&value))
+                .map(ChatPart::OfficeDoc),
         })
         .collect()
 }
@@ -1956,6 +1972,18 @@ fn overlay_server_cards(message: &mut Message, replayed: &[ChatPart]) {
                 });
                 if !already {
                     message.parts.push(ChatPart::SaveLogin(incoming.clone()));
+                }
+            }
+            ChatPart::OfficeDoc(incoming) => {
+                // The replayed frame is the server's newest word on the document: a stored card
+                // for the same doc keeps its place but takes the replay's version, and a doc
+                // the store never saw is added.
+                match message.parts.iter_mut().find_map(|part| match part {
+                    ChatPart::OfficeDoc(spec) if spec.doc_id == incoming.doc_id => Some(spec),
+                    _ => None,
+                }) {
+                    Some(existing) => *existing = incoming.clone(),
+                    None => message.parts.push(ChatPart::OfficeDoc(incoming.clone())),
                 }
             }
             _ => {}
@@ -3293,8 +3321,8 @@ const STREAM_PAINT_MIN: Duration = Duration::from_millis(16);
 /// A step coming back counts with the parts: its mark is how the person knows the call is done,
 /// and the frame that settles it is often the last one before the model goes quiet to think,
 /// which a frame held back by the rate would leave showing "…" until the next one.
-fn stream_part_sig(parts: &[ChatPart]) -> (usize, u8) {
-    let flags = parts.iter().fold(0u8, |acc, part| {
+fn stream_part_sig(parts: &[ChatPart]) -> (usize, u16) {
+    let flags = parts.iter().fold(0u16, |acc, part| {
         acc | match part {
             ChatPart::Text(_) => 0,
             ChatPart::Ui(_) => 1,
@@ -3305,6 +3333,9 @@ fn stream_part_sig(parts: &[ChatPart]) -> (usize, u8) {
             ChatPart::Step(_) => 32,
             ChatPart::Reasoning(_) => 64,
             ChatPart::PluginNeeds(_) => 128,
+            // A doc card's first arrival repaints at once; version bumps on it are carried by
+            // the regular stream rate like token text.
+            ChatPart::OfficeDoc(_) => 256,
         }
     });
     let settled = parts
@@ -3317,8 +3348,8 @@ fn stream_part_sig(parts: &[ChatPart]) -> (usize, u8) {
 fn stream_paint_due(
     last: Option<Instant>,
     now: Instant,
-    prev_sig: (usize, u8),
-    sig: (usize, u8),
+    prev_sig: (usize, u16),
+    sig: (usize, u16),
 ) -> bool {
     sig != prev_sig || last.is_none_or(|at| now.saturating_duration_since(at) >= STREAM_PAINT_MIN)
 }
@@ -6058,6 +6089,38 @@ pub struct AppState {
         String,
         WindowHandle<crate::components::computer_screen::ComputerScreen>,
     >,
+    /// The documents `opengrok.officeDoc` frames have named this session, in the order they
+    /// were first touched: the document window's tab strip. A doc's spec is rewritten by each
+    /// frame, so its tab's version badge is always the newest. Kept past the turn that made
+    /// them — a window that closed when the turn ended would vanish under somebody reading it.
+    pub office_docs: Vec<crate::opengrok::OfficeDocSpec>,
+    /// The document the newest frame touched: which tab the window paints live, and which a
+    /// "Follow" click rejoins. A card's Open picks it too.
+    pub office_active: Option<String>,
+    /// One document window per document, keyed by doc_id: a deck the turn touches never
+    /// shares a frame with another file, so a runaway creator's -v2/-v3 names can never pass
+    /// as one document's history on a tab strip. Brought forward on Open; a handle whose
+    /// window was closed fails to update and a fresh one opens.
+    #[cfg(target_os = "macos")]
+    office_windows: std::collections::HashMap<
+        String,
+        WindowHandle<crate::components::office_doc::OfficeDocWindow>,
+    >,
+    /// Each open document window's pager as it draws it — `(page, learned end)`. The agent
+    /// snapshot cannot read inside a second window's root entity, so the window publishes
+    /// here on every change; the tree exposes it as `office-page-*` nodes the driver can
+    /// click and assert.
+    pub office_pager: HashMap<String, (u32, Option<u32>)>,
+    /// The transcript cards' page images, keyed by doc and the card's version: a card shows
+    /// the page the document was dealt at, so an edit's card and an export's card can hold
+    /// different pages of the same file.
+    office_thumbs: HashMap<(String, u64), Arc<gpui_kit::Image>>,
+    /// A thumbnail fetch per (doc, version), deduped — a card that repaints before its page
+    /// lands asks once, not twice.
+    office_thumb_fetching: HashSet<(String, u64)>,
+    /// Thumbnail keys whose fetch already failed — the card keeps its badge row, and the
+    /// same dead request is not re-issued on every later notify.
+    office_thumb_failed: HashSet<(String, u64)>,
     /// Update / Reset ask first: the dialog over the app, until Confirm or Cancel.
     pub computer_confirm: Option<ComputerAction>,
     /// The network-permission dialog for the open bot's own computer is on screen.
@@ -6677,6 +6740,14 @@ impl AppState {
             main_window: None,
             #[cfg(target_os = "macos")]
             computer_windows: std::collections::HashMap::new(),
+            office_docs: Vec::new(),
+            office_active: None,
+            office_thumbs: HashMap::new(),
+            office_thumb_fetching: HashSet::new(),
+            office_thumb_failed: HashSet::new(),
+            #[cfg(target_os = "macos")]
+            office_windows: std::collections::HashMap::new(),
+            office_pager: HashMap::new(),
         }
     }
 
@@ -6737,6 +6808,10 @@ impl AppState {
                         state.account = Some(account);
                         state.auth_status = AuthStatus::SignedIn;
                         state.auth_error = None;
+                        // A fresh session: requests that 401'd before may answer now —
+                        // the thumb gate and the dead thumb rows reset with the credentials.
+                        state.office_thumb_failed.clear();
+                        state.office_thumbs.clear();
                         state.note_server_answered(cx);
                         state.watch_time_zone(cx);
                         state.start_local_exec(cx);
@@ -7410,10 +7485,11 @@ impl AppState {
         .detach();
     }
 
+    /// The globe's click: host intent, always recorded — a box created after this carries
+    /// the tunnel even when the one on screen cannot (`Docker cannot publish a port after
+    /// create`). Blocking the intent because the CURRENT box lacks the port made the icon
+    /// look alive while swallowing the click entirely.
     pub fn set_egress_tunnel_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        if enabled && !self.box_egress_provisioned() {
-            return;
-        }
         self.egress_tunnel_enabled = enabled;
         cx.notify();
         let Some(client) = self.opengrok.clone() else {
@@ -13839,6 +13915,274 @@ impl AppState {
         self.show_coworker_screen(false, cx);
     }
 
+    /// The documents a live turn's `opengrok.officeDoc` frames name, folded into the app's
+    /// set: a doc first seen joins it in place, a doc already there takes the frame's newer
+    /// version, and the turn's newest document becomes the live one — its own window marks
+    /// it while no other file shares that frame. A new document opens its window — D12's
+    /// "the pane follows the work" — and a version bump on a watched one is all `cx.notify`.
+    fn fold_office_docs(
+        &mut self,
+        docs: &std::collections::BTreeMap<String, crate::opengrok::OfficeDocSpec>,
+        latest: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let mut joined = false;
+        let mut thumbs = Vec::new();
+        for spec in docs.values() {
+            match self
+                .office_docs
+                .iter_mut()
+                .find(|doc| doc.doc_id == spec.doc_id)
+            {
+                Some(existing) if existing.version >= spec.version => {}
+                Some(existing) => {
+                    *existing = spec.clone();
+                    thumbs.push(spec.clone());
+                    cx.notify();
+                }
+                None => {
+                    self.office_docs.push(spec.clone());
+                    thumbs.push(spec.clone());
+                    joined = true;
+                }
+            }
+        }
+        for spec in &thumbs {
+            self.ensure_office_thumb(spec, cx);
+        }
+        if let Some(id) = latest {
+            self.office_active = Some(id.to_string());
+        }
+        if joined && let Some(id) = self.office_active.clone() {
+            self.open_office_window_for(&id, cx);
+        }
+        cx.notify();
+    }
+
+    /// A document card's Open: the window comes up with that document pinned at the page the
+    /// card named — the first when the change said nothing about pages. Reopening a doc the
+    /// session forgot (app relaunched, `office_docs` emptied) still opens — the card
+    /// the person clicked kept the spec through `saved_parts`, so the window opens on the
+    /// card's word and the fetches say what the server has now.
+    pub fn open_office_doc(&mut self, doc_id: &str, page: u32, cx: &mut Context<Self>) {
+        if !self.office_docs.iter().any(|doc| doc.doc_id == doc_id) {
+            let spec = self
+                .conversations
+                .iter()
+                .flat_map(|conversation| conversation.messages.iter())
+                .flat_map(|message| message.parts.iter())
+                .find_map(|part| match part {
+                    ChatPart::OfficeDoc(spec) if spec.doc_id == doc_id => Some(spec.clone()),
+                    _ => None,
+                });
+            if let Some(spec) = spec {
+                self.office_docs.push(spec);
+            }
+        }
+        self.office_active = Some(doc_id.to_string());
+        self.open_office_window_for(doc_id, cx);
+        self.office_doc_show(doc_id, page, cx);
+        cx.notify();
+    }
+
+    /// A document card's page image, as it was dealt: the kept snapshot of the card's
+    /// version when the chain has one, the live page when it does not (a doc whose early
+    /// version no snapshot covered still shows its page, just its newest one).
+    pub fn ensure_office_thumb(
+        &mut self,
+        spec: &crate::opengrok::OfficeDocSpec,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(client) = self.opengrok.clone() else {
+            return;
+        };
+        let key = (spec.doc_id.clone(), spec.version);
+        if self.office_thumbs.contains_key(&key)
+            || self.office_thumb_failed.contains(&key)
+            || !self.office_thumb_fetching.insert(key.clone())
+        {
+            return;
+        }
+        let (doc_id, version) = key.clone();
+        cx.spawn(async move |this, cx| {
+            let mut png = client
+                .office_doc_page(&doc_id, 1, Some(version))
+                .await
+                .ok()
+                .and_then(crate::opengrok::OfficeDocPageAnswer::into_page)
+                .map(|page| page.bytes);
+            if png.is_none() {
+                png = client
+                    .office_doc_page(&doc_id, 1, None)
+                    .await
+                    .ok()
+                    .and_then(crate::opengrok::OfficeDocPageAnswer::into_page)
+                    .map(|page| page.bytes);
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.office_thumb_fetching.remove(&key);
+                match png {
+                    Some(png) => {
+                        this.office_thumbs.insert(
+                            key,
+                            Arc::new(gpui_kit::Image::from_bytes(gpui_kit::ImageFormat::Png, png)),
+                        );
+                    }
+                    // A failure is an answer too: remembered so the next card render does
+                    // not ask again — a dead session once ran this loop twenty thousand
+                    // times a minute.
+                    None => {
+                        this.office_thumb_failed.insert(key);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The card's fetched page, when it has landed — the card reads through here so the
+    /// cache's key shape stays in one place.
+    pub fn office_thumb(&self, doc_id: &str, version: u64) -> Option<Arc<gpui_kit::Image>> {
+        self.office_thumbs
+            .get(&(doc_id.to_string(), version))
+            .cloned()
+    }
+
+    /// The window's half of a card's Open: pin that doc at that page, in that doc's own
+    /// window. macOS-only like the window itself — the field the method updates only exists
+    /// there.
+    fn office_doc_show(&mut self, doc_id: &str, page: u32, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = self.office_windows.get(doc_id) {
+            let _ = window.update(cx, |view, _window, cx| view.show_doc(doc_id, page, cx));
+        }
+        let _ = (doc_id, page, cx);
+    }
+
+    /// The document window's version combobox, toggled — a driver's reach for the chip's
+    /// click. The window holds no semantic nodes of its own, so the action arrives here at
+    /// the active doc's window.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_version_picker_toggle(&mut self, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
+            let _ = window.update(cx, |view, window, cx| view.toggle_picker(window, cx));
+        }
+        let _ = cx;
+    }
+
+    /// A driver's page turn on the active document window — the chevrons' click, as a
+    /// step so `next` and `prev` share the pager's own clamp.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_page_step(&mut self, delta: i64, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
+            let _ = window.update(cx, |view, _window, cx| view.step_page(delta, cx));
+        }
+        let _ = (delta, cx);
+    }
+
+    /// A driver's jump straight to a page on the active document window — show_doc's
+    /// half of a card Open without the card.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_page_go(&mut self, page: u32, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
+            let _ = window.update(cx, |view, _window, cx| {
+                view.show_doc(&doc_id, page, cx);
+            });
+        }
+        let _ = (page, cx);
+    }
+
+    /// The pick the combobox's Enter performs — a driver's reach for a row click.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_version_pick(&mut self, version: u64, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        if let Some(doc_id) = self.office_active.clone()
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
+            let _ = window.update(cx, |view, _window, cx| view.pick_version(version, cx));
+        }
+        let _ = (version, cx);
+    }
+
+    /// That document's own window: one per doc_id, so two files are never tabs in one frame
+    /// again. Already open comes forward; a handle whose window was closed fails to update
+    /// and a fresh one opens.
+    pub fn open_office_window_for(&mut self, doc_id: &str, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(existing) = self.office_windows.get(doc_id)
+                && existing
+                    .update(cx, |_, window, _| window.activate_window())
+                    .is_ok()
+            {
+                return;
+            }
+            self.office_windows.remove(doc_id);
+            // A handle that would not answer is a window that is gone: the pager it last
+            // published goes with it, or the tree would keep offering dead chevrons.
+            self.office_pager.remove(doc_id);
+            let title = self
+                .office_docs
+                .iter()
+                .find(|doc| doc.doc_id == doc_id)
+                .map(|doc| doc.file_name().to_string())
+                .unwrap_or_else(|| "Document".into());
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(96.), px(96.)),
+                    size: size(px(980.), px(820.)),
+                })),
+                window_min_size: Some(size(px(560.), px(420.))),
+                // The title bar is ours: the document's name is the title bar's row, as the
+                // screen window's strip is.
+                titlebar: Some(TitlebarOptions {
+                    title: Some(title.into()),
+                    appears_transparent: true,
+                    traffic_light_position: Some(point(px(12.), px(14.))),
+                }),
+                ..WindowOptions::default()
+            };
+            let app = cx.entity();
+            let owner = doc_id.to_string();
+            let (docs, live, client) = (
+                self.office_docs.clone(),
+                self.office_active.clone(),
+                self.opengrok.clone(),
+            );
+            let opened = cx.open_window(options, move |window, cx| {
+                cx.new(|cx| {
+                    crate::components::office_doc::OfficeDocWindow::new(
+                        app,
+                        owner.clone(),
+                        docs.clone(),
+                        live.clone(),
+                        client.clone(),
+                        window,
+                        cx,
+                    )
+                })
+            });
+            match opened {
+                Ok(handle) => {
+                    self.office_windows.insert(doc_id.to_string(), handle);
+                }
+                Err(error) => {
+                    eprintln!("NativeChat office: could not open the document window: {error}")
+                }
+            }
+        }
+    }
+
     /// The active coworker's screen. `teach` carries the ask for a tape all the way to the
     /// window, which may be several awaits away: the box has to exist before it has a screen.
     fn show_coworker_screen(&mut self, teach: bool, cx: &mut Context<Self>) {
@@ -17223,6 +17567,20 @@ impl AppState {
                                 .find(|c| c.id == session_id_clone)
                             {
                                 apply_reload(conversation, live.as_ref(), db_messages);
+                                // Restored cards' pages fetch like live-dealt ones — a
+                                // reopened thread's document cards paint their thumbnails too.
+                                let specs: Vec<_> = conversation
+                                    .messages
+                                    .iter()
+                                    .flat_map(|message| message.parts.iter())
+                                    .filter_map(|part| match part {
+                                        ChatPart::OfficeDoc(spec) => Some(spec.clone()),
+                                        _ => None,
+                                    })
+                                    .collect();
+                                for spec in &specs {
+                                    state.ensure_office_thumb(spec, cx);
+                                }
                                 state.sync_pending_approvals(cx);
                                 cx.notify();
                             }
@@ -18243,7 +18601,7 @@ impl AppState {
                     let mut routine_changes = RoutineChanges::default();
                     let mut assembler = TurnAssembler::default();
                     let mut last_stream_paint: Option<Instant> = None;
-                    let mut last_stream_sig = (0usize, 0u8);
+                    let mut last_stream_sig = (0usize, 0u16);
                     // The door the run goes through, once the assembler has read it off the
                     // run's own frame: kept here so the row is told once, when it arrives.
                     let mut told_source: Option<ReplySource> = None;
@@ -18332,6 +18690,16 @@ impl AppState {
                                         }
                                     }
                                     state.collect_handoff_ids_and_flush(&conversation_id, cx);
+                                    // The documents this turn's frames have named so far: a
+                                    // new one joins the window's tabs and opens it — the
+                                    // person watches the work happen, not a card about it.
+                                    if !assembler.office_docs().is_empty() {
+                                        state.fold_office_docs(
+                                            assembler.office_docs(),
+                                            assembler.office_latest(),
+                                            cx,
+                                        );
+                                    }
                                     if assembler.waiting_approval() {
                                         let open = parts.iter().rev().find_map(|part| match part {
                                             ChatPart::Approval(spec) => Some(spec.clone()),
@@ -25730,6 +26098,58 @@ mod tests {
         );
     }
 
+    /// The globe's click on a box created without the tunnel's port still records the
+    /// person's intent: the next box made carries it. The switch once returned early on such
+    /// a box, so the icon looked alive and the click did nothing at all.
+    #[gpui_kit::test]
+    fn the_route_traffic_click_records_intent_on_a_box_without_the_tunnel(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::AppContext as _;
+        let app = cx.new(|_| super::AppState::new());
+        app.update(cx, |state, cx| {
+            // Off to start with, whatever the environment's default was, so the click is
+            // what turns it on.
+            state.egress_tunnel_enabled = false;
+            assert!(
+                !state.box_egress_provisioned(),
+                "the box on screen has no tunnel"
+            );
+            state.set_egress_tunnel_enabled(true, cx);
+            assert!(state.egress_tunnel_enabled, "the intent was recorded");
+            state.set_egress_tunnel_enabled(false, cx);
+            assert!(!state.egress_tunnel_enabled, "and turned off again");
+        });
+    }
+
+    /// A card's thumbnail that already failed is not asked for again: the failure is the
+    /// answer. Without the gate every card render re-armed the fetch — a dead session ran it
+    /// tens of thousands of times a minute.
+    #[gpui_kit::test]
+    fn a_failed_office_thumbnail_is_not_fetched_again(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::AppContext as _;
+        let app = cx.new(|_| super::AppState::new());
+        let spec = crate::opengrok::OfficeDocSpec {
+            doc_id: "odoc_1".into(),
+            path: "~/office/deck.pptx".into(),
+            kind: "pptx".into(),
+            version: 2,
+            artifact_id: None,
+            changed: serde_json::json!({"type": "edited"}),
+        };
+        app.update(cx, |state, cx| {
+            state.opengrok = Some(OpenGrokClient::new("http://127.0.0.1:9").expect("a URL"));
+            state
+                .office_thumb_failed
+                .insert((spec.doc_id.clone(), spec.version));
+            state.ensure_office_thumb(&spec, cx);
+            assert!(
+                state.office_thumb_fetching.is_empty(),
+                "a failed thumbnail starts no second fetch"
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn sidebar_click_restores_last_size_and_hidden_stays_hidden(cx: &mut gpui_kit::TestAppContext) {
         use gpui_kit::AppContext as _;
@@ -28130,6 +28550,89 @@ mod tests {
         assert!(!format!("{:?}", bot.parts).contains("password"));
     }
 
+    /// The document card a replayed `opengrok.officeDoc` frame brings: deduped on the doc id,
+    /// with the replay's newer version winning — a stored card from before three more edits is
+    /// the server's stale word, not the live one.
+    #[test]
+    fn overlay_rebases_an_office_doc_card_on_the_replays_frame() {
+        let mut bot = message("m1", false, "Done.");
+        bot.parts = vec![
+            ChatPart::Text("Done.".into()),
+            ChatPart::OfficeDoc(crate::opengrok::OfficeDocSpec {
+                doc_id: "odoc_1".into(),
+                path: "report.docx".into(),
+                kind: "docx".into(),
+                version: 2,
+                artifact_id: None,
+                changed: serde_json::json!({"type": "edited"}),
+            }),
+        ];
+        overlay_server_cards(
+            &mut bot,
+            &[ChatPart::OfficeDoc(crate::opengrok::OfficeDocSpec {
+                doc_id: "odoc_1".into(),
+                path: "report.docx".into(),
+                kind: "docx".into(),
+                version: 5,
+                artifact_id: Some("art_9".into()),
+                changed: serde_json::json!({"type": "exported"}),
+            })],
+        );
+        match bot.parts.as_slice() {
+            [ChatPart::Text(_), ChatPart::OfficeDoc(spec)] => {
+                assert_eq!(spec.version, 5);
+                assert_eq!(spec.artifact_id.as_deref(), Some("art_9"));
+                assert_eq!(spec.changed_type(), Some("exported"));
+            }
+            other => panic!("expected one rebased doc card, got {other:?}"),
+        }
+        // And a doc the store never saw joins rather than colliding.
+        overlay_server_cards(
+            &mut bot,
+            &[ChatPart::OfficeDoc(crate::opengrok::OfficeDocSpec {
+                doc_id: "odoc_2".into(),
+                path: "deck.pptx".into(),
+                kind: "pptx".into(),
+                version: 1,
+                artifact_id: None,
+                changed: serde_json::json!({"type": "created"}),
+            })],
+        );
+        assert_eq!(
+            bot.parts
+                .iter()
+                .filter(|part| matches!(part, ChatPart::OfficeDoc(_)))
+                .count(),
+            2
+        );
+    }
+
+    /// The document card keeps its thin frame through `saved_parts` and back: what a reopened
+    /// thread shows before the replay lands.
+    #[test]
+    fn an_office_doc_card_survives_saved_parts() {
+        let spec = crate::opengrok::OfficeDocSpec {
+            doc_id: "odoc_3".into(),
+            path: "~/office/q3.xlsx".into(),
+            kind: "xlsx".into(),
+            version: 7,
+            artifact_id: None,
+            changed: serde_json::json!({"type": "edited"}),
+        };
+        let saved = saved_parts(&[
+            ChatPart::Text("Updated the sheet.".into()),
+            ChatPart::OfficeDoc(spec.clone()),
+        ]);
+        let restored = restored_parts("", saved);
+        assert_eq!(
+            restored,
+            vec![
+                ChatPart::Text("Updated the sheet.".into()),
+                ChatPart::OfficeDoc(spec)
+            ]
+        );
+    }
+
     #[test]
     fn overlay_settles_user_form_from_send_message_envelope() {
         let settled = crate::opengrok::UserFormSpec::from_custom_event(&serde_json::json!({
@@ -28225,6 +28728,9 @@ mod tests {
                     format!("save-login {} {}", spec.origin, spec.username)
                 }
                 ChatPart::PluginNeeds(spec) => format!("plugin-needs {:?}", spec.needs),
+                ChatPart::OfficeDoc(spec) => {
+                    format!("office {} {} v{}", spec.doc_id, spec.path, spec.version)
+                }
                 ChatPart::Step(step) => format!(
                     "step {} {} {} {:?} {:?}",
                     step.call_id, step.tool, step.arguments, step.result, step.ok

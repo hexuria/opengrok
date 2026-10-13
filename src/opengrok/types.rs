@@ -559,6 +559,76 @@ pub struct SentAttachment {
     pub message_id: String,
 }
 
+/// An office document's session row as `GET /office/docs/{id}` answers it (opengrok-server
+/// `detail` in `crates/opengrok-server/src/office_routes.rs`, gol/betteroffice): identity,
+/// kind, version, the version chain the window's picker lists, the proposals still
+/// pending — everything the document window needs except the bytes and pages, which are
+/// routes of their own.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeDocDetail {
+    pub doc_id: String,
+    pub path: String,
+    pub kind: String,
+    pub version: u64,
+    #[serde(default)]
+    pub content_sha256: String,
+    #[serde(default)]
+    pub proposals: Vec<OfficeProposal>,
+    #[serde(default)]
+    pub versions: Vec<OfficeDocVersion>,
+    /// Whether the session's stored box is still the coworker's live computer — `false` means
+    /// the server answered from a kept snapshot: viewable, but not being written. Absent on a
+    /// server that predates the field reads as live, the older behaviour.
+    #[serde(default)]
+    pub box_live: Option<bool>,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+/// One kept version of an office document, as `GET /office/docs/{id}`'s `versions` lists
+/// them — newest first, the live head always included (opengrok-server `detail`). A head
+/// nothing snapshotted carries a null `artifactId`: it is still viewable, its bytes just
+/// come off the box rather than the chain.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeDocVersion {
+    pub version: u64,
+    #[serde(default)]
+    pub artifact_id: Option<String>,
+    #[serde(default)]
+    pub at: i64,
+}
+
+/// One pending proposal on an office document, as `GET /office/docs/{id}` summarizes it: the
+/// change count instead of the diffs themselves — the window lists what is waiting, the
+/// model's `office_review` is what reads the diffs.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeProposal {
+    pub id: String,
+    // The detail route passes the stored proposal's fields through raw, so a proposal
+    // written without a note arrives as `"note": null` — which `default` does not cover,
+    // only an absent key does. A null reads as empty.
+    #[serde(default, deserialize_with = "office_string_or_null")]
+    pub author: String,
+    #[serde(default, deserialize_with = "office_string_or_null")]
+    pub note: String,
+    #[serde(default, deserialize_with = "office_string_or_null")]
+    pub status: String,
+    #[serde(default)]
+    pub changes: u64,
+}
+
+fn office_string_or_null<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ArtifactListing {
