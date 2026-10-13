@@ -2222,6 +2222,7 @@ impl SaveRefusal {
       <label><input type="radio" name="history" value="line" checked> One line <small>“Filled 3 boxes on 0619-E”</small></label>
       <label><input type="radio" name="history" value="none"> Nothing</label>
     </doc-ask>
+    <doc-note tone="ok"><strong>Decided: one line</strong> The commands stay out of the chat. One line keeps a record of what the form changed.</doc-note>
     <doc-claim>
       <p>Resume opens the card again in the app. The Bot is not asked.</p>
       <doc-code title="state.rs · sketch" lang="rust">
@@ -2284,6 +2285,7 @@ editing   -dismiss-> dismissed : ✕
       <label><input type="radio" name="confirm" value="yes" checked> Yes, a second press <small>shows TEST or REAL, form, period, amount</small></label>
       <label><input type="radio" name="confirm" value="no"> No, one press sends <small>the confirm state goes from the machine</small></label>
     </doc-ask>
+    <doc-note tone="ok"><strong>Decided: yes</strong> A sent return cannot come back. The second press shows TEST or REAL and the amount.</doc-note>
 
   <doc-claim>
     <p>Card actions go to BIR's tools through the server, without a Bot turn.</p>
@@ -2472,6 +2474,7 @@ pub fn coworker_lock(coworker: &CoworkerId) -> Arc<tokio::sync::Mutex<()>> {
       <label><input type="radio" name="botsubmit" value="ask" checked> Yes, with an approval card <small>the card's Submit is the same yes</small></label>
       <label><input type="radio" name="botsubmit" value="cardonly"> No, only the card's Submit <small>the server hides the tool from the Bot</small></label>
     </doc-ask>
+    <doc-note tone="ok"><strong>Decided: yes, with an approval card</strong> The owner wants the Bot to submit a clean form. The approval is the lock that the Bot cannot pass.</doc-note>
   </doc-claim>
 
   <doc-claim>
@@ -2604,6 +2607,7 @@ pub struct Ask {
       <label><input type="radio" name="stt" value="mac" checked> On the Mac <small>Apple Speech, on the device, works offline</small></label>
       <label><input type="radio" name="stt" value="server"> On the server <small>through the gateway, never a direct key</small></label>
     </doc-ask>
+    <doc-note tone="ok"><strong>Decided: on the Mac</strong> Spoken TINs and amounts stay on the device. The gateway has no speech route today.</doc-note>
   </doc-claim>
 
   <doc-claim>
@@ -2725,6 +2729,7 @@ jobs:
       <label><input type="radio" name="order" value="flag" checked> Server, then BIR, then app <small>switch: the app sends forwardedProps.formMode</small></label>
       <label><input type="radio" name="order" value="together"> All three in one sitting <small>no switch; a gap can expose submit</small></label>
     </doc-ask>
+    <doc-note tone="ok"><strong>Decided: server, then BIR, then app</strong> The server must know the approval rule before BIR shows bir_form_submit.</doc-note>
   </doc-claim>
 </doc-claim>
 
