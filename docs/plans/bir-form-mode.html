@@ -1918,14 +1918,14 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   <p>Tier 1: the person fills a BIR form from the chat box.</p>
   <doc-mock frame="none" w="440"><template>
 <div class="ui">
-  <div class="hd"><span><b>Form 0619-E · Draft</b><br><small>JUAN DELA CRUZ · 123-456-789</small></span><small>‹ Page 2 of 2 ›</small></div>
+  <div class="hd"><span><b>Form 0619-E · Draft</b><br><small>JUAN DELA CRUZ · 123-456-789</small></span><small>‹ Page 1 of 1 ›</small></div>
   <div class="pt">Part II · Tax Remittance</div>
   <div class="f here" data-ref="box"><label><i>Line 14</i>Amount of Remittance</label><div class="in bad r"></div><div class="el" data-ref="err">⚠ Please fill up Part II - Tax Remittance if item 4 is set to Yes.</div></div>
   <div class="f"><label><i>Line 15</i>Less: Amount Remitted from Previously Filed Form</label><div class="in r"></div><div class="el"></div></div>
   <div class="f"><label><i>Line 16</i>Net Amount of Remittance</label><div class="in ro r">0.00</div><div class="el"></div></div>
   <div class="x" data-ref="saved">✓ Draft saved 14:02:11</div>
   <div class="ft"><span class="eye" data-ref="eye">👁</span><span class="sp"></span><span class="btn pri" data-ref="submit">Submit</span></div>
-  <div class="comp"><span class="chip" data-ref="mode">📝 Form mode ✕</span><span class="cin">page 2 line 14</span></div>
+  <div class="comp"><span class="chip" data-ref="mode">📝 Form mode ✕</span><span class="cin">line 14</span></div>
   <div class="fb">→ Line 14 · Amount of Remittance</div>
 </div></template>
     <doc-pin ref="err" anchor="br" title="One error, in its own line">Every box keeps an empty line, so the card does not move.</doc-pin>
@@ -1938,13 +1938,30 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
     <p>In form mode, the app reads the chat box. The Bot and the history get nothing.</p>
     <doc-calls title="Composer in form mode" caption="The parser is local and fixed. It needs no model.">
 <script type="text/plain">
-~ AppState::send_message(content)                     @ opengrok/src/state.rs:22666
+~ composer Enter → AppState::send_draft(text, …)       @ opengrok/src/components/chat.rs:2129
+~   AppState::send_draft                               @ opengrok/src/state.rs:22900   -- intercept before send_message_with and db.save_message
 +   **form_mode::route**(content, &open_card)          @ opengrok/src/opengrok/form_mode.rs:1   -- new file
 +     **form_mode::parse**("page 2 line 14")           @ opengrok/src/opengrok/form_mode.rs:1   -- page, line, item, next, back, submit, view, dismiss
-+     card.focus(field_id)                             @ opengrok/src/components/user_form.rs:46
++     card.focus(field_id); a value also sends "save"   @ opengrok/src/components/user_form.rs:46   -- no blur happens for a composer value
     send_policy::plan_send(busy, …)                    @ opengrok/src/send_policy.rs:59   -- only when no form is open
+    send_message stays as it is: chips and driver chat.send use it
 </script>
     
+<script type="text/plain" data-excerpt="opengrok/src/components/chat.rs:2129" data-start="2123">
+            MessageInput::new(window, state.clone(), cx).on_submit({
+                let state = state.clone();
+                move |text, steer, files, cx| {
+                    state.update(cx, |state, cx| {
+                        // The draft's own door: these are the words in the composer, so what
+                        // the composer is holding goes with them and comes off it here.
+                        state.send_draft(text, steer, files, cx);
+                    });
+                }
+            })
+        });
+
+        let last_conversation_id = state.read(cx).active_conversation_id.clone();
+</script>
 <script type="text/plain" data-excerpt="opengrok/src/components/user_form.rs:46" data-start="40">
 pub type UserFormTextareaMap = HashMap<String, Entity<TextareaState>>;
 
@@ -2002,13 +2019,14 @@ pub fn parse(text: &str, card: &UserFormSpec) -> FormCommand {
 
   <doc-claim>
     <p>The server builds the card from BIR's card data, not from the Bot's words.</p>
-    <doc-calls title="Open a form" caption="The Bot only names the source tool. The server calls it.">
+    <doc-calls title="Open a form" caption="plugin.json names the card tool and the action tools. The Bot gives only the form, TIN and period.">
 <script type="text/plain">
-~ Bot → request_user_form { formMode, source: "bir.bir-mcp.bir_form_card" }  @ opengrok-server/crates/opengrok-tools/src/lib.rs:2803
-+   **card_from_source**(source)                       @ opengrok-server/crates/opengrok-forms/src/user_form.rs:263
-+     mcp::Session::call("bir_form_card", {mode:"full"}) @ opengrok-server/crates/opengrok-tools/src/mcp.rs:662
-~       form_card() → pages, lines, values, errors     @ buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs:431
-~   sanitize_arguments(…) keeps the form-mode keys     @ opengrok-server/crates/opengrok-forms/src/user_form.rs:263
+~ Bot → request_user_form { formMode, form, tin, period }  @ opengrok-server/crates/opengrok-tools/src/lib.rs:2803
+    returns at once, like chat_ui; the run does not park  @ opengrok-server/crates/opengrok-server/src/agui/chat_ui.rs:22
++   **mint_form_mode_card**(entry)  -- no callId, so no 10-minute hold  @ opengrok-server/crates/opengrok-server/src/agui/resume.rs:356
++     tools from plugin.json extensions.formMode        @ opengrok-server/crates/opengrok-plugins/src/lib.rs:21
++     Executor::execute("bir_form_card", {mode:"index"}) @ opengrok-server/crates/opengrok-tools/src/lib.rs:2160
+~       form_card() → index of every box + one page    @ buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs:431
 </script>
     
 <script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-tools/src/lib.rs:2803" data-start="2797">
@@ -2026,35 +2044,50 @@ pub fn parse(text: &str, card: &UserFormSpec) -> FormCommand {
              that are still missing. Mark those required. Wait. The answers come back as \
              Shared fields and nothing is typed into a page. Do not invent a shell command \
 </script>
-<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-forms/src/user_form.rs:263" data-start="257">
-    }
-}
-
-/// Arguments stored on the suspension / card: field defs only. Identity keys and any `values`
-/// the model smuggled are dropped so a password cannot sit on the entry waiting for submit.
-#[must_use]
-pub fn sanitize_arguments(arguments: &Value) -> Value {
-    let form = form_request_from(arguments);
-    let mut body = json!({
-        "title": form.title,
-        "instruction": form.instruction,
-        "fields": form.fields,
-    });
+<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-server/src/agui/chat_ui.rs:22" data-start="16">
+                ToolResult::ok(
+                    &call.id,
+                    "The chart is on screen. Do not call bar_chart again unless the user asks for different data.",
+                )
+            }),
+        )
+        .with_local(
+            form_schema(),
+            Arc::new(|call| {
+                ToolResult::ok(
+                    &call.id,
+                    "The form is on screen. Do not call form again unless the user asks for a new form.",
+                )
 </script>
-<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-tools/src/mcp.rs:662" data-start="656">
-        }
-        Ok(tools)
-    }
+<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-plugins/src/lib.rs:21" data-start="15">
+//! TRANSCRIBED FROM THE PUBLISHED SCHEMAS, NOT REMEMBERED.
+//! `https://agent-plugins.org/schemas/1.0.0/plugin.schema.json` and `…/mcp.schema.json`, read on
+//! 29 Aug 2026. `plugin.json` requires `$schema` and `name`; `mcp.json` requires `$schema` and
+//! `mcpServers`; a server is one of `stdio`, `streamable-http` or `sse`. The specification is
+//! authoritative where it and the schema disagree, so anything below that the schema alone could
+//! not tell us is marked.
+//!
+//! UNKNOWN FIELDS ARE KEPT. The format has a declared `extensions` object for client-specific data
+//! and will grow; a loader that dropped what it did not recognise would quietly discard the half
+//! of a plugin meant for somebody else.
 
-    /// Call a tool by its REMOTE name — the qualified name is ours, and the server has never heard
-    /// of it.
-    pub async fn call(
-        &self,
-        remote_name: &str,
-        arguments: serde_json::Value,
-    ) -> Result<String, McpError> {
-        let arguments = match arguments {
-            serde_json::Value::Object(map) => Some(map),
+pub mod bundle;
+pub mod catalogue;
+</script>
+<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-tools/src/lib.rs:2160" data-start="2154">
+            let decision = opengrok_policy::decide(
+                &context.account_id,
+                &context.coworker_id,
+                opengrok_policy::Action::RunTool(&tool_name),
+                &self.policy,
+            );
+            // A DELETE ALWAYS ASKS (#316), on the policy's card, in words naming the routine as
+            // stored: an allow becomes the ask, and a grant's own ask says which routine. So does
+            // a plugin tool that cannot be undone or reaches another Bot (#359).
+            let delete = routine
+                .as_ref()
+                .and_then(|(_, (_, card))| card.clone())
+                .or_else(|| plugin_call.as_ref().and_then(|(_, (_, card))| card.clone()))
 </script>
 <script type="text/plain" data-excerpt="buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs:431" data-start="425">
             "note": "Draft preview: the filled official sheet as local HTML (no PDF export in this app). It is not filed.",
@@ -2071,6 +2104,7 @@ pub fn sanitize_arguments(arguments: &Value) -> Value {
         let map = agent::field_map(kind, &draft)?;
         let (boxes, unplaced) = agent::card_boxes(kind, &map, &errors);
 </script></doc-calls>
+    <doc-note tone="risk"><strong>Why not the Bot's words</strong> If the Bot named the tools, it could map "save" to submit. Then a blur would send the return.</doc-note>
     <doc-claim at="buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs:431">
       <p><b>host_generic.rs:431</b> · form_card()</p>
       <doc-code src="buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs" lines="429-452" hl="431" file="buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs" start="429"><script type="text/plain">    /// `form.card`: what an AG-UI `request_user_form` card shows for the
@@ -2103,15 +2137,14 @@ pub fn sanitize_arguments(arguments: &Value) -> Value {
   </doc-claim>
 
   <doc-claim>
-    <p>Every BIR box gets a page and a line, taken from the frozen sheet.</p>
-    <doc-schema id="boxdata" lang="json" diff title="crates/bir-core/data/agent-forms/0619e-v2018.json · one box" caption="Green is new. A test fails when the file and the sheet differ.">
+    <p>Every BIR box gets a page and a part, where the sheet shows them.</p>
+    <doc-schema id="boxdata" lang="json" diff title="crates/bir-core/data/agent-forms/0619e-v2018.json · one box" caption="Line stays the existing item. A test pins how many boxes have a page.">
 <script type="text/plain">
  {
    "key": "frm0619E:txtTax14",
    "item": "14",
-+  "page": 1,
-+  "part": "II",
-+  "line": "14",
++  "page": 1,        // from writer-cells joins, else the page whose text shows the item; else null
++  "part": "II",     // from the "Part X" heading above the box
    "label": "14 Amount of Remittance",
    "kind": "text",
    "required": "conditional"
@@ -2190,14 +2223,15 @@ impl SaveRefusal {
       <label><input type="radio" name="history" value="none"> Nothing</label>
     </doc-ask>
     <doc-claim>
-      <p>Resume asks the Bot to open the card again at the saved line.</p>
+      <p>Resume opens the card again in the app. The Bot is not asked.</p>
       <doc-code title="state.rs · sketch" lang="rust">
 <script type="text/plain">
 // The app keeps the last line per (coworker, form, period). It is a preference, not
 // a draft: the draft is in BIR, saved on every blur.
 pub fn resume_form(&mut self, form: &FormKey, cx: &mut Context<Self>) {
     let at = self.form_positions.get(form).cloned();
-    self.send_message_with(resume_prompt(form, at), SendOptions::hidden(), cx);
+    self.reopen_card(form, at, cx);                       // the card entry is still on the server
+    self.card_action(form, CardAction::Refresh, cx);      // BIR's values may have changed meanwhile
 }
 </script>
       </doc-code>
@@ -2245,19 +2279,26 @@ editing   -dismiss-> dismissed : ✕
 <div class="ui"><div class="f here"><label><i>Line 14</i>Amount of Remittance</label><div class="in r">12,500.00</div><div class="el"></div></div><div class="x">✓ Draft saved 14:02:11</div>
 <div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="btn pri">Submit</span></div></div></template></doc-mock></div>
   </doc-machine>
+    <doc-ask id="confirm">
+      <p>After a clean check, does Submit ask once more?</p>
+      <label><input type="radio" name="confirm" value="yes" checked> Yes, a second press <small>shows TEST or REAL, form, period, amount</small></label>
+      <label><input type="radio" name="confirm" value="no"> No, one press sends <small>the confirm state goes from the machine</small></label>
+    </doc-ask>
 
   <doc-claim>
     <p>Card actions go to BIR's tools through the server, without a Bot turn.</p>
-    <doc-calls title="Save, submit and view" caption="One new route. The server calls only the tools that the card names.">
+    <doc-calls title="Save, submit and view" caption="One new route. It uses the same executor and audit as the MCP door.">
 <script type="text/plain">
 ~ blur / Submit / 👁 on the card                         @ opengrok/src/components/user_form.rs:46
 +   POST /ag-ui/user-form/action {entryId, action, values, revision}  @ opengrok-server/crates/opengrok-server/src/agui/user_form.rs:75
 +     **card_action**(entry, action)                    @ opengrok-server/crates/opengrok-server/src/agui/user_form.rs:81
-+       mcp::Session::call(tool, args)                  @ opengrok-server/crates/opengrok-tools/src/mcp.rs:662
++       coworker_lock(coworker)                         @ opengrok-server/crates/opengrok-server/src/mcp_door.rs:260
++       tools_for_turn(with the card's plugin) → Executor::execute  @ opengrok-server/crates/opengrok-tools/src/lib.rs:2160
++       audit row, like mcp_call_audit                  @ opengrok-server/crates/opengrok-server/src/mcp_door.rs:29
           save   → bir_form_fill + bir_form_save_draft  @ buwiz-forms/crates/bir-desktop/src/agent/host.rs:3384
-          submit → bir_form_validate, then bir_form_submit  @ buwiz-forms/crates/bir-desktop/src/agent/host.rs:3444
+          submit → bir_form_submit {fingerprint}: validates inside, returns the first error  @ buwiz-forms/crates/bir-desktop/src/agent/host.rs:3444
 +         focus  → **bir_form_focus**: the desktop window scrolls to the box  @ buwiz-forms/crates/bir-desktop/src/agent/host.rs:3391
-+       journal the action on the card entry             @ opengrok-server/crates/opengrok-server/src/agui/user_form.rs:81
+    every action carries form, TIN and period; BIR refuses another open form  @ buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs:431
 </script>
     
 <script type="text/plain" data-excerpt="opengrok/src/components/user_form.rs:46" data-start="40">
@@ -2305,20 +2346,50 @@ async fn agui_submit(
     let Some(account_id) = crate::agui::routes::account_from_bearer(&state.agui, &headers) else {
         return (StatusCode::UNAUTHORIZED, "sign in first").into_response();
 </script>
-<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-tools/src/mcp.rs:662" data-start="656">
-        }
-        Ok(tools)
-    }
+<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-server/src/mcp_door.rs:260" data-start="254">
 
-    /// Call a tool by its REMOTE name — the qualified name is ours, and the server has never heard
-    /// of it.
-    pub async fn call(
-        &self,
-        remote_name: &str,
-        arguments: serde_json::Value,
-    ) -> Result<String, McpError> {
-        let arguments = match arguments {
-            serde_json::Value::Object(map) => Some(map),
+/// Serialize tool calls per coworker: the executor runs one call, but concurrent MCP requests would
+/// race on the same box (a `write_file` and the `shell` that reads it arriving together). `run_all`
+/// serializes a run's calls for exactly this reason; the door has no run, so it holds the line here.
+/// Per-coworker mutex shared with `settle_mcp_answer` so remember/take/execute cannot
+/// interleave a leftover yes.
+pub fn coworker_lock(coworker: &CoworkerId) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    let mut map = match LOCKS.lock() {
+        Ok(map) => map,
+        // A poisoned lock means a prior holder panicked; the map itself is still usable.
+        Err(poisoned) => poisoned.into_inner(),
+</script>
+<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-tools/src/lib.rs:2160" data-start="2154">
+            let decision = opengrok_policy::decide(
+                &context.account_id,
+                &context.coworker_id,
+                opengrok_policy::Action::RunTool(&tool_name),
+                &self.policy,
+            );
+            // A DELETE ALWAYS ASKS (#316), on the policy's card, in words naming the routine as
+            // stored: an allow becomes the ask, and a grant's own ask says which routine. So does
+            // a plugin tool that cannot be undone or reaches another Bot (#359).
+            let delete = routine
+                .as_ref()
+                .and_then(|(_, (_, card))| card.clone())
+                .or_else(|| plugin_call.as_ref().and_then(|(_, (_, card))| card.clone()))
+</script>
+<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-server/src/mcp_door.rs:29" data-start="23">
+//!   the account owner's real machine; a leaked bot key must not widen from "this coworker's box"
+//!   to "the owner's laptop" through a new external ingress. It is excluded from the listing and
+//!   refused on call.
+//! - **A computerless coworker lists an EMPTY toolbox; an unreachable computer is an ERROR.** An
+//!   empty success is the dangerous reply (CLAUDE.md §3): a KEK/credential/DB failure must not
+//!   masquerade as "this coworker simply has no tools".
+//! - **Every door call leaves a durable row** (`mcp_call_audit`): tool, redacted arguments,
+//!   outcome, the request id, written after the call by `McpDoor::audit`. A run journals its
+//!   own tool calls; a door call has no run (an Ask makes one — that is the card), so without
+//!   this row a bot key's use was a tracing line and nothing else. The row is written AFTER the
+//!   call because the outcome is part of it; a failed write is logged at error and does not
+//!   turn a finished call into a refusal — the tool has already run.
+
 </script>
 <script type="text/plain" data-excerpt="buwiz-forms/crates/bir-desktop/src/agent/host.rs:3384" data-start="3378">
             "submissions.list" => self.submissions_list(args),
@@ -2364,32 +2435,47 @@ async fn agui_submit(
             "form.release_abandoned_claim" => self.form_release_abandoned_claim(args),
             "form.mark_paid" | "payment.mark_paid" => self.form_mark_paid(),
             "form.upload_receipt" | "receipt.upload" => self.form_upload_receipt(),
+</script>
+<script type="text/plain" data-excerpt="buwiz-forms/crates/bir-desktop/src/agent/host_generic.rs:431" data-start="425">
+            "note": "Draft preview: the filled official sheet as local HTML (no PDF export in this app). It is not filed.",
+        })))
+    }
+
+    /// `form.card`: what an AG-UI `request_user_form` card shows for the
+    /// open form — the needs-you boxes and every box with a validation error.
+    pub(super) fn form_card(&mut self) -> Result<DispatchResult, String> {
+        self.gate_locked()?;
+        self.reconcile_open_forms_from_db();
+        let (kind, mut draft, assist) = self.open_official()?;
+        let errors = agent::validate(kind, &mut draft)?;
+        let map = agent::field_map(kind, &draft)?;
+        let (boxes, unplaced) = agent::card_boxes(kind, &map, &errors);
 </script></doc-calls>
     <doc-note tone="info"><strong>Why</strong> A save on every blur cannot wait for the Bot. A Bot turn takes seconds and costs tokens.</doc-note>
   </doc-claim>
 
   <doc-claim>
-    <p>Only the card's Submit can call <code>bir_form_submit</code>. The Bot cannot.</p>
-    <doc-code title="opengrok-plugins · sketch" lang="rust">
-<script type="text/plain">
-/// Tools that only a person's press on a card can start. The model never sees them in
-/// its tool list, and a model call to one is refused before it leaves the server.
-pub fn person_only_tools(&self) -> Vec<String> {
-    self.manifest.person_only.iter()                // plugin.json: "personOnly": ["bir_form_submit"]
-        .map(|tool| format!("{}.{}", self.manifest.name, tool))
-        .collect()
-}
-</script>
+    <p>Every call to <code>bir_form_submit</code> needs a person's yes.</p>
+    <doc-code src="opengrok-server/crates/opengrok-policy/src/lib.rs" lines="254-262" hl="262" file="opengrok-server/crates/opengrok-policy/src/lib.rs" start="254"><script type="text/plain">    pub profile: ToolSet,
+    /// Tools this principal may use only with a human yes — layer 5.
+    ///
+    /// Checked INSIDE the profile, never beside it: a tool that is not in the profile at all is
+    /// denied outright, and listing it here must not become a back door into running it. Asking
+    /// for approval for something that was never permitted would train people to approve things
+    /// nobody may do.
+    #[serde(default = "ToolSet::none")]
+    pub needs_approval: ToolSet,</script>
+      <doc-pin line="262" title="Per-tool approval exists today">Put bir_form_submit here for every coworker with the bir plugin.</doc-pin>
     </doc-code>
-    <doc-ask id="confirm">
-      <p>After a clean check, does Submit ask once more?</p>
-      <label><input type="radio" name="confirm" value="yes" checked> Yes, a second press <small>shows TEST or REAL, form, period, amount</small></label>
-      <label><input type="radio" name="confirm" value="no"> No, one press sends <small>the confirm state goes from the machine</small></label>
+    <doc-ask id="botsubmit">
+      <p>Can the Bot submit by itself, outside the card?</p>
+      <label><input type="radio" name="botsubmit" value="ask" checked> Yes, with an approval card <small>the card's Submit is the same yes</small></label>
+      <label><input type="radio" name="botsubmit" value="cardonly"> No, only the card's Submit <small>the server hides the tool from the Bot</small></label>
     </doc-ask>
   </doc-claim>
 
   <doc-claim>
-    <p>BIR validates again inside submit, and refuses a draft that changed.</p>
+    <p>BIR validates inside submit and refuses a draft whose fingerprint changed.</p>
     <doc-code src="buwiz-forms/crates/bir-desktop/src/agent/host.rs" lines="2221-2233" hl="2223,2228" file="buwiz-forms/crates/bir-desktop/src/agent/host.rs" start="2221"><script type="text/plain">    fn queue_open_return(&mut self, args: &Value, invoke: &str) -> Result<DispatchResult, String> {
         self.gate_locked()?;
         require_queue_confirm(args, invoke)?;
@@ -2403,8 +2489,8 @@ pub fn person_only_tools(&self) -> Vec<String> {
             )),
         }
     }</script>
-      <doc-pin line="2223" tone="warn" title="Today: a confirm flag that nobody can prove">The new route gives the revision of the draft that the person saw.</doc-pin>
-      <doc-pin line="2228" tone="risk" title="Today: 1601C and 2551Q only">Tier 1 takes every form that BIR can queue. Other forms get the message from BIR.</doc-pin>
+      <doc-pin line="2223" tone="warn" title="Today: a confirm flag that nobody can prove">Tier 1 sends the submission_fingerprint that the person saw, and records QueueAuthSource::AgentConfirm.</doc-pin>
+      <doc-pin line="2228" tone="risk" title="Today: 1601C and 2551Q only">Tier 1 uses one generic queue over QueueableKind::ALL. Other forms get the message from BIR.</doc-pin>
     </doc-code>
   </doc-claim>
 
@@ -2453,7 +2539,7 @@ t2 -> t1 : no Jev / low score
 ~ form_mode::route("my tin")                           @ opengrok/src/opengrok/form_mode.rs:1
     form_mode::parse → NotUnderstood
 +   POST /ag-ui/user-form/resolve {entryId, text}      @ opengrok-server/crates/opengrok-server/src/agui/user_form.rs:75
-+     **jev::which_box**(text, card.fields)            @ opengrok-server/crates/opengrok-jev/src/lib.rs:60   -- the options are the card's field ids
++     **jev::which_box**(words, nearby fields)         @ opengrok-server/crates/opengrok-jev/src/lib.rs:60   -- only the words that name a box; never a TIN or an amount
     jev refuses or score < 0.7 → "Did you mean …" or the Tier 1 hint
 </script>
     
@@ -2516,7 +2602,7 @@ pub struct Ask {
     <doc-ask id="stt">
       <p>Where does speech become text?</p>
       <label><input type="radio" name="stt" value="mac" checked> On the Mac <small>Apple Speech, on the device, works offline</small></label>
-      <label><input type="radio" name="stt" value="server"> On the server <small>a speech model through the gateway</small></label>
+      <label><input type="radio" name="stt" value="server"> On the server <small>through the gateway, never a direct key</small></label>
     </doc-ask>
   </doc-claim>
 
@@ -2526,7 +2612,7 @@ pub struct Ask {
 <div class="ui"><div class="f here"><label><i>Line 5</i>ATC</label><div class="in"></div><div class="el"></div></div>
 <div class="bot"><b>Bot:</b> ATC WI010 is for professional fees. Put it in Line 5?</div>
 <div class="comp"><span class="chip">📝 Form mode ✕</span><span class="cin">what is atc</span><span class="mic">🎙</span></div></div></template></doc-mock>
-    <doc-note tone="risk"><strong>Largest change</strong> Today an open card parks the run. Tier 4 needs a run that gets card events and can answer inside the card.</doc-note>
+    <doc-note tone="risk"><strong>Largest change</strong> Tier 4 needs a run that gets card events and answers inside the card. It changes run states, so it goes through formal/ first.</doc-note>
   </doc-claim>
 </doc-claim>
 
@@ -2535,64 +2621,68 @@ pub struct Ask {
   <p>A tier merges only when its PRs pass in all three repos.</p>
   <doc-mock frame="terminal" title="tier-gate · Tier 1" w="470"><template><span class="dim">$</span> scripts/tier-gate.sh form-mode/t1
 <b>Tier 1 · form mode basic</b>
-<span class="g">✓</span> hexuria/buwiz-forms#121     ci, bir   green · approved
-<span class="g">✓</span> hexuria/opengrok-server#402 ci        green · approved
+<span class="g">✓</span> hexuria/opengrok-server#402 ci        green
+<span class="g">✓</span> hexuria/buwiz-forms#121     check     green
 <span class="r">✗</span> hexuria/opengrok#231        test      <span class="r">red</span>
-<span class="g">✓</span> contract fixture            sha 9f2c… same in 3 repos
+<span class="g">✓</span> form-mode fixtures          sha 9f2c… same in 3 repos
 <span class="y">…</span> live run on a Mac           evidence missing
-<span class="r">BLOCKED</span>: 2 of 5 checks open. Nothing merges.</template></doc-mock>
+<span class="r">BLOCKED</span>: 2 of 5 open. Status "tier-gate" set to failure on 3 heads.</template></doc-mock>
 
   <doc-claim>
-    <p>Each tier has one PR in each repo, on top of the tier below.</p>
-    <doc-tree caption="Same branch name in each repo. The server CI refuses doc-, formal- and web- prefixes for code.">
+    <p>Each tier has at most one PR in each repo, on the tier below.</p>
+    <doc-tree caption="One name in all three repos. buwiz CI runs only on PRs into main or gol/**.">
 <script type="text/plain">
-buwiz-forms/      base: feat/plugin88 (#110)
-  + form-mode/t1   # boxes, full card, submit, preview, focus
-  + form-mode/t2   # nothing, or a which-box hint list
-  + form-mode/t3   # nothing
-  + form-mode/t4   # card events for the Bot
 opengrok-server/  base: main
-  + form-mode/t1   # form-mode card, action route, personOnly
-  + form-mode/t2   # Jev which-box route
-  + form-mode/t3   # speech route, only if decision 3 picks the server
-  + form-mode/t4   # live run while the card is open
+  + gol/form-mode-t1   # card, action route, approval
+  + gol/form-mode-t2   # Jev which-box route
+  + gol/form-mode-t3   # only if speech is on the server
+  + gol/form-mode-t4   # live run, via formal/
+buwiz-forms/      base: main, after #110 merges
+  + gol/form-mode-t1   # page, index card, submit, focus
+  + gol/form-mode-t4   # card events for the Bot
 opengrok/         base: main
-  + gol/form-mode-t1   # collect fix, card, composer form mode, viewer
-  + gol/form-mode-t2   # Jev fallback in the composer
-  + gol/form-mode-t3   # speech-to-text into the chat box
+  + gol/form-mode-t1   # collect fix, card, form mode
+  + gol/form-mode-t2   # Jev fallback
+  + gol/form-mode-t3   # speech into the chat box
   + gol/form-mode-t4   # Bot line in the card
 </script>
     </doc-tree>
+    <doc-note tone="warn"><strong>Blocked on #110</strong> A buwiz PR based on feat/plugin88 gets no CI. Merge #110 first, or add feat/** to the ci.yml filter.</doc-note>
   </doc-claim>
 
   <doc-claim>
-    <p>A required <code>tier-gate</code> check in each repo reads the train.</p>
+    <p>The gate sets one <code>tier-gate</code> status on every head in the train.</p>
     <doc-code title=".github/workflows/tier-gate.yml · sketch" lang="yaml">
 <script type="text/plain">
 name: tier-gate
-on: [pull_request, workflow_dispatch, schedule]   # schedule: re-run when a sibling turns green
+on:
+  workflow_run: { workflows: [ci, pr], types: [completed] }   # this repo's CI finished
+  repository_dispatch: { types: [tier-gate] }                 # a sibling repo's CI finished
+  workflow_dispatch:
 jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The PR body names its train: "Train: form-mode/t1". The script finds the PR with
-      # that head branch in each repo and needs: every required check green, an approval,
-      # the same contract fixture hash, and a live-run evidence link on the tracking issue.
-      - run: scripts/tier-gate.sh "$(scripts/train-of.sh)"
+      # The train is the head branch name, gol/form-mode-tN. A repo with no PR for that tier
+      # is fine. Needs: required checks green in each repo, the same form-mode fixture hash,
+      # and a live-run evidence link on the tracking issue. Then it posts the "tier-gate"
+      # commit status to EVERY head SHA in the train and dispatches to the other repos.
+      - run: scripts/tier-gate.sh "${{ github.event.workflow_run.head_branch || github.event.client_payload.train }}"
         env:
-          GH_TOKEN: ${{ secrets.TIER_GATE_TOKEN }}   # read-only on the three repos
+          GH_TOKEN: ${{ secrets.TIER_GATE_TOKEN }}   # statuses:write + contents:read on the 3 repos
 </script>
     </doc-code>
+    <doc-note tone="info"><strong>Approval</strong> One account opens every PR, so the gate cannot count an approval. It counts the evidence link instead.</doc-note>
   </doc-claim>
 
   <doc-claim>
-    <p>One contract fixture proves that the three repos agree on the card.</p>
-    <doc-calls title="Contract" caption="The server records it. The other two repos test against the same bytes.">
+    <p>The form-mode fixtures prove that the three repos agree on the card.</p>
+    <doc-calls title="Contract" caption="Hash only the form-mode fixtures. The full MANIFEST hashes differ today.">
 <script type="text/plain">
-+ server test records form-mode card + action replies   @ opengrok-server/crates/opengrok-server/tests/against_user_form.rs:1
-+   fixtures/wire/agui/form-mode/*.json                  @ opengrok/fixtures/wire/agui/custom/user-form:1   -- vendored into the app
-+   buwiz-forms test: bir_form_card output parses as the card  @ buwiz-forms/crates/bir-mcp/src/tools.rs:180
++ buwiz test writes a real bir_form_card reply          @ buwiz-forms/crates/bir-mcp/src/tools.rs:180
++   server stand-in MCP test replays it, records the card  @ opengrok-server/crates/opengrok-tools/tests/against_a_stand_in_mcp_server.rs:1
++     fixtures/wire/agui/form-mode/*.json vendored into the app  @ opengrok/fixtures/wire/agui/custom/user-form:1
 </script>
     
 <script type="text/plain" data-excerpt="buwiz-forms/crates/bir-mcp/src/tools.rs:180" data-start="174">
@@ -2609,6 +2699,15 @@ jobs:
         build_args: no_args,
     },
     Tool {
+</script>
+<script type="text/plain" data-excerpt="opengrok-server/crates/opengrok-tools/tests/against_a_stand_in_mcp_server.rs:1" data-start="1">
+//! Drives our MCP client against a stand-in MCP server.
+//!
+//! The unit tests in `mcp` prove we fill placeholders and namespace tools correctly. This proves
+//! the client actually speaks the protocol: initialize, list, call — that the credential resolved
+//! from a coworker's connections arrives in the server's hands, that the schema the server sent is
+//! what the model is offered (#196), and that a server which never answers costs a turn its
+//! deadline rather than the turn (#199).
 </script></doc-calls>
   </doc-claim>
 
@@ -2617,14 +2716,14 @@ jobs:
     <doc-mock frame="terminal" title="gpui-agent · evidence" w="470"><template><span class="dim">$</span> GPUI_AGENT=1 cargo run -p nativechat --features agent
 <span class="dim">$</span> gpui-agent snapshot | grep user-form
   user-form-card-e_7d1… · user-form-field-…-txtTax14
-<span class="dim">$</span> gpui-agent type composer "page 2 line 14 12500"
+<span class="dim">$</span> gpui-agent type composer "line 14 12500"
 <span class="dim">$</span> gpui-agent click user-form-submit-e_7d1…
 <span class="g">✓</span> BIR test app: 0619-E queued · status Submitted
 <span class="dim">$</span> gpui-agent screenshot --out t1-submitted.png</template></doc-mock>
     <doc-ask id="order">
       <p>How do the PRs of one tier merge?</p>
-      <label><input type="radio" name="order" value="flag" checked> In order, behind a switch <small>BIR, then server, then app; off until the app merges</small></label>
-      <label><input type="radio" name="order" value="together"> All three in one sitting <small>no switch; main can break between merges</small></label>
+      <label><input type="radio" name="order" value="flag" checked> Server, then BIR, then app <small>switch: the app sends forwardedProps.formMode</small></label>
+      <label><input type="radio" name="order" value="together"> All three in one sitting <small>no switch; a gap can expose submit</small></label>
     </doc-ask>
   </doc-claim>
 </doc-claim>
@@ -2637,17 +2736,18 @@ pub struct FormRequest {
     pub title: String,
     pub collect: bool,
     pub form_mode: bool,                 // the chat box drives this card
-    pub source: Option<String>,          // "bir.bir-mcp.bir_form_card"; the server fills fields from it
+    pub plugin: Option<String>,          // "bir"; the action route widens tools to it
     pub pages: Vec<FormPage>,            // { n, title }
     pub fields: Vec<FormField>,
     pub notes: Vec<String>,              // problems no box on the card can fix
     pub focus: Option<String>,           // field id the card opens on
-    pub actions: FormActions,            // save, submit, view: the tool for each
-    pub revision: String,                // draft revision the person sees
+    // the action tools come from plugin.json extensions.formMode, never from here
+    pub fingerprint: String,             // BIR's submission_fingerprint the person sees
+    pub form: FormKey,                   // form, TIN, period: every action carries it
 }
 pub struct FormField {
     pub id: String, pub label: String, pub r#type: String, pub required: bool,
-    pub page: Option<u32>, pub line: Option<String>,
+    pub page: Option<u32>, pub part: Option<String>, pub line: Option<String>, // line = BIR item
     pub options: Vec<FormOption>,        // radio and select
     pub value: Option<String>,           // the value in BIR now
     pub error: Option<String>,           // set only on the first error
