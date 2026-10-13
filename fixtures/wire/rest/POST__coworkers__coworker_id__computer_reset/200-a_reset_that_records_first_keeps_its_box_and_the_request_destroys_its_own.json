@@ -1,0 +1,19 @@
+{
+  "method": "POST",
+  "path": "/coworkers/cw_0199bb4e-0000-7000-8000-000000000001/computer/reset",
+  "status": 200,
+  "body": {
+    "agentId": "cw_0199bb4e-0000-7000-8000-000000000001",
+    "state": "running",
+    "vncUrl": null,
+    "boxId": "bx_gate_0199bb4e000070008000000000000002",
+    "update": null,
+    "image": null,
+    "screen": "own",
+    "screenStatus": "starting-computer",
+    "screenStatusText": "Opening Raced's computer…",
+    "isEgressTunnelAvailable": false,
+    "shareScope": "user",
+    "egressPolicy": "ask"
+  }
+}

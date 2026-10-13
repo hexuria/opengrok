@@ -83,6 +83,14 @@
         "enabled": true,
         "summary": "Finds, installs and removes plugins and manages their accounts.",
         "label": "Plugins"
+      },
+      {
+        "name": "manage_computer",
+        "kind": "builtin",
+        "description": "Check, start, shut down, restart, reset and update this Bot's own computer, look at your other Bots' screens, and set what it may reach on the network, when you ask in chat. Resetting, updating and the network setting always ask you first.",
+        "enabled": true,
+        "summary": "Checks, starts, stops, restarts, resets and updates the Bot's own computer, and looks at your other Bots' screens.",
+        "label": "Manage computer"
       }
     ],
     "version": 2

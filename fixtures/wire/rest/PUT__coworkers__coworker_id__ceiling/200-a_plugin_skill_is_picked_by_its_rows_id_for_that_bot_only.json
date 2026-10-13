@@ -1,0 +1,105 @@
+{
+  "method": "PUT",
+  "path": "/coworkers/cw_0199bb4e-0000-7000-8000-000000000001/ceiling",
+  "status": 200,
+  "body": {
+    "tools": [
+      {
+        "name": "shell",
+        "kind": "builtin",
+        "description": "Run a shell command on THIS BOT'S OWN computer — a sandboxed box on the server, not the user's own machine — and return its stdout, stderr and exit code.",
+        "enabled": false,
+        "summary": "Runs commands on the Bot's own computer."
+      },
+      {
+        "name": "read_file",
+        "kind": "builtin",
+        "description": "Read a file from THIS BOT'S OWN computer (the sandboxed box on the server, not the user's machine) and return its contents.",
+        "enabled": false,
+        "summary": "Reads a file on the Bot's own computer."
+      },
+      {
+        "name": "write_file",
+        "kind": "builtin",
+        "description": "Create or overwrite a file on THIS BOT'S OWN computer (the sandboxed box on the server, not the user's machine).",
+        "enabled": false,
+        "summary": "Creates or changes a file on the Bot's own computer."
+      },
+      {
+        "name": "open_url",
+        "kind": "builtin",
+        "description": "Open a web page in the browser on THIS BOT'S OWN computer — its sandboxed box, which has a screen. The page appears on that display; use `computer` with action=screenshot to see it, then click and type on it.",
+        "enabled": false,
+        "summary": "Opens a web page in the Bot's own browser."
+      },
+      {
+        "name": "computer",
+        "kind": "builtin",
+        "description": "Use the screen of THIS BOT'S OWN computer: a 1280x800 display with a desktop, a dock (Terminal, Chromium, Files) and whatever windows are open. `screenshot` returns the display as an image. `click`, `right_click`, `double_click`, `move`, `drag`, `type`, `key` and `scroll` act at pixel coordinates and return a fresh screenshot. Look before you act, do one step at a time, and check each result before the next.",
+        "enabled": false,
+        "summary": "Looks at the Bot's screen, clicks and types."
+      },
+      {
+        "name": "request_user_form",
+        "kind": "builtin",
+        "description": "Ask the person to fill a form in chat. Two uses. A collect form (collect true) is how you ask for fields you do not have yet: a new profile, a missing name, a TIN they must confirm. Put what they already told you on each field as value, so the card is prefilled, and leave value off the fields that are still missing. Mark those required. Wait. The answers come back as Shared fields and nothing is typed into a page. Do not invent a shell command for the form. A sign-in is the other use: an OTP or a field they must type into a page. NativeChat offers the person their saved logins for that site on the card; they confirm with Touch ID, and the values are typed into the page out of your view. Do NOT type passwords, one-time codes, or other secrets with `computer`: that attaches a screenshot of what was typed. Raise this instead and wait. The person fills in chat; the server clicks each field at the position you give (`at`, in your screenshot's pixels) and types there, never showing you the secret. Give `at` for every field you can see. After it settles, screenshot and confirm what the page shows — filling is not login. When the page shows the email and password fields TOGETHER (Facebook, most sites), raise ONE card with both fields and `samePage: true` — do not split them. Only a page that asks for the email alone (Google) gets an email-only card: raise it, observe, and if a password page comes next call this again with a password-only form (new entryId, challengeKind \"password\"). If another in-sandbox challenge appears (an authenticator code, phone verification on the same page), call this again with otp fields, challengeKind \"otp\", the page host as liveHost and the field's `at`; NativeChat offers the person's saved authenticator code for that site on the card. Never re-raise a form that already settled. A passkey prompt: call this with challengeKind \"passkey\", passkeyMode \"use\" (or \"register\" when the site offers to add one and the person asked), no fields, liveHost set; when the result says it is loaded, click the site's passkey button. A captcha, or a page outside this box, is not another password form: the person finishes on the computer (Open the screen). If they dismiss or decline, continue without those credentials and do not loop.",
+        "enabled": false,
+        "summary": "Asks you to fill in a form in chat."
+      },
+      {
+        "name": "run_recipe",
+        "kind": "builtin",
+        "description": "Run a task a person taught on THIS BOT'S OWN computer, as one step, instead of looking and clicking your way through it. Use one when the request matches its description, and say which you used.",
+        "enabled": false,
+        "summary": "Runs a task you taught on the Bot's computer."
+      },
+      {
+        "name": "user_machine_shell",
+        "kind": "builtin",
+        "description": "Run a shell command on the USER'S OWN machine — the real computer they enrolled,              NOT this bot's sandboxed box. It runs only with the user's consent under their              reverse-exec policy: a command may run, be refused, or be held for the user to approve              (in which case you should wait rather than retry). Use this ONLY when the task is about              the user's own machine; for your own work use `shell`.",
+        "enabled": false,
+        "available": false,
+        "summary": "Runs commands on this Mac, when you allow it."
+      },
+      {
+        "name": "message_bot",
+        "kind": "builtin",
+        "description": "Send a message to another of your person's Bots, or to several at once. Each one gets it in the side thread it shares with you, which your person can read, and may answer you there with this tool. Only this tool reaches another Bot: what you write in a reply is never sent to one. Use it when another Bot is better placed to do part of the work or needs to know something; do not use it to chat.",
+        "enabled": false,
+        "summary": "Sends a message to another of your Bots."
+      },
+      {
+        "name": "routines",
+        "kind": "builtin",
+        "description": "List, make, edit, delete and run this Bot's routines when you ask in chat. Deleting one always asks you first.",
+        "enabled": false,
+        "summary": "Lists, makes, edits, deletes and runs this Bot's routines.",
+        "label": "Routines"
+      },
+      {
+        "name": "plugins",
+        "kind": "builtin",
+        "description": "Find, install and remove plugins, add and manage their accounts, and switch them on for your Bots when you ask in chat. Uninstalling, removing an account, or changing another Bot always asks you first.",
+        "enabled": false,
+        "summary": "Finds, installs and removes plugins and manages their accounts.",
+        "label": "Plugins"
+      },
+      {
+        "name": "manage_computer",
+        "kind": "builtin",
+        "description": "Check, start, shut down, restart, reset and update this Bot's own computer, look at your other Bots' screens, and set what it may reach on the network, when you ask in chat. Resetting, updating and the network setting always ask you first.",
+        "enabled": false,
+        "summary": "Checks, starts, stops, restarts, resets and updates the Bot's own computer, and looks at your other Bots' screens.",
+        "label": "Manage computer"
+      },
+      {
+        "name": "bir",
+        "kind": "plugin",
+        "label": "bir",
+        "enabled": true,
+        "description": "BIR forms"
+      }
+    ],
+    "version": 2
+  }
+}

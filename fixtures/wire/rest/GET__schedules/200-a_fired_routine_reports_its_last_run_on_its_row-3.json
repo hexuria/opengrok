@@ -1,0 +1,38 @@
+{
+  "method": "GET",
+  "path": "/schedules",
+  "status": 200,
+  "body": [
+    {
+      "id": "sched_0199bb4e-0000-7000-8000-000000000001",
+      "coworkerId": "cw_0199bb4e-0000-7000-8000-000000000002",
+      "name": "Inbox",
+      "cron": null,
+      "prompt": "a webhook arrived; report in",
+      "kind": "webhook",
+      "active": true,
+      "nextDueMs": null,
+      "runLimits": {
+        "maxRounds": null,
+        "maxComputerRounds": null,
+        "maxWallMs": null
+      },
+      "lastRun": {
+        "runId": "run_0199bb4e-0000-7000-8000-000000000003",
+        "status": "finished",
+        "startedAtMs": 1790000000000,
+        "finishedAtMs": 1790000001000,
+        "summary": "Routine Inbox ran: You said: a webhook arrived; report in\n\n<webhook_event>\n{\"item\":\"milk\"}\n</webhook_event>. This is the mock door standing in for oag/cheap — no model was called.",
+        "cause": "webhook",
+        "by": null
+      },
+      "tz": "UTC",
+      "webhook": {
+        "type": "webhook",
+        "url": "http://opengrok.lan:1447/hooks/hook_0199bb4e-0000-7000-8000-000000000004",
+        "key": "«redacted»",
+        "header": "Authorization: Bearer «redacted»"
+      }
+    }
+  ]
+}

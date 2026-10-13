@@ -14,6 +14,9 @@
       "error": null
     },
     "image": null,
+    "screen": "own",
+    "screenStatus": "updating",
+    "screenStatusText": "Updating Raced's computer: moving its files to the new one…",
     "isEgressTunnelAvailable": false,
     "shareScope": "user",
     "egressPolicy": "ask"

@@ -78,7 +78,7 @@
             "type": "TOOL_CALL_RESULT",
             "content": "refused: no routine sched_0199bb4e-0000-7000-8000-000000000005 is yours; call list_routines.",
             "timestamp": 100,
-            "durationMs": 55,
+            "durationMs": 22,
             "toolCallId": "call-routine"
           },
           {
@@ -120,8 +120,8 @@
                 "limit": 128000,
                 "left_out": 0,
                 "estimated": [
-                  6672,
-                  6816
+                  7470,
+                  7614
                 ]
               },
               "model_ms": [

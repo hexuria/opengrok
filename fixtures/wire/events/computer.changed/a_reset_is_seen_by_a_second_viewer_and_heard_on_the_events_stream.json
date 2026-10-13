@@ -1,0 +1,8 @@
+{
+  "id": "1",
+  "event": "computer.changed",
+  "data": {
+    "coworkerId": "cw_0199bb4e-0000-7000-8000-000000000001",
+    "boxId": "bx_screen_0199bb4e000070008000000000000002"
+  }
+}

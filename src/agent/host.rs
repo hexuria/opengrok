@@ -15147,7 +15147,7 @@ mod tests {
     #[test]
     fn a_recipe_is_run_from_the_tree_only_when_the_page_would_run_it() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../fixtures/wire/rest/GET__recipes__id_/200-a_run_whose_caller_hung_up_still_lands_in_history_with_its_pictures.json"
+            "../../fixtures/wire/rest/GET__recipes__id_/200-a_caller_that_prefers_not_to_wait_gets_the_run_id_at_once.json"
         ))
         .unwrap();
         let detail: crate::opengrok::RecipeDetail =

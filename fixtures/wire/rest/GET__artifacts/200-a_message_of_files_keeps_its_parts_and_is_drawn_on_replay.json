@@ -7,23 +7,6 @@
       "id": "art_0199bb4e-0000-7000-8000-000000000001",
       "accountId": "acct_0199bb4e-0000-7000-8000-000000000002",
       "kind": "attachment",
-      "mime": "image/png",
-      "filename": "only.png",
-      "sizeBytes": 9,
-      "recipeId": null,
-      "runId": null,
-      "stepIndex": null,
-      "threadId": "th-0199bb4e000070008000000000000003",
-      "meta": {
-        "messageId": "m-only-files-0199bb4e000070008000000000000004"
-      },
-      "createdAtMs": 1790000000000,
-      "deletedAtMs": null
-    },
-    {
-      "id": "art_0199bb4e-0000-7000-8000-000000000005",
-      "accountId": "acct_0199bb4e-0000-7000-8000-000000000002",
-      "kind": "attachment",
       "mime": "text/plain",
       "filename": "draft.txt",
       "sizeBytes": 8,
@@ -32,6 +15,23 @@
       "stepIndex": null,
       "threadId": "th-0199bb4e000070008000000000000003",
       "meta": {},
+      "createdAtMs": 1790000000000,
+      "deletedAtMs": null
+    },
+    {
+      "id": "art_0199bb4e-0000-7000-8000-000000000004",
+      "accountId": "acct_0199bb4e-0000-7000-8000-000000000002",
+      "kind": "attachment",
+      "mime": "image/png",
+      "filename": "only.png",
+      "sizeBytes": 9,
+      "recipeId": null,
+      "runId": null,
+      "stepIndex": null,
+      "threadId": "th-0199bb4e000070008000000000000003",
+      "meta": {
+        "messageId": "m-only-files-0199bb4e000070008000000000000005"
+      },
       "createdAtMs": 1790000001000,
       "deletedAtMs": null
     }

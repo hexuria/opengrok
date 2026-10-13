@@ -101,7 +101,7 @@
         "type": "TOOL_CALL_RESULT",
         "content": "waiting for approval: running shell on coworker cw_0199bb4e-0000-7000-8000-000000000002 needs a human yes",
         "timestamp": 100,
-        "durationMs": 0,
+        "durationMs": 1,
         "toolCallId": "shell-1"
       },
       {
@@ -141,7 +141,7 @@
             "limit": 128000,
             "left_out": 0,
             "estimated": [
-              7280
+              8077
             ]
           },
           "model_ms": [
@@ -168,7 +168,7 @@
         "type": "TOOL_CALL_RESULT",
         "content": "ran",
         "timestamp": 100,
-        "durationMs": 0,
+        "durationMs": 2,
         "toolCallId": "shell-1"
       },
       {
@@ -365,7 +365,7 @@
             "limit": 128000,
             "left_out": 0,
             "estimated": [
-              6895
+              7692
             ]
           },
           "model_ms": [

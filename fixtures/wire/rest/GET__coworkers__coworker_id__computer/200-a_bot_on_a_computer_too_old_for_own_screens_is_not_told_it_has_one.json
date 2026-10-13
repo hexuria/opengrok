@@ -1,0 +1,20 @@
+{
+  "method": "GET",
+  "path": "/coworkers/cw_0199bb4e-0000-7000-8000-000000000001/computer",
+  "status": 200,
+  "body": {
+    "agentId": "cw_0199bb4e-0000-7000-8000-000000000001",
+    "state": "running",
+    "vncUrl": "http://127.0.0.1:1447/coworkers/cw_0199bb4e-0000-7000-8000-000000000001/computer/vnc/«redacted»/vnc.html?autoconnect=1&path=coworkers/cw_0199bb4e-0000-7000-8000-000000000001/computer/vnc/«redacted»/websockify",
+    "boxId": "bx_screen_0199bb4e000070008000000000000002",
+    "update": null,
+    "image": null,
+    "screen": "own-pending",
+    "screenNote": "Ada's own screen starts after a computer update. Until then it works on the shared screen.",
+    "screenStatus": "ready",
+    "screenStatusText": "",
+    "isEgressTunnelAvailable": false,
+    "shareScope": "user",
+    "egressPolicy": "ask"
+  }
+}

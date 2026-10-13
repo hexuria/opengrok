@@ -76,9 +76,9 @@
           {
             "ok": true,
             "type": "TOOL_CALL_RESULT",
-            "content": "[{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000005\",\"name\":\"Report\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791363600000,\"webhook\":false},{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000006\",\"name\":\"Standup\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791363600000,\"webhook\":false}]",
+            "content": "[{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000005\",\"name\":\"Report\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791882000000,\"webhook\":false},{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000006\",\"name\":\"Standup\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791882000000,\"webhook\":false}]",
             "timestamp": 100,
-            "durationMs": 27,
+            "durationMs": 35,
             "toolCallId": "call-routine"
           },
           {
@@ -89,7 +89,7 @@
           },
           {
             "type": "TEXT_MESSAGE_CONTENT",
-            "delta": "result: [{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000005\",\"name\":\"Report\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791363600000,\"webhook\":false},{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000006\",\"name\":\"Standup\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791363600000,\"webhook\":false}]",
+            "delta": "result: [{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000005\",\"name\":\"Report\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791882000000,\"webhook\":false},{\"id\":\"sched_0199bb4e-0000-7000-8000-000000000006\",\"name\":\"Standup\",\"bot\":\"Luna\",\"prompt\":\"post the standup\",\"active\":true,\"when\":[\"0 9 * * MON-FRI\"],\"tz\":\"UTC\",\"nextDueMs\":1791882000000,\"webhook\":false}]",
             "messageId": "msg_0199bb4e-0000-7000-8000-000000000003_1",
             "timestamp": 100
           },
@@ -120,8 +120,8 @@
                 "limit": 128000,
                 "left_out": 0,
                 "estimated": [
-                  6649,
-                  6799
+                  7447,
+                  7597
                 ]
               },
               "model_ms": [

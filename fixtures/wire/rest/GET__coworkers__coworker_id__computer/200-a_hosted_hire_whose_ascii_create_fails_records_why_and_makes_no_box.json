@@ -11,6 +11,8 @@
       "message": "the box refused: 429 {\"error\":\"box creation rate limit reached: https://api.box.ascii.dev/v1/boxes?key=«redacted»\"}",
       "updatedAtMs": 1790000000000
     },
-    "isEgressTunnelAvailable": false
+    "isEgressTunnelAvailable": false,
+    "screenStatus": "failed",
+    "screenStatusText": "Hosted has no computer: the box refused: 429 {\"error\":\"box creation rate limit reached: https://api.box.ascii.dev/v1/boxes?key=«redacted»\"}"
   }
 }

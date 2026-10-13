@@ -1,0 +1,8 @@
+{
+  "method": "DELETE",
+  "path": "/plugins/installations/bir",
+  "status": 409,
+  "body": {
+    "error": "this plugin was installed on the server by its operator, and only they can remove it"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "method": "POST",
+  "path": "/coworkers/cw_not_this_accounts/computer/ssh",
+  "status": 404,
+  "body": "no such coworker"
+}

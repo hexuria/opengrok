@@ -1,0 +1,47 @@
+{
+  "method": "GET",
+  "path": "/plugins/installations",
+  "status": 200,
+  "body": [
+    {
+      "name": "bir",
+      "source": "server",
+      "registry": "",
+      "registryRevision": "",
+      "repository": "",
+      "revision": "1.0.0",
+      "installedAtMs": 1790000000000,
+      "bundle": {
+        "manifest": {
+          "$schema": null,
+          "name": "bir",
+          "version": "1.0.0",
+          "description": "BIR forms"
+        },
+        "mcp": {
+          "mcpServers": {}
+        },
+        "skills": {
+          "file-tax": "---\nname: file-tax\ndescription: File a BIR return\n---\nFill the form first.\n"
+        },
+        "files": {},
+        "parts": [
+          {
+            "kind": "mcp",
+            "name": "bir-mcp",
+            "supported": true,
+            "reason": null
+          },
+          {
+            "kind": "skill",
+            "name": "file-tax",
+            "supported": true,
+            "reason": null
+          }
+        ]
+      },
+      "connectors": [],
+      "accounts": []
+    }
+  ]
+}
