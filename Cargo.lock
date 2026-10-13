@@ -2840,7 +2840,7 @@ dependencies = [
 [[package]]
 name = "gpui-agent"
 version = "0.1.0"
-source = "git+https://github.com/hexuria/gpui-agent?rev=19d20333b5e5313a98c502002bc2c4a667510fa2#19d20333b5e5313a98c502002bc2c4a667510fa2"
+source = "git+https://github.com/hexuria/gpui-agent?rev=b828bb7a1d6bf29e813f5205a3bd1548d5f20efa#b828bb7a1d6bf29e813f5205a3bd1548d5f20efa"
 dependencies = [
  "hmac 0.12.1",
  "png 0.17.16",

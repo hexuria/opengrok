@@ -210,6 +210,28 @@ pub mod ids {
     pub const COMPUTER_ERROR: &str = "computer-error";
     /// Get a computer, beside that reason: asks the server again, and is dead while it is asked.
     pub const COMPUTER_GET: &str = "computer-get";
+    /// Over the pane's screen while it is not ready (#386): label = the server's sentence
+    /// ("Restarting Ada's computer…"), value = its word (`restarting`). Gone once it is ready.
+    pub const AGENT_SCREEN_STATUS: &str = "agent-screen-status";
+    /// Under the screen when the Bot is not on the screen it would have: label = why, value =
+    /// the server's `screen` word (`own-pending`, `shared`); with Update computer beside it for a
+    /// computer too old for own screens.
+    pub const COMPUTER_SCREEN_NOTE: &str = "computer-screen-note";
+    pub const COMPUTER_SCREEN_NOTE_UPDATE: &str = "computer-screen-note-update";
+    /// One Bot's screen over SSH (#386): `computer-ssh` asks for a code (dead while it is asked);
+    /// then `computer-ssh-panel` holds the command (label) or the server's sentence for why there
+    /// is none (value `refused`), with `computer-ssh-copy`, `computer-ssh-copy-password` and
+    /// `computer-ssh-close`.
+    pub const COMPUTER_SSH: &str = "computer-ssh";
+    pub const COMPUTER_SSH_PANEL: &str = "computer-ssh-panel";
+    pub const COMPUTER_SSH_COPY: &str = "computer-ssh-copy";
+    pub const COMPUTER_SSH_COPY_PASSWORD: &str = "computer-ssh-copy-password";
+    pub const COMPUTER_SSH_CLOSE: &str = "computer-ssh-close";
+    /// What an open screen window says over its page, from the server's word (#386): label = the
+    /// sentence, value = the word. In the tree only while that Bot's screen is not ready.
+    pub fn computer_window_status(coworker: &str) -> String {
+        format!("computer-window-status-{coworker}")
+    }
     pub const COMPUTER_RECIPES: &str = crate::components::monitor_modal::RECIPES;
     pub const COMPUTER_TOOLS: &str = crate::components::monitor_modal::TOOLS;
     pub const COMPUTER_PLUGINS: &str = crate::components::monitor_modal::PLUGINS;
@@ -1065,6 +1087,11 @@ pub enum Command {
     GetComputer,
     /// Update / Reset the active bot's computer: open the confirm dialog, then answer it.
     OpenComputerConfirm(crate::state::ComputerAction),
+    /// Rename the open Bot, as its name field's Enter does (`agent.rename`, arg `name`).
+    RenameActiveAgent(String),
+    /// Ask for a code to the open Bot's screen over SSH, and close what it showed.
+    AskScreenSsh,
+    CloseScreenSsh,
     ConfirmComputerAction,
     CancelComputerConfirm,
     SetEgressTunnelEnabled(bool),
@@ -1574,6 +1601,15 @@ impl Command {
             Self::OpenCoworkerScreen => state.open_coworker_screen(cx),
             Self::GetComputer => state.ensure_coworker_computer(cx),
             Self::OpenComputerConfirm(action) => state.open_computer_confirm(action, cx),
+            Self::RenameActiveAgent(name) => state.patch_active_agent(
+                CoworkerPatch {
+                    name: Some(name),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            Self::AskScreenSsh => state.ask_screen_ssh(cx),
+            Self::CloseScreenSsh => state.close_screen_ssh(cx),
             Self::ConfirmComputerAction => state.confirm_computer_action(cx),
             Self::CancelComputerConfirm => state.close_computer_confirm(cx),
             Self::SetEgressTunnelEnabled(enabled) => state.set_egress_tunnel_enabled(enabled, cx),
@@ -3839,6 +3875,19 @@ pub struct NativeChatHost {
     computer_error: Option<(String, String)>,
     /// Get a computer is with the server for the open bot.
     computer_asking: bool,
+    /// What the pane says over its screen, as (word, sentence), while it is not ready.
+    computer_screen_status: Option<(String, String)>,
+    /// Why the Bot is not on the screen it would have, the server's `screen` word, and whether
+    /// Update computer stands beside it (and is live).
+    computer_screen_note: Option<(String, String, Option<bool>)>,
+    /// Each open screen window whose Bot's screen is not ready: (Bot, word, sentence).
+    computer_window_statuses: Vec<(String, String, String)>,
+    /// The SSH offer the pane shows: `Ok(command, has a password)` or `Err(why)`; and whether
+    /// a code is being asked for.
+    computer_ssh: Option<Result<(String, bool), String>>,
+    computer_ssh_asking: bool,
+    /// The open Bot has a computer, as the pane decides it (`ComputerControls::present`).
+    computer_present: bool,
     computer_update_label: String,
     computer_reset_label: String,
     /// The confirm dialog's question, when it is open.
@@ -4323,6 +4372,29 @@ impl NativeChatHost {
                     )
                 }),
             computer_asking: state.asking_for_computer(),
+            computer_screen_status: state.coworker_computer.as_ref().and_then(|computer| {
+                let text = computer.screen_overlay()?;
+                Some((computer.screen_status.clone()?, text.to_string()))
+            }),
+            computer_screen_note: {
+                let controls = crate::components::computer::ComputerControls::from_state(state);
+                let word = state
+                    .coworker_computer
+                    .as_ref()
+                    .and_then(|c| c.screen.clone());
+                let update = controls.own_pending.then(|| !controls.update_disabled());
+                controls
+                    .screen_note
+                    .map(|note| (note, word.unwrap_or_default(), update))
+            },
+            computer_window_statuses: state.computer_window_statuses(),
+            computer_ssh: state.screen_ssh().map(|offer| match offer {
+                Ok(offer) => Ok((offer.command.clone(), offer.vnc_password.is_some())),
+                Err(why) => Err(why.clone()),
+            }),
+            computer_ssh_asking: state.screen_ssh_asking,
+            computer_present: crate::components::computer::ComputerControls::from_state(state)
+                .present,
             recipes_open: state.page == crate::state::MainPage::Recipes,
             recipes_filter: state.recipes_filter.query(),
             recipes: state
@@ -5073,6 +5145,55 @@ impl NativeChatHost {
         let mut computer = UiNode::new("computer-pane", "dialog", "Computer")
             .with_visible(self.computer_open)
             .with_child(status);
+        if let Some((word, text)) = &self.computer_screen_status {
+            computer = computer.with_child(
+                UiNode::status(ids::AGENT_SCREEN_STATUS, text.clone()).with_value(word.clone()),
+            );
+        }
+        if let Some((note, word, update)) = &self.computer_screen_note {
+            let mut line =
+                UiNode::status(ids::COMPUTER_SCREEN_NOTE, note.clone()).with_value(word.clone());
+            if let Some(live) = update {
+                line = line.with_child(
+                    UiNode::button(ids::COMPUTER_SCREEN_NOTE_UPDATE, "Update computer")
+                        .with_enabled(*live),
+                );
+            }
+            computer = computer.with_child(line);
+        }
+        match &self.computer_ssh {
+            None if self.computer_open && self.computer_present => {
+                computer = computer.with_child(
+                    UiNode::button(ids::COMPUTER_SSH, "Reach this screen over SSH")
+                        .with_enabled(!self.computer_ssh_asking),
+                );
+            }
+            None => {}
+            Some(Ok((command, password))) => {
+                let mut panel = UiNode::dialog(ids::COMPUTER_SSH_PANEL, command.clone())
+                    .with_child(UiNode::button(ids::COMPUTER_SSH_COPY, "Copy command"));
+                if *password {
+                    panel = panel.with_child(UiNode::button(
+                        ids::COMPUTER_SSH_COPY_PASSWORD,
+                        "Copy VNC password",
+                    ));
+                }
+                computer = computer
+                    .with_child(panel.with_child(UiNode::button(ids::COMPUTER_SSH_CLOSE, "Close")));
+            }
+            Some(Err(why)) => {
+                let panel = UiNode::dialog(ids::COMPUTER_SSH_PANEL, why.clone())
+                    .with_value("refused")
+                    .with_child(UiNode::button(ids::COMPUTER_SSH_CLOSE, "Close"));
+                computer = computer.with_child(panel);
+            }
+        }
+        for (bot, word, text) in &self.computer_window_statuses {
+            page = page.with_child(
+                UiNode::status(ids::computer_window_status(bot), text.clone())
+                    .with_value(word.clone()),
+            );
+        }
         if self.computer_error.is_some() {
             computer = computer.with_child(
                 UiNode::button(
@@ -9394,6 +9515,32 @@ impl NativeChatHost {
             Command::GetComputer
         } else if target == "computer-update" || target == "settings-computer-update" {
             Command::OpenComputerConfirm(crate::state::ComputerAction::Update)
+        } else if target == ids::COMPUTER_SSH {
+            if self.computer_ssh.is_some() || self.computer_ssh_asking {
+                return Err(format!(
+                    "`{target}` waits: a code is shown or being asked for"
+                ));
+            }
+            Command::AskScreenSsh
+        } else if target == ids::COMPUTER_SSH_CLOSE {
+            if self.computer_ssh.is_none() {
+                return Err(format!(
+                    "`{target}` is there only while the pane shows an SSH offer"
+                ));
+            }
+            Command::CloseScreenSsh
+        } else if target == ids::COMPUTER_SCREEN_NOTE_UPDATE {
+            match &self.computer_screen_note {
+                Some((_, _, Some(true))) => {
+                    Command::OpenComputerConfirm(crate::state::ComputerAction::Update)
+                }
+                _ => {
+                    return Err(format!(
+                        "`{target}` is live only while the pane says the Bot's own screen waits \
+                         for an update it can have"
+                    ));
+                }
+            }
         } else if target == "computer-reset" {
             Command::OpenComputerConfirm(crate::state::ComputerAction::Reset)
         } else if target == "route-traffic-this-computer" || target == "egress-tunnel-enabled" {
@@ -10780,6 +10927,15 @@ impl NativeChatHost {
             // What the signed-out banner's button does, under a name, so a driver can take the
             // way out without having to find the button first.
             "auth.sign-in-again" => Command::SignInAgain,
+            "agent.rename" => {
+                let name = args
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| "agent.rename requires arg name".to_string())?;
+                Command::RenameActiveAgent(name.to_string())
+            }
             "chat.send" => {
                 let text = args
                     .get("text")

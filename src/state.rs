@@ -6124,6 +6124,16 @@ pub struct AppState {
     /// Thumbnail keys whose fetch already failed — the card keeps its badge row, and the
     /// same dead request is not re-issued on every later notify.
     office_thumb_failed: HashSet<(String, u64)>,
+    /// What each open screen window last heard of its Bot's computer (#386): its box, so a
+    /// `computer.changed` about another Bot on the same box reaches it, and whether its screen is
+    /// ready, so it is asked again on every poll until it is.
+    #[cfg(target_os = "macos")]
+    computer_window_heard: std::collections::HashMap<String, CoworkerComputer>,
+    /// One Bot's screen over SSH (#386): the offer the pane shows for a Bot, or the server's
+    /// sentence for why there is none, until it is closed or another Bot is opened.
+    screen_ssh: Option<(String, Result<crate::opengrok::ScreenSshOffer, String>)>,
+    /// A code is being asked for.
+    pub screen_ssh_asking: bool,
     /// Update / Reset ask first: the dialog over the app, until Confirm or Cancel.
     pub computer_confirm: Option<ComputerAction>,
     /// The network-permission dialog for the open bot's own computer is on screen.
@@ -6752,6 +6762,10 @@ impl AppState {
             office_windows: std::collections::HashMap::new(),
             office_pager: HashMap::new(),
             office_proposals: HashMap::new(),
+            screen_ssh: None,
+            screen_ssh_asking: false,
+            #[cfg(target_os = "macos")]
+            computer_window_heard: std::collections::HashMap::new(),
         }
     }
 
@@ -9945,7 +9959,163 @@ impl AppState {
                     self.routines_changed(cx);
                 }
             }
+            // The open Bot's computer, and every open screen on the same box (#386): a restart
+            // the Bot made itself, or one made for another Bot sharing the computer, blanks them
+            // too, and the pane and the window say so without waiting for a poll.
+            AccountEvent::ComputerChanged {
+                coworker_id,
+                box_id,
+            } => self.computer_changed(&coworker_id, box_id.as_deref(), cx),
             AccountEvent::Reset => self.read_everything_again(cx),
+        }
+    }
+
+    /// A renamed Bot's open screen window takes its new name: in its title bar, and in what it
+    /// says while its screen comes up. It was named once, when it opened.
+    fn retitle_computer_window(&mut self, coworker_id: &str, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
+        {
+            let Some(name) = self
+                .coworkers
+                .iter()
+                .find(|c| c.id == coworker_id && !c.name.trim().is_empty())
+                .map(|c| c.name.clone())
+            else {
+                return;
+            };
+            if let Some(handle) = self.computer_windows.get(coworker_id) {
+                let _ = handle.update(cx, |screen, window, cx| screen.rename(&name, window, cx));
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (coworker_id, cx);
+    }
+
+    /// The open Bot's SSH offer, or why there is none, while the pane shows it.
+    pub fn screen_ssh(&self) -> Option<&Result<crate::opengrok::ScreenSshOffer, String>> {
+        let (bot, offer) = self.screen_ssh.as_ref()?;
+        (self.active_coworker_id.as_deref() == Some(bot.as_str())).then_some(offer)
+    }
+
+    /// Ask the server for a code to the open Bot's screen over SSH, and show it in the pane.
+    pub fn ask_screen_ssh(&mut self, cx: &mut Context<Self>) {
+        let (Some(client), Some(bot)) = (self.opengrok.clone(), self.active_coworker_id.clone())
+        else {
+            return;
+        };
+        if self.screen_ssh_asking {
+            return;
+        }
+        self.screen_ssh_asking = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let offer = client.screen_ssh(&bot).await.map_err(|error| error.message);
+            let _ = this.update(cx, |state, cx| {
+                state.screen_ssh_asking = false;
+                state.screen_ssh = Some((bot, offer));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub fn close_screen_ssh(&mut self, cx: &mut Context<Self>) {
+        if self.screen_ssh.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn computer_changed(
+        &mut self,
+        coworker_id: &str,
+        box_id: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let on_box = |status: Option<&CoworkerComputer>| {
+            box_id.is_some() && status.and_then(|s| s.box_id.as_deref()) == box_id
+        };
+        if self.active_coworker_id.as_deref() == Some(coworker_id)
+            || on_box(self.coworker_computer.as_ref())
+        {
+            self.refresh_coworker_computer_quietly(cx);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let windows: Vec<String> = self.computer_windows.keys().cloned().collect();
+            for window in windows {
+                if window == coworker_id || on_box(self.computer_window_heard.get(&window)) {
+                    self.refresh_computer_window(window, cx);
+                }
+            }
+        }
+    }
+
+    /// Read the computer of the Bot whose screen window this is and hand it to the window, which
+    /// covers its page with what the screen is doing until it is ready, and loads the page again
+    /// when the screen comes back from a restart or an update.
+    #[cfg(target_os = "macos")]
+    fn refresh_computer_window(&mut self, coworker_id: String, cx: &mut Context<Self>) {
+        let Some(client) = self.opengrok.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let Ok(status) = client.coworker_computer(&coworker_id).await else {
+                return;
+            };
+            let _ = this.update(cx, |state, cx| {
+                let Some(handle) = state.computer_windows.get(&coworker_id).copied() else {
+                    return;
+                };
+                let pushed = status.clone();
+                let open = handle.update(cx, |screen, _, cx| screen.set_computer(pushed, cx));
+                if open.is_ok() {
+                    state.computer_window_heard.insert(coworker_id, status);
+                } else {
+                    state.computer_windows.remove(&coworker_id);
+                    state.computer_window_heard.remove(&coworker_id);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Each open screen window whose Bot's screen is not ready, as (Bot, word, sentence), for the
+    /// gpui-agent tree.
+    pub fn computer_window_statuses(&self) -> Vec<(String, String, String)> {
+        #[cfg(target_os = "macos")]
+        {
+            let mut statuses: Vec<_> = self
+                .computer_window_heard
+                .iter()
+                .filter(|(bot, _)| self.computer_windows.contains_key(*bot))
+                .filter_map(|(bot, computer)| {
+                    let text = computer.screen_overlay()?.to_string();
+                    Some((bot.clone(), computer.screen_status.clone()?, text))
+                })
+                .collect();
+            statuses.sort();
+            statuses
+        }
+        #[cfg(not(target_os = "macos"))]
+        Vec::new()
+    }
+
+    /// Every open screen window whose screen is not ready yet, asked again: the server pushes when
+    /// a restart begins and ends, not each step of an update.
+    #[cfg(target_os = "macos")]
+    fn refresh_unready_computer_windows(&mut self, cx: &mut Context<Self>) {
+        let unready: Vec<String> = self
+            .computer_windows
+            .keys()
+            .filter(|bot| {
+                self.computer_window_heard
+                    .get(*bot)
+                    .is_none_or(|status| status.screen_overlay().is_some())
+            })
+            .cloned()
+            .collect();
+        for bot in unready {
+            self.refresh_computer_window(bot, cx);
         }
     }
 
@@ -12041,6 +12211,8 @@ impl AppState {
                         state.refresh_coworker_screen(cx);
                         state.refresh_unsettled_routine_runs(cx);
                     }
+                    #[cfg(target_os = "macos")]
+                    state.refresh_unready_computer_windows(cx);
                 });
                 if alive.is_err() {
                     break;
@@ -14266,7 +14438,7 @@ impl AppState {
             .coworkers
             .iter()
             .find(|coworker| coworker.id == coworker_id)
-            .map(|coworker| format!("{}'s Computer", coworker.name))
+            .map(|coworker| computer_window_title(&coworker.name))
             .unwrap_or_else(|| "Computer".into());
         #[cfg(target_os = "macos")]
         {
@@ -14304,11 +14476,22 @@ impl AppState {
                 ..WindowOptions::default()
             };
             let coworker = coworker_id.to_string();
+            let name = self
+                .coworkers
+                .iter()
+                .find(|c| c.id == coworker_id && !c.name.trim().is_empty())
+                .map_or_else(|| "the Bot".to_string(), |c| c.name.clone());
             let app = cx.entity();
             let opened = cx.open_window(options, move |window, cx| {
                 cx.new(|cx| {
                     crate::components::computer_screen::ComputerScreen::new(
-                        &url, &coworker, &title, app, attention, window, cx,
+                        &url,
+                        (&coworker, &name),
+                        &title,
+                        app,
+                        attention,
+                        window,
+                        cx,
                     )
                 })
             });
@@ -14316,6 +14499,11 @@ impl AppState {
                 Ok(handle) => {
                     self.computer_windows
                         .insert(coworker_id.to_string(), handle);
+                    // The window says what the screen is doing until it is ready, which the poll
+                    // keeps asking while it is not.
+                    self.computer_window_heard.remove(coworker_id);
+                    self.refresh_computer_window(coworker_id.to_string(), cx);
+                    self.start_computer_poll(cx);
                     if teach {
                         // The page is not up yet, and teaching is a flag set on it; wait the
                         // same moment the window itself waits before painting the page.
@@ -15924,6 +16112,9 @@ impl AppState {
         if let Some(existing) = self.coworkers.iter_mut().find(|c| c.id == id) {
             apply_patch(existing, &patch);
         }
+        if patch.name.is_some() {
+            self.retitle_computer_window(&id, cx);
+        }
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = client.patch_coworker(&id, &patch).await;
@@ -15933,6 +16124,10 @@ impl AppState {
                     && let Some(existing) = state.coworkers.iter_mut().find(|c| c.id == id)
                 {
                     settle_patch(existing, &patch, result.as_ref().ok(), before);
+                }
+                // The server's name either way: a refused rename takes the window back too.
+                if patch.name.is_some() {
+                    state.retitle_computer_window(&id, cx);
                 }
                 match result.as_ref() {
                     Ok(_) => {
@@ -25553,6 +25748,11 @@ fn apply_patch(coworker: &mut Coworker, patch: &CoworkerPatch) {
 /// fields out of its answer would otherwise make clearing an avatar impossible. A refused
 /// request is not a silent answer but no answer at all, and takes the clearing back with
 /// everything else.
+/// A Bot's screen window's title: "Ada's Computer".
+pub fn computer_window_title(name: &str) -> String {
+    format!("{name}'s Computer")
+}
+
 fn settle_patch(
     coworker: &mut Coworker,
     patch: &CoworkerPatch,

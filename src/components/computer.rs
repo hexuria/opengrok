@@ -419,6 +419,7 @@ impl ComputerPane {
                     has_screen,
                     screen,
                     box_id.map(str::to_string),
+                    controls.screen_overlay.clone(),
                     app.clone(),
                     theme,
                 ))
@@ -430,6 +431,12 @@ impl ComputerPane {
                         .text_color(muted)
                         .child(format!("{agent_name}'s screen")),
                 )
+                .when_some(controls.screen_note.clone(), |this, note| {
+                    this.child(screen_note(note, controls, app.clone(), theme))
+                })
+                .when(controls.present, |this| {
+                    this.child(screen_ssh(agent_name, controls, app.clone(), theme))
+                })
                 // The server's reason, when it has said why it could not give this Bot a
                 // computer, in place of the guess that the next turn may attach one.
                 .map(|this| match controls.no_computer.clone() {
@@ -1556,6 +1563,17 @@ pub struct ComputerControls {
     pub no_computer: Option<String>,
     /// Get a computer is with the server; the button waits.
     pub asking: bool,
+    /// What the screen is doing while it is not ready, said over the tile in place of a black or
+    /// stale picture (hexuria/opengrok-server#386): "Restarting Ada's computer…".
+    pub screen_overlay: Option<String>,
+    /// Why the Bot is not on the screen it would have: its computer is too old for own screens
+    /// (`own_pending`, with Update next to it), or has no room for another.
+    pub screen_note: Option<String>,
+    pub own_pending: bool,
+    /// One Bot's screen over SSH: the offer, or the server's sentence for why there is none, and
+    /// whether one is being asked for.
+    pub ssh: Option<Result<crate::opengrok::ScreenSshOffer, String>>,
+    pub ssh_asking: bool,
 }
 
 /// The button under a reason the server gave for a Bot having no computer, which asks it again.
@@ -1621,6 +1639,21 @@ impl ComputerControls {
                 .and_then(CoworkerComputer::why_no_computer)
                 .map(no_computer_line),
             asking: state.asking_for_computer(),
+            screen_overlay: state
+                .coworker_computer
+                .as_ref()
+                .and_then(CoworkerComputer::screen_overlay)
+                .map(str::to_string),
+            screen_note: state
+                .coworker_computer
+                .as_ref()
+                .and_then(|s| s.screen_note.clone()),
+            own_pending: state
+                .coworker_computer
+                .as_ref()
+                .is_some_and(CoworkerComputer::own_screen_pending),
+            ssh: state.screen_ssh().cloned(),
+            ssh_asking: state.screen_ssh_asking,
         }
     }
 
@@ -1797,9 +1830,14 @@ fn screen_tile(
     has_screen: bool,
     screen: Option<Arc<gpui_kit::Image>>,
     box_id: Option<String>,
+    overlay: Option<String>,
     app: Entity<AppState>,
     theme: &gpui_kit::component::Theme,
 ) -> impl IntoElement {
+    // While the screen is not ready, the sentence covers the tile and the Open pill waits: a
+    // picture from before a restart is not the screen, and black says nothing.
+    let covered = overlay.is_some();
+    let has_screen = has_screen && !covered;
     // The tile is the screen's own 1280×800 shape — same AR as the in-chat
     // Computer card well (`BOX_SCREEN_ASPECT`) so neither letterboxes nor
     // clips the taskbar.
@@ -1841,6 +1879,8 @@ fn screen_tile(
                     .rounded(px(12.))
                     .object_fit(ObjectFit::Fill),
             ),
+            // The monitor glyph stands for "no screen yet"; under a cover it showed through.
+            None if covered => this,
             None => this.child(
                 div()
                     .absolute()
@@ -1855,6 +1895,9 @@ fn screen_tile(
                             .text_color(rgb(0x888888)),
                     ),
             ),
+        })
+        .when_some(overlay, |this, text| {
+            this.child(screen_status_cover("agent-screen-status", text))
         })
         // The box's id, small, in the corner of the screen it names.
         .when_some(box_id, |this, id| {
@@ -1908,6 +1951,174 @@ fn screen_tile(
                     ),
             )
         })
+}
+
+/// What the screen is doing, over it until it is ready: a dark cover with the sentence, light on
+/// dark in both themes, as it sits over a screen. Shared with the screen window.
+pub fn screen_status_cover(id: &'static str, text: String) -> impl IntoElement {
+    div()
+        .id(id)
+        .absolute()
+        .inset_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(10.))
+        .px(px(16.))
+        .bg(rgb(0x1c1c1e).opacity(0.92))
+        .child(
+            gpui_kit::component::spinner::Spinner::new()
+                .with_size(px(18.))
+                .color(rgb(0xd0d0d0).into()),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_center()
+                .text_color(rgb(0xf2f2f2))
+                .child(text),
+        )
+}
+
+/// Why the Bot is on the shared screen, under its tile. A computer too old for own screens gets
+/// Update right there: it is what brings the Bot's own screen.
+fn screen_note(
+    note: String,
+    controls: &ComputerControls,
+    app: Entity<AppState>,
+    theme: &gpui_kit::component::Theme,
+) -> impl IntoElement {
+    let can_update = !controls.update_disabled();
+    v_flex()
+        .id("computer-screen-note")
+        .w_full()
+        .items_center()
+        .gap(px(6.))
+        .child(
+            div()
+                .w_full()
+                .text_center()
+                .text_xs()
+                .text_color(theme.warning)
+                .child(note),
+        )
+        .when(controls.own_pending, |this| {
+            this.child(
+                Button::new("computer-screen-note-update")
+                    .label("Update computer")
+                    .small()
+                    .disabled(!can_update)
+                    .on_click(move |_, _, cx| {
+                        app.update(cx, |state, cx| {
+                            state.open_computer_confirm(crate::state::ComputerAction::Update, cx)
+                        });
+                    }),
+            )
+        })
+}
+
+/// One Bot's screen over SSH (#386): a quiet way in under the screen, and once asked, the command
+/// to run with a code for fifteen minutes, the VNC password for the VNC app, and where to point
+/// it. The pane shows the password only as dots; Copy puts it on the clipboard.
+fn screen_ssh(
+    name: &str,
+    controls: &ComputerControls,
+    app: Entity<AppState>,
+    theme: &gpui_kit::component::Theme,
+) -> AnyElement {
+    let close = {
+        let app = app.clone();
+        Button::new("computer-ssh-close")
+            .label("Close")
+            .small()
+            .ghost()
+            .on_click(move |_, _, cx| app.update(cx, |state, cx| state.close_screen_ssh(cx)))
+    };
+    let line = |text: String, color| div().w_full().text_xs().text_color(color).child(text);
+    match controls.ssh.clone() {
+        None => v_flex()
+            .w_full()
+            .items_center()
+            .child(
+                Button::new("computer-ssh")
+                    .label("Reach this screen over SSH")
+                    .small()
+                    .ghost()
+                    .loading(controls.ssh_asking)
+                    .disabled(controls.ssh_asking)
+                    .on_click(move |_, _, cx| app.update(cx, |state, cx| state.ask_screen_ssh(cx))),
+            )
+            .into_any_element(),
+        Some(Err(why)) => v_flex()
+            .id("computer-ssh-panel")
+            .w_full()
+            .gap(px(6.))
+            .child(line(sentence(&why), theme.danger))
+            .child(close)
+            .into_any_element(),
+        Some(Ok(offer)) => {
+            let command = offer.command.clone();
+            let password = offer.vnc_password.clone();
+            v_flex()
+                .id("computer-ssh-panel")
+                .w_full()
+                .gap(px(6.))
+                .p(px(10.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(theme.border)
+                .child(line("Reach this screen over SSH".into(), theme.foreground))
+                .child(
+                    div()
+                        .id("computer-ssh-command")
+                        .w_full()
+                        .p(px(6.))
+                        .rounded(px(6.))
+                        .bg(theme.muted)
+                        .font_family("Menlo")
+                        .text_xs()
+                        .text_color(theme.foreground)
+                        .child(offer.command.clone()),
+                )
+                .child(
+                    h_flex()
+                        .gap(px(6.))
+                        .child(
+                            Button::new("computer-ssh-copy")
+                                .label("Copy command")
+                                .small()
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        command.clone(),
+                                    ))
+                                }),
+                        )
+                        .when_some(password, |this, password| {
+                            this.child(
+                                Button::new("computer-ssh-copy-password")
+                                    .label("Copy VNC password")
+                                    .small()
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            password.clone(),
+                                        ))
+                                    }),
+                            )
+                        }),
+                )
+                .child(line(
+                    format!(
+                        "Works for 15 minutes, for {name}'s screen only. Then point any VNC app \
+                         at localhost:{}.",
+                        offer.local_port
+                    ),
+                    theme.muted_foreground,
+                ))
+                .child(close)
+                .into_any_element()
+        }
+    }
 }
 
 /// Update / Reset next to this bot's screen. Route traffic for any provisioned

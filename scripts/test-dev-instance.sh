@@ -182,6 +182,7 @@ check "a fresh database's org is the seed's" "grep -q -- '--name SeedOrg --admin
 check "the instance signs in as the seed's admin" "[ \"\$(cat $d/email)\" = ceo@seed.test ] && [ \"\$(cat $d/org)\" = org_og_inst_$(echo "$name" | tr - _) ]"
 check "up never prints the seed's password" "! grep -q 'Pw\$12345x' $TMP/seeded.out"
 check "--gateway points the instance's server at that gateway" "grep -qx 'export OG_GATEWAY_URL=http://127.0.0.1:39999' $d/server.env"
+check "the instance's server has its own SSH door and host key" "grep -qx \"export OG_SSH_PORT=\$((20000 + \$(cat $d/port))) OG_SSH_HOST_KEY=$d/ssh_host_key\" $d/server.env"
 "$DI" down "$name" >/dev/null 2>&1
 
 name="$RUN-plain"; d="$NATIVECHAT_INSTANCES/$name"
