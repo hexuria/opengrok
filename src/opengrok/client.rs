@@ -841,6 +841,32 @@ impl OpenGrokClient {
         }
     }
 
+    /// `POST /office/docs/{id}/proposals/{proposal}/accept|reject` (opengrok-server
+    /// `office_routes.rs` `proposal_verdict`): the person's own answer to an edit the Bot
+    /// staged. The answer is the desk's result; a refusal (a proposal no longer pending, a
+    /// target that moved) is a 409 carrying the desk's `{code, message}`, read as an error
+    /// whose message is the server's sentence.
+    pub async fn office_proposal_verdict(
+        &self,
+        id: &str,
+        proposal: &str,
+        accept: bool,
+    ) -> Result<serde_json::Value, OpenGrokError> {
+        let verdict = if accept { "accept" } else { "reject" };
+        let response = self
+            .send_json::<()>(
+                reqwest::Method::POST,
+                &format!(
+                    "/office/docs/{}/proposals/{}/{verdict}",
+                    path_segment(id),
+                    path_segment(proposal)
+                ),
+                None,
+            )
+            .await?;
+        Self::json_or_error(response).await
+    }
+
     /// `GET /office/docs/{id}/bytes`: the document's bytes for Save a copy — the box's
     /// current file, or the kept copy of the version `version` names. `None` on a 404, the
     /// same "gone" the page route reports.
@@ -6819,6 +6845,40 @@ mod tests {
             .expect("drawn");
         assert!(stand_in.stale, "x-office-stale is read");
         assert_eq!(stand_in.version, Some(2), "and names the kept version");
+    }
+
+    /// The person's answer to a staged edit is a POST naming the verdict; the desk's refusal
+    /// comes back as an error carrying its sentence and its code.
+    #[tokio::test]
+    async fn a_proposal_verdict_posts_and_a_refusal_keeps_the_desks_words() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/office/docs/odoc_1/proposals/p1/accept"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "document": "odoc_1", "proposal": "p1", "accepted": true, "version": 4
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/office/docs/odoc_1/proposals/p2/reject"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "code": "STALE_PROPOSAL", "message": "proposal p2 is not pending"
+            })))
+            .mount(&server)
+            .await;
+        let client = OpenGrokClient::new(&server.uri()).unwrap();
+        let accepted = client
+            .office_proposal_verdict("odoc_1", "p1", true)
+            .await
+            .expect("accepted");
+        assert_eq!(accepted["accepted"], serde_json::json!(true));
+        let refused = client
+            .office_proposal_verdict("odoc_1", "p2", false)
+            .await
+            .expect_err("refused");
+        assert_eq!(refused.status, Some(409));
+        assert_eq!(refused.message, "proposal p2 is not pending");
     }
 
     /// A server that answers with nothing where a list would be is still a thread that reads.
