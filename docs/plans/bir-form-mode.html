@@ -1894,7 +1894,20 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   .ui .hint { padding: 0 12px 10px; font-size: 11.5px; color: #5d6b64; }
   .ui .mic { width: 32px; height: 32px; border-radius: 50%; border: 1px solid #d5ddd8; display: grid; place-items: center; }
   .ui .bot { margin: 4px 14px; padding: 6px 10px; border-radius: 8px; background: #e1f0e8; font-size: 12.5px; }
+  .ui .chip.off { background: #eef1ef; color: #5d6b64; } .ui .cin.off { border: 1px solid #d5ddd8; }
   .ui .rc { padding: 10px 14px; } .ui .rc b { color: #1f6f54; } .ui .dim { color: #5d6b64; font-size: 12px; }
+
+  @media (prefers-color-scheme: dark) {
+    .ui { color: #eef3f0; background: #18201c; border-color: #33413a; }
+    .ui .hd, .ui .comp { border-color: #2a3530; } .ui .hd small, .ui .pt, .ui .f label i, .ui .hint, .ui .dim { color: #a3b3aa; }
+    .ui .f.here { background: #173a2c; } .ui .in { background: #0f1412; border-color: #33413a; color: #eef3f0; }
+    .ui .in.bad { border-color: #ff8f7a; } .ui .el { color: #ff8f7a; } .ui .x, .ui .fb, .ui .rc b { color: #5fd3a5; } .ui .x { border-color: #33413a; }
+    .ui .eye, .ui .btn, .ui .mic { background: #212b26; border-color: #33413a; color: #eef3f0; }
+    .ui .btn.pri, .ui .chip { background: #5fd3a5; border-color: #5fd3a5; color: #06130d; } .ui .btn.red { background: #ff8f7a; border-color: #ff8f7a; color: #06130d; }
+    .ui .band, .ui .bot { background: #173a2c; color: #5fd3a5; } .ui .bot { color: #eef3f0; }
+    .ui .cin { background: #0f1412; border-color: #5fd3a5; color: #eef3f0; }
+    .ui .chip.off { background: #212b26; color: #a3b3aa; } .ui .cin.off { border: 1px solid #33413a; }
+  }
 </style>
 <body>
 
@@ -2215,7 +2228,7 @@ impl SaveRefusal {
     <doc-mock frame="none" w="440"><template>
 <div class="ui">
   <div class="rc">💾 <b>0619-E draft saved</b> · stopped at Line 14 &nbsp; <span class="btn pri">Resume</span></div>
-  <div class="comp"><span class="chip" style="background:#eef1ef;color:#5d6b64">💬 Chat</span><span class="cin" style="border:1px solid #d5ddd8">Message the Bot…</span></div>
+  <div class="comp"><span class="chip off">💬 Chat</span><span class="cin off">Message the Bot…</span></div>
 </div></template></doc-mock>
     <doc-ask id="history">
       <p>After form mode ends, what does the chat keep?</p>
