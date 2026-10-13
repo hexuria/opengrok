@@ -1,0 +1,13 @@
+{
+  "type": "CUSTOM",
+  "timestamp": 100,
+  "name": "run-awaiting-approval",
+  "threadId": "thr-0199bb4e000070008000000000000001",
+  "runId": "0199bb4e-0000-7000-8000-000000000002",
+  "callId": "call-routine",
+  "tool": "reset_computer",
+  "arguments": {},
+  "reason": "policy-approval",
+  "why": "Reset this Bot's computer? Everything on it is deleted for good.",
+  "summary": "reset_computer — a plugin tool this agent wants to call, with {}"
+}

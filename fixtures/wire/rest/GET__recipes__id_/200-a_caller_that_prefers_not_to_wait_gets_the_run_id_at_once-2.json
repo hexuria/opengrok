@@ -52,16 +52,33 @@
         "version": 1,
         "coworkerId": "cw_0199bb4e-0000-7000-8000-000000000005",
         "runId": "rrun_0199bb4e-0000-7000-8000-000000000004",
-        "ok": false,
+        "ok": true,
         "stoppedAt": null,
         "receipt": {
-          "ok": false,
-          "running": true
+          "ok": true,
+          "ran": 1,
+          "artifacts": [
+            {
+              "kind": "screenshot",
+              "mime": "image/png",
+              "path": "/workspace/.recipe-runs/rrun_0199bb4e-0000-7000-8000-000000000004/step-0.png",
+              "step_index": 0
+            }
+          ]
         },
         "atMs": 1790000002000,
-        "leaseUntilMs": 1790000003000,
-        "state": "running",
-        "artifacts": []
+        "leaseUntilMs": null,
+        "state": "finished",
+        "artifacts": [
+          {
+            "id": "art_0199bb4e-0000-7000-8000-000000000006",
+            "kind": "screenshot",
+            "mime": "image/png",
+            "stepIndex": 0,
+            "sizeBytes": 8,
+            "meta": {}
+          }
+        ]
       }
     ],
     "myBots": [

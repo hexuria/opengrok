@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "path": "/coworkers/cw_0199bb4e-0000-7000-8000-000000000001/saved-login",
+  "status": 200,
+  "body": {
+    "usable": true,
+    "reason": null,
+    "ownComputer": true,
+    "ownBotsOnly": false
+  }
+}

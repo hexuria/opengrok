@@ -9,6 +9,9 @@
     "boxId": "bx_local_0199bb4e000070008000000000000002",
     "update": null,
     "image": null,
+    "screen": "own",
+    "screenStatus": "starting-screen",
+    "screenStatusText": "Starting Hosted's screen…",
     "isEgressTunnelAvailable": false,
     "shareScope": "user",
     "egressPolicy": "ask"

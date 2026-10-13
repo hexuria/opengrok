@@ -1,0 +1,8 @@
+{
+  "method": "POST",
+  "path": "/coworkers/cw_0199bb4e-0000-7000-8000-000000000001/computer/ssh",
+  "status": 503,
+  "body": {
+    "error": "SSH to a screen is off on this server"
+  }
+}

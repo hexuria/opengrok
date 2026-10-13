@@ -18,8 +18,9 @@
 //! again — a recording is minutes of somebody's work, and pressing Teach a task twice does not
 //! get it back.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::InputState;
@@ -35,7 +36,7 @@ use wry::{
 use crate::actions::{CloseWindow, Hide, Minimize, Quit};
 use crate::components::computer::computer_attention_banner;
 use crate::components::fields::field_input;
-use crate::opengrok::Failure;
+use crate::opengrok::{CoworkerComputer, Failure};
 use crate::opengrok::{
     computer_window_attention_done_id, computer_window_attention_id,
     computer_window_attention_skip_id, thin_tape,
@@ -47,6 +48,46 @@ use crate::state::{AfterRefusal, AppState, TaughtSkill, WRITING_A_LESSON};
 const TITLE_BAR_HEIGHT: f32 = 44.;
 /// Past the traffic lights.
 const TITLE_BAR_LEFT_PAD: f32 = 80.;
+
+/// Tells the window when noVNC has painted its first picture, so the window can stop covering
+/// the page: until then a viewer is black, and says nothing (#386). noVNC sizes its canvas to the
+/// box's screen once the first framebuffer arrives; before that it is empty or the browser's
+/// default size, both far smaller than a box's screen. Runs again on every load of the page.
+const FRAME_SCRIPT: &str = r#"
+(() => {
+  const painted = () => {
+    const c = document.querySelector('canvas');
+    return c && c.width >= 640 && c.height >= 400;
+  };
+  const tick = () => {
+    if (painted()) {
+      try { window.ipc.postMessage(JSON.stringify({kind: 'frame'})); } catch (_) {}
+      return;
+    }
+    setTimeout(tick, 250);
+  };
+  tick();
+})();
+"#;
+
+/// How long the window covers a page that has not painted, while the server says the screen is
+/// ready. Past it the page shows whatever noVNC itself is saying (a refused password, a dropped
+/// connection) rather than a cover that never lifts.
+const CONNECT_PATIENCE: Duration = Duration::from_secs(15);
+
+/// What the window says over its page, or `None` to show the page: the server's sentence while
+/// the screen is not ready, then "Connecting…" until noVNC paints, for `CONNECT_PATIENCE`.
+pub fn window_cover(
+    computer: Option<&CoworkerComputer>,
+    painted: bool,
+    waited: Duration,
+    name: &str,
+) -> Option<String> {
+    if let Some(text) = computer.and_then(CoworkerComputer::screen_overlay) {
+        return Some(text.to_string());
+    }
+    (!painted && waited < CONNECT_PATIENCE).then(|| format!("Connecting to {name}'s screen…"))
+}
 
 /// What the page reports while a task is being taught: every pointer and key
 /// event on the noVNC canvas, in the screen's own 1280×800 coordinates. This is
@@ -303,6 +344,16 @@ pub struct ComputerScreen {
     /// take the app down with it: the window says what went wrong instead.
     webview: Result<Rc<wry::WebView>, String>,
     coworker_id: String,
+    /// The Bot's name, for what the window says while its screen is not up.
+    name: String,
+    /// The page loaded now: a screen back from a restart or an update is loaded again.
+    url: String,
+    /// The server's word on the computer, from the app (#386); `None` until the first answer.
+    computer: Option<CoworkerComputer>,
+    /// noVNC has painted since the page last loaded (`FRAME_SCRIPT`).
+    painted: Rc<Cell<bool>>,
+    /// Since when the window has been waiting for a picture.
+    waiting_since: Instant,
     /// "<name>'s Computer", painted in the title bar.
     title: String,
     focus: FocusHandle,
@@ -336,7 +387,7 @@ pub struct ComputerScreen {
 impl ComputerScreen {
     pub fn new(
         url: &str,
-        coworker_id: &str,
+        (coworker_id, name): (&str, &str),
         title: &str,
         app: Entity<AppState>,
         handoff_attention: Option<(String, String)>,
@@ -379,6 +430,8 @@ impl ComputerScreen {
         .detach();
         let tape: Rc<RefCell<Vec<serde_json::Value>>> = Rc::new(RefCell::new(Vec::new()));
         let sink = tape.clone();
+        let painted = Rc::new(Cell::new(false));
+        let saw_frame = painted.clone();
         let webview = window
             .window_handle()
             .map_err(|error| format!("the window has no native handle: {error}"))
@@ -386,10 +439,16 @@ impl ComputerScreen {
                 WebViewBuilder::new()
                     .with_url(url)
                     .with_initialization_script(TEACH_SCRIPT)
+                    .with_initialization_script(FRAME_SCRIPT)
                     .with_ipc_handler(move |request: wry::http::Request<String>| {
                         if let Ok(event) = serde_json::from_str::<serde_json::Value>(request.body())
                         {
-                            sink.borrow_mut().push(event);
+                            // The first picture is the window's to know, not a step of a tape.
+                            if event["kind"] == "frame" {
+                                saw_frame.set(true);
+                            } else {
+                                sink.borrow_mut().push(event);
+                            }
                         }
                     })
                     .build_as_child(&handle)
@@ -404,9 +463,16 @@ impl ComputerScreen {
             cx.new(|cx| InputState::new(window, cx).placeholder("What it does (optional)"));
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        cx.spawn(async move |this, cx| Self::watch_for_a_picture(this, cx).await)
+            .detach();
         Self {
             webview,
             coworker_id: coworker_id.to_string(),
+            name: name.to_string(),
+            url: url.to_string(),
+            computer: None,
+            painted,
+            waiting_since: Instant::now(),
             title: title.to_string(),
             focus,
             tape,
@@ -474,6 +540,76 @@ impl ComputerScreen {
     /// The page's own background — the letterbox around the 1280×800 screen — in the app's
     /// background colour, so it is light in the light theme and dark in the dark one rather
     /// than noVNC's dark whatever the theme. A no-op until the page has loaded.
+    /// Repaint while the window is waiting for its first picture: the page's word arrives on its
+    /// own thread of events, not through `cx`, and the cover lifts on the next render after it.
+    async fn watch_for_a_picture(this: WeakEntity<Self>, cx: &mut AsyncApp) {
+        let mut was = false;
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
+            let Ok(now) = this.update(cx, |this, cx| {
+                let now = this.painted.get();
+                if now != was || this.cover().is_some() {
+                    cx.notify();
+                }
+                now
+            }) else {
+                return;
+            };
+            was = now;
+        }
+    }
+
+    /// The server's word on this Bot's computer, from the app. A screen going away (a restart, a
+    /// reset, an update) is covered until a new picture; one coming back, or on a new address, is
+    /// loaded again, since the page still holds the connection that dropped.
+    pub fn set_computer(&mut self, computer: CoworkerComputer, cx: &mut Context<Self>) {
+        let was_ready = self.screen_ready();
+        let url = computer.vnc_url().map(str::to_string);
+        self.computer = Some(computer);
+        let ready = self.screen_ready();
+        if !ready {
+            self.painted.set(false);
+        }
+        if let (true, Some(url)) = (ready, url)
+            && (!was_ready || url != self.url)
+        {
+            if let Ok(webview) = &self.webview {
+                let _ = webview.load_url(&url);
+            }
+            self.url = url;
+            self.painted.set(false);
+            self.waiting_since = Instant::now();
+        }
+        cx.notify();
+    }
+
+    /// The Bot was renamed: the title bar, the window's own title and what it says while the
+    /// screen comes up take the new name.
+    pub fn rename(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.name = name.to_string();
+        self.title = crate::state::computer_window_title(name);
+        window.set_window_title(&self.title);
+        cx.notify();
+    }
+
+    fn screen_ready(&self) -> bool {
+        self.computer
+            .as_ref()
+            .is_none_or(|computer| computer.screen_overlay().is_none())
+    }
+
+    fn cover(&self) -> Option<String> {
+        let waited = self.waiting_since.elapsed();
+        window_cover(
+            self.computer.as_ref(),
+            self.painted.get(),
+            waited,
+            &self.name,
+        )
+    }
+
     fn paint_page(&self, cx: &App) {
         if let Ok(webview) = &self.webview {
             let gpui::Rgba { r, g, b, .. } = cx.theme().background.into();
@@ -1307,27 +1443,49 @@ impl Render for ComputerScreen {
             .map(|pending| self.save_sheet(pending, &theme, cx));
         // Cached copy from new() / observe spawn — never `self.app.read` here.
         let attention = self.handoff_attention.clone();
+        let cover = self.cover();
+        if let Ok(webview) = &self.webview {
+            // The page is a native view over the window: nothing drawn here can sit on top of it,
+            // so it is hidden while the window says what the screen is doing.
+            let _ = webview.set_visible(cover.is_none());
+        }
         let body = match &self.webview {
+            Ok(_) if cover.is_some() => div()
+                .id("computer-window-screen")
+                .relative()
+                .size_full()
+                .bg(rgb(0x1c1c1e))
+                .when_some(cover, |this, text| {
+                    this.child(crate::components::computer::screen_status_cover(
+                        "computer-window-status",
+                        text,
+                    ))
+                })
+                .into_any_element(),
             Ok(webview) => {
                 let webview = webview.clone();
-                div().size_full().child(
-                    canvas(
-                        move |bounds, _, _| {
-                            let _ = webview.set_bounds(Rect {
-                                position: Position::Logical(LogicalPosition::new(
-                                    f64::from(bounds.origin.x.as_f32()),
-                                    f64::from(bounds.origin.y.as_f32()),
-                                )),
-                                size: Size::Logical(LogicalSize::new(
-                                    f64::from(bounds.size.width.as_f32()),
-                                    f64::from(bounds.size.height.as_f32()),
-                                )),
-                            });
-                        },
-                        |_, _, _, _| {},
+                div()
+                    .id("computer-window-screen")
+                    .size_full()
+                    .child(
+                        canvas(
+                            move |bounds, _, _| {
+                                let _ = webview.set_bounds(Rect {
+                                    position: Position::Logical(LogicalPosition::new(
+                                        f64::from(bounds.origin.x.as_f32()),
+                                        f64::from(bounds.origin.y.as_f32()),
+                                    )),
+                                    size: Size::Logical(LogicalSize::new(
+                                        f64::from(bounds.size.width.as_f32()),
+                                        f64::from(bounds.size.height.as_f32()),
+                                    )),
+                                });
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .size_full(),
                     )
-                    .size_full(),
-                )
+                    .into_any_element()
             }
             Err(error) => div()
                 .size_full()
@@ -1337,7 +1495,8 @@ impl Render for ComputerScreen {
                 .bg(theme.background)
                 .text_color(theme.muted_foreground)
                 .text_sm()
-                .child(error.clone()),
+                .child(error.clone())
+                .into_any_element(),
         };
         v_flex()
             .id("computer-window")
@@ -1383,10 +1542,49 @@ impl Render for ComputerScreen {
 #[cfg(test)]
 mod tests {
     use super::{
-        AfterRefusal, TeachOutcome, after_refusal, default_tape_name, may_have_landed,
-        saving_label, tape_survived_line, taught_line,
+        AfterRefusal, CONNECT_PATIENCE, TeachOutcome, after_refusal, default_tape_name,
+        may_have_landed, saving_label, tape_survived_line, taught_line, window_cover,
     };
-    use crate::opengrok::OpenGrokError;
+    use crate::opengrok::{CoworkerComputer, OpenGrokError};
+    use std::time::Duration;
+
+    fn computer(status: &str, text: &str) -> CoworkerComputer {
+        serde_json::from_value(serde_json::json!({
+            "agentId": "cw_1", "state": "running", "vncUrl": "http://x/vnc.html",
+            "screenStatus": status, "screenStatusText": text,
+        }))
+        .expect("a computer")
+    }
+
+    /// The window covers its page with what the screen is doing until it is ready, then with
+    /// "Connecting…" until noVNC paints, and gives up covering after `CONNECT_PATIENCE` so that
+    /// noVNC's own word (a refused password) is not hidden for good (#386).
+    #[test]
+    fn the_window_says_what_the_screen_is_doing_until_its_first_picture() {
+        let restarting = computer("restarting", "Restarting Ada's computer…");
+        let ready = computer("ready", "");
+        let soon = Duration::from_secs(1);
+        assert_eq!(
+            window_cover(Some(&restarting), true, soon, "Ada").as_deref(),
+            Some("Restarting Ada's computer…"),
+            "a picture from before the restart is not the screen"
+        );
+        assert_eq!(
+            window_cover(Some(&ready), false, soon, "Ada").as_deref(),
+            Some("Connecting to Ada's screen…")
+        );
+        assert_eq!(window_cover(Some(&ready), true, soon, "Ada"), None);
+        assert_eq!(
+            window_cover(Some(&ready), false, CONNECT_PATIENCE, "Ada"),
+            None,
+            "past its patience the page shows what noVNC is saying"
+        );
+        assert_eq!(
+            window_cover(None, false, soon, "Ada").as_deref(),
+            Some("Connecting to Ada's screen…"),
+            "a server that says nothing still gets Connecting"
+        );
+    }
 
     /// A fixed moment, so a name dated by the clock can be read in a test.
     fn stopped_at() -> chrono::DateTime<chrono::Utc> {

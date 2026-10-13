@@ -1,6 +1,7 @@
 {
   "type": "TOOL_CALL_START",
   "timestamp": 100,
-  "toolCallId": "look-0199bb4e000070008000000000000001",
-  "toolCallName": "computer"
+  "toolCallId": "form-0199bb4e000070008000000000000001",
+  "toolCallName": "request_user_form",
+  "entryId": "e_0199bb4e-0000-7000-8000-000000000002"
 }

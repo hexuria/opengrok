@@ -9,6 +9,9 @@
     "boxId": "bx_local_0199bb4e000070008000000000000002",
     "update": null,
     "image": null,
+    "screen": "own",
+    "screenStatus": "starting-screen",
+    "screenStatusText": "Starting Hosted's screen…",
     "computerError": {
       "code": "invalid_key",
       "message": "box.ascii.dev refused this computer, so it now runs as a Local VM on this server — files on the old computer are not on this one (the box refused: 403 forbidden: this key was revoked)",

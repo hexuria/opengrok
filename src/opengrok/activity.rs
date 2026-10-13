@@ -446,6 +446,16 @@ pub(crate) fn describe_tool(name: &str, args: Option<&str>) -> String {
             }
             _ => "On its computer".into(),
         },
+        // Another of the person's Bots' screens, by the name the model gave (opengrok-server
+        // `look_at_screen` in `crates/opengrok-tools/src/computer_desk.rs`, 11 Oct 2026): it only
+        // looks, so the row says whose screen.
+        "look_at_screen" => parsed
+            .as_ref()
+            .and_then(|v| v.get("bot").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|bot| !bot.is_empty())
+            .map(|bot| format!("Looking at {bot}'s screen"))
+            .unwrap_or_else(|| "Looking at another Bot's screen".into()),
         "open_url" => parsed
             .as_ref()
             .and_then(|v| v.get("url").and_then(Value::as_str))

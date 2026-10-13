@@ -1,0 +1,15 @@
+{
+  "method": "POST",
+  "path": "/coworkers/cw_0199bb4e-0000-7000-8000-000000000001/computer/ssh",
+  "status": 200,
+  "body": {
+    "command": "ssh -N -p 2299 -L 5902:screen:5900 og_yvx6g3dqgwxh6v2r5p5gvm7sum@127.0.0.1",
+    "user": "og_yvx6g3dqgwxh6v2r5p5gvm7sum",
+    "host": "127.0.0.1",
+    "port": 2299,
+    "localPort": 5902,
+    "target": "screen:5900",
+    "vncPassword": "pw-1",
+    "expiresAtMs": 1790000000000
+  }
+}

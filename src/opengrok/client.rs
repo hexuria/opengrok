@@ -2776,6 +2776,17 @@ impl OpenGrokClient {
         Self::json_or_error(response).await
     }
 
+    /// A code that reaches this Bot's screen over SSH for fifteen minutes, with the command that
+    /// uses it (`POST /coworkers/{id}/computer/ssh`). A server whose gateway is off answers 503,
+    /// and one whose Bot has no screen it can reach 409, each with a sentence to show.
+    pub async fn screen_ssh(&self, coworker_id: &str) -> Result<ScreenSshOffer, OpenGrokError> {
+        let path = format!("/coworkers/{coworker_id}/computer/ssh");
+        let response = self
+            .send_json::<()>(reqwest::Method::POST, &path, None)
+            .await?;
+        Self::json_or_error(response).await
+    }
+
     /// Upload a taught task as a recipe: the tape (thinned first, see [`thin_tape`]) with a
     /// name and a description. The server keeps the tape as v1 and writes the filtered steps
     /// as v2. A tape over the size limit is refused here, before any of it goes out.
@@ -4741,6 +4752,23 @@ pub struct CoworkerComputer {
     /// said nothing. [`Self::why_no_computer`] is when the pane shows it.
     #[serde(rename = "computerError", default)]
     pub computer_error: Option<ComputerError>,
+    /// What the screen is doing, for the pane and the screen window to say over it until its
+    /// first picture instead of a black box: `ready`, `starting-computer`, `starting-screen`,
+    /// `restarting`, `updating`, `resetting`, `stopped`, `absent` or `failed`, and the sentence
+    /// naming the Bot (empty for `ready`). Transcribed from hexuria/opengrok-server#386's
+    /// `opengrok_box::screen_status` (`status`, `stamp_status`), branch `gol/screen-status`.
+    /// `None` from a server that does not say, which shows the screen as it comes.
+    #[serde(rename = "screenStatus", default)]
+    pub screen_status: Option<String>,
+    #[serde(rename = "screenStatusText", default)]
+    pub screen_status_text: Option<String>,
+    /// Which screen of its computer the Bot is on: `own`, `shared`, or `own-pending` (it would
+    /// have its own, but its computer is too old for own screens until it is updated), with
+    /// `screenNote` saying why when it is not on the screen it would have. Same source.
+    #[serde(default)]
+    pub screen: Option<String>,
+    #[serde(rename = "screenNote", default)]
+    pub screen_note: Option<String>,
 }
 
 /// Why the server could not give a Bot a computer: a stable code, the sentence a person reads,
@@ -4909,9 +4937,40 @@ impl UpdateStatus {
     }
 }
 
+/// One Bot's screen over SSH, as `POST /coworkers/{id}/computer/ssh` hands it: the command to
+/// run (`ssh -N -p <port> -L 5902:screen:5900 <code>@<host>`), its parts, the screen's VNC
+/// password for the VNC app, and when the code stops working. Transcribed from
+/// hexuria/opengrok-server#386 part 2, `opengrok_screen_ssh::offer` (branch `gol/screen-ssh`).
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenSshOffer {
+    pub command: String,
+    pub user: String,
+    pub host: String,
+    pub port: u16,
+    pub local_port: u16,
+    pub target: String,
+    #[serde(default)]
+    pub vnc_password: Option<String>,
+    pub expires_at_ms: i64,
+}
+
 impl CoworkerComputer {
     pub fn vnc_url(&self) -> Option<&str> {
         self.vnc_url.as_deref().filter(|url| !url.is_empty())
+    }
+
+    /// The sentence to show over the screen while it is not ready, or `None` when the screen is
+    /// the answer (or the server did not say).
+    pub fn screen_overlay(&self) -> Option<&str> {
+        let status = self.screen_status.as_deref()?;
+        let text = self.screen_status_text.as_deref().filter(|t| !t.is_empty());
+        (status != "ready").then_some(text).flatten()
+    }
+
+    /// The Bot would have a screen of its own, but its computer needs an update first.
+    pub fn own_screen_pending(&self) -> bool {
+        self.screen.as_deref() == Some("own-pending")
     }
 
     pub fn updating(&self) -> bool {
@@ -11463,6 +11522,42 @@ mod tests {
         let client = OpenGrokClient::new(&server.uri()).unwrap();
         let status = client.ensure_coworker_computer("cw_1").await.unwrap();
         assert_eq!(status.vnc_url(), Some("http://127.0.0.1:6080/vnc.html"));
+    }
+
+    /// The SSH offer is read field by field, and a gateway that is off is the server's sentence,
+    /// with its status, for the pane to show.
+    #[tokio::test]
+    async fn screen_ssh_posts_and_reads_the_offer_or_the_refusal() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/coworkers/cw_1/computer/ssh"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "command": "ssh -N -p 2222 -L 5902:screen:5900 og_abc@grok.local",
+                "user": "og_abc", "host": "grok.local", "port": 2222, "localPort": 5902,
+                "target": "screen:5900", "vncPassword": "pw-1", "expiresAtMs": 1_000
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/coworkers/cw_off/computer/ssh"))
+            .respond_with(
+                ResponseTemplate::new(503)
+                    .set_body_json(json!({ "error": "SSH to a screen is off on this server" })),
+            )
+            .mount(&server)
+            .await;
+        let client = OpenGrokClient::new(&server.uri()).unwrap();
+        let offer = client.screen_ssh("cw_1").await.unwrap();
+        assert_eq!(
+            offer.command,
+            "ssh -N -p 2222 -L 5902:screen:5900 og_abc@grok.local"
+        );
+        assert_eq!((offer.port, offer.local_port), (2222, 5902));
+        assert_eq!(offer.vnc_password.as_deref(), Some("pw-1"));
+        let off = client.screen_ssh("cw_off").await.unwrap_err();
+        assert_eq!(off.status, Some(503));
+        assert_eq!(off.message, "SSH to a screen is off on this server");
     }
 
     /// A server without the endpoint is a state the app must recognise, not a crash.

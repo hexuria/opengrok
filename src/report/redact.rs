@@ -121,6 +121,7 @@ const ROUTE_WORDS: &[&str] = &[
     "sign-in",
     "site-logins",
     "skills",
+    "ssh",
     "stop",
     "threads",
     "tool-mode",

@@ -17,19 +17,11 @@
         "maxComputerRounds": null,
         "maxWallMs": null
       },
-      "lastRun": {
-        "runId": "run_0199bb4e-0000-7000-8000-000000000003",
-        "status": "running",
-        "startedAtMs": 1790000000000,
-        "finishedAtMs": null,
-        "summary": "Routine Inbox is running.",
-        "cause": "webhook",
-        "by": null
-      },
+      "lastRun": null,
       "tz": "UTC",
       "webhook": {
         "type": "webhook",
-        "url": "http://opengrok.lan:1447/hooks/hook_0199bb4e-0000-7000-8000-000000000004",
+        "url": "http://opengrok.lan:1447/hooks/hook_0199bb4e-0000-7000-8000-000000000003",
         "key": "«redacted»",
         "header": "Authorization: Bearer «redacted»"
       }

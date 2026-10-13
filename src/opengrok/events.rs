@@ -45,17 +45,22 @@ pub(crate) const RUN_FINISHED: &str = "run.finished";
 pub(crate) const RUN_WAITING: &str = "run.waiting";
 /// One of a Bot's routines was made, changed, deleted, paused or resumed.
 pub(crate) const ROUTINE_CHANGED: &str = "routine.changed";
+/// A Bot's computer or its screen changed what it is doing: it started, a restart, reset or update
+/// began or ended, or its own screen came up (hexuria/opengrok-server#386, `COMPUTER_CHANGED` in
+/// `crates/opengrok-wire/src/events.rs`, branch `gol/screen-status`).
+pub(crate) const COMPUTER_CHANGED: &str = "computer.changed";
 /// The server could not replay from the id the app resumed with.
 pub(crate) const RESET: &str = "reset";
 
 /// Every note this app reads off the stream, by its `event:` name, for the conformance ledger.
 #[cfg(test)]
-pub(crate) const ACCOUNT_EVENT_NAMES: [&str; 6] = [
+pub(crate) const ACCOUNT_EVENT_NAMES: [&str; 7] = [
     THREAD_CHANGED,
     RUN_STARTED,
     RUN_WAITING,
     RUN_FINISHED,
     ROUTINE_CHANGED,
+    COMPUTER_CHANGED,
     RESET,
 ];
 
@@ -102,6 +107,13 @@ pub enum AccountEvent {
         routine_id: String,
         coworker_id: String,
         change: RoutineChange,
+    },
+    /// A Bot's computer changed what it is doing. The app reads the computer again for that Bot,
+    /// and for any open screen on the same box: Bots that share a computer share its restarts.
+    /// `box_id` is `None` when the Bot had no computer at that moment (mid-reset).
+    ComputerChanged {
+        coworker_id: String,
+        box_id: Option<String>,
     },
     /// The server could not replay from the id the app gave it, because it was missing, expired or
     /// unknown: it is the first note of such a stream, and everything is read again.
@@ -186,6 +198,14 @@ struct RunNote {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ComputerNote {
+    coworker_id: String,
+    #[serde(default)]
+    box_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RoutineNote {
     routine_id: String,
     coworker_id: String,
@@ -264,6 +284,14 @@ impl AccountEvent {
                     routine_id: note.routine_id,
                     coworker_id: note.coworker_id,
                     change: note.change,
+                })
+            }
+            COMPUTER_CHANGED => {
+                let note: ComputerNote = body(data)?;
+                ids_given(&[&note.coworker_id])?;
+                Ok(Self::ComputerChanged {
+                    coworker_id: note.coworker_id,
+                    box_id: note.box_id.filter(|id| !id.trim().is_empty()),
                 })
             }
             RESET => Ok(Self::Reset),
@@ -776,6 +804,28 @@ mod tests {
                 "{word}"
             );
         }
+        assert_eq!(
+            AccountEvent::read(
+                COMPUTER_CHANGED,
+                r#"{"coworkerId":"cw_1","boxId":"og-box-1"}"#
+            ),
+            Ok(AccountEvent::ComputerChanged {
+                coworker_id: "cw_1".into(),
+                box_id: Some("og-box-1".into()),
+            })
+        );
+        assert_eq!(
+            AccountEvent::read(COMPUTER_CHANGED, r#"{"coworkerId":"cw_1","boxId":null}"#),
+            Ok(AccountEvent::ComputerChanged {
+                coworker_id: "cw_1".into(),
+                box_id: None,
+            }),
+            "mid-reset the Bot has no computer"
+        );
+        assert_eq!(
+            AccountEvent::read(COMPUTER_CHANGED, r#"{"boxId":"og-box-1"}"#),
+            Err(Unread::Malformed)
+        );
         assert_eq!(AccountEvent::read(RESET, "{}"), Ok(AccountEvent::Reset));
         assert_eq!(
             AccountEvent::read("roster.changed", "{}"),

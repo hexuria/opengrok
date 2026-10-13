@@ -1,0 +1,32 @@
+{
+  "method": "GET",
+  "path": "/schedules",
+  "status": 200,
+  "body": [
+    {
+      "id": "sched_0199bb4e-0000-7000-8000-000000000001",
+      "coworkerId": "cw_0199bb4e-0000-7000-8000-000000000002",
+      "name": "Weekly",
+      "cron": "0 0 9 * * MON",
+      "prompt": "write the weekly report",
+      "kind": "cron",
+      "active": false,
+      "nextDueMs": null,
+      "runLimits": {
+        "maxRounds": null,
+        "maxComputerRounds": null,
+        "maxWallMs": null
+      },
+      "lastRun": {
+        "runId": "run_0199bb4e-0000-7000-8000-000000000003",
+        "status": "finished",
+        "startedAtMs": 1790000000000,
+        "finishedAtMs": 1790000001000,
+        "summary": "Routine Weekly ran: You said: write the weekly report. This is the mock door standing in for oag/cheap — no model was called.",
+        "cause": "manual",
+        "by": null
+      },
+      "tz": "UTC"
+    }
+  ]
+}

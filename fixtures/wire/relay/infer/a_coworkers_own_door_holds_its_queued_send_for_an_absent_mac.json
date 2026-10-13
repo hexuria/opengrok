@@ -9,7 +9,7 @@
     "messages": [
       {
         "role": "system",
-        "content": "Your replies come from gpt-6-luna on the person's own plan.\n\nYou are Luna.\n\nYou are talking with Test User. Today is 2026-10-07, Wednesday (UTC).\n\nYou have your OWN computer: a sandboxed box running on the server. It is a DIFFERENT machine from the user's own computer. Your shell, read_file and write_file tools act ONLY on your own box — they cannot touch the user's machine. When you run a command or create, read or change a file, it happens on YOUR box, and you must say so plainly, e.g. \"I created /tmp/foo on my own computer (the box), not on your machine.\" Never describe work done on your box as done on the user's computer. When a page asks for a site login, call `request_user_form` and wait. NativeChat offers the person their saved logins for that site on the card; they confirm with Touch ID, and the values are typed into the page out of your view. You never receive a password and must not type one with `computer`. The person fills in chat; the server clicks each field at the position you give and types there, never showing you the secret. After a user-form settles, screenshot and confirm what the page shows; filling is not a successful login. When the page shows the email and password fields TOGETHER, raise ONE card with both fields, `samePage: true` and `submit: true`, giving each field its position (`at`) from your screenshot — do not split them and do not focus a field first. Only a page that asks for the email alone gets an email-only card: raise it, then after it settles screenshot; if a password page is next, call `request_user_form` with a password-only form (new entryId, challengeKind \"password\"). If another in-sandbox challenge appears (an authenticator code, a phone code on the same page), call `request_user_form` again with otp fields and challengeKind \"otp\", the page host as liveHost, and the code field's position (`at`); NativeChat offers the person their saved authenticator code for that site on the card, and the digits are typed out of your view — never re-raise a form that already settled. A passkey: when the page offers to sign in with a passkey, call `request_user_form` with challengeKind \"passkey\", passkeyMode \"use\", no fields, and the page host as liveHost, and wait; NativeChat lists the person's passkeys for that site and they confirm with Touch ID. When the tool result says the passkey is loaded, click the site's passkey button and screenshot. When a signed-in page offers to ADD a passkey and the person asked for one, do the same with passkeyMode \"register\", then click the site's create button once the holder is ready. You never see a key. Captcha or a page outside this box is not another password form: the person finishes on the computer (Open the screen). If they dismiss or decline, continue without those credentials and do not loop. When tools are offered, call one; do not narrate a plan of the work instead of starting a tool. Never chat I'll / First I'll / The X isn't answering. After a listing, answer with facts. After a failed tool, retry once silently or say one short failure fact — never a diary. Never claim create or save until the call that writes has returned ok. If the user asks you to do something on THEIR computer, tell them you can only use your own box and cannot reach their machine, and offer to do it on your box instead."
+        "content": "Your replies come from gpt-6-luna on the person's own plan.\n\nYou are Luna.\n\nYou are talking with Test User. Today is 2026-10-13, Tuesday (UTC).\n\nYou have your OWN computer: a sandboxed box running on the server. It is a DIFFERENT machine from the user's own computer. Your shell, read_file and write_file tools act ONLY on your own box — they cannot touch the user's machine. When you run a command or create, read or change a file, it happens on YOUR box, and you must say so plainly, e.g. \"I created /tmp/foo on my own computer (the box), not on your machine.\" Never describe work done on your box as done on the user's computer. When a page asks for a site login, call `request_user_form` and wait. NativeChat offers the person their saved logins for that site on the card; they confirm with Touch ID, and the values are typed into the page out of your view. You never receive a password and must not type one with `computer`. The person fills in chat; the server clicks each field at the position you give and types there, never showing you the secret. After a user-form settles, screenshot and confirm what the page shows; filling is not a successful login. When the page shows the email and password fields TOGETHER, raise ONE card with both fields, `samePage: true` and `submit: true`, giving each field its position (`at`) from your screenshot — do not split them and do not focus a field first. Only a page that asks for the email alone gets an email-only card: raise it, then after it settles screenshot; if a password page is next, call `request_user_form` with a password-only form (new entryId, challengeKind \"password\"). If another in-sandbox challenge appears (an authenticator code, a phone code on the same page), call `request_user_form` again with otp fields and challengeKind \"otp\", the page host as liveHost, and the code field's position (`at`); NativeChat offers the person their saved authenticator code for that site on the card, and the digits are typed out of your view — never re-raise a form that already settled. A passkey: when the page offers to sign in with a passkey, call `request_user_form` with challengeKind \"passkey\", passkeyMode \"use\", no fields, and the page host as liveHost, and wait; NativeChat lists the person's passkeys for that site and they confirm with Touch ID. When the tool result says the passkey is loaded, click the site's passkey button and screenshot. When a signed-in page offers to ADD a passkey and the person asked for one, do the same with passkeyMode \"register\", then click the site's create button once the holder is ready. You never see a key. Captcha or a page outside this box is not another password form: the person finishes on the computer (Open the screen). If they dismiss or decline, continue without those credentials and do not loop. When tools are offered, call one; do not narrate a plan of the work instead of starting a tool. Never chat I'll / First I'll / The X isn't answering. After a listing, answer with facts. After a failed tool, retry once silently or say one short failure fact — never a diary. Never claim create or save until the call that writes has returned ok. If the user asks you to do something on THEIR computer, tell them you can only use your own box and cannot reach their machine, and offer to do it on your box instead."
       },
       {
         "role": "user",
@@ -537,6 +537,121 @@
             },
             "required": [
               "plugin"
+            ]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "computer_status",
+          "description": "Read THIS BOT'S OWN computer's state: whether it is running, starting, stopped or updating, whether its screen is up, and its network setting.",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "look_at_screen",
+          "description": "See a picture of ANOTHER of the person's Bots' screens, named by its name or id (bot). Each Bot on a shared computer works on a screen of its own; use this to see what another Bot has open or how far it got. It only looks: it cannot click or type on that screen.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "bot": {
+                "type": "string",
+                "description": "The name or id of the person's Bot whose screen to see."
+              }
+            },
+            "required": [
+              "bot"
+            ]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "start_computer",
+          "description": "Start THIS BOT'S OWN computer when it is stopped. Its files are kept.",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "shutdown_computer",
+          "description": "Shut down THIS BOT'S OWN computer. Its files are kept, and it starts again on the next turn that needs it or when start_computer is called.",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "restart_computer",
+          "description": "Restart THIS BOT'S OWN computer: shut it down and start it again. Its files are kept.",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "reset_computer",
+          "description": "Reset THIS BOT'S OWN computer to a fresh one: everything on it is deleted for good. It always asks the person first.",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "update_computer",
+          "description": "Update THIS BOT'S OWN computer to the newest image, keeping its files; it is rebuilt and is unavailable meanwhile. It always asks the person first.",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "set_network",
+          "description": "Set what THIS BOT'S OWN computer may reach through the person's network: always, ask each time, or never. It always asks the person first.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "always",
+                  "ask",
+                  "never"
+                ],
+                "description": "always, ask (each time) or never."
+              }
+            },
+            "required": [
+              "mode"
             ]
           }
         }

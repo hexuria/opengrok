@@ -143,6 +143,80 @@
         "enabled": true,
         "label": "Plugins",
         "summary": "Finds, installs and removes plugins and manages their accounts."
+      },
+      {
+        "name": "manage_computer",
+        "description": "Check, start, shut down, restart, reset and update this Bot's own computer, look at your other Bots' screens, and set what it may reach on the network, when you ask in chat. Resetting, updating and the network setting always ask you first.",
+        "kind": "builtin",
+        "tools": [
+          {
+            "name": "computer_status",
+            "description": "Read THIS BOT'S OWN computer's state: whether it is running, starting, stopped or updating, whether its screen is up, and its network setting.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Computer status",
+            "summary": "Reads whether the Bot's computer is running."
+          },
+          {
+            "name": "look_at_screen",
+            "description": "See a picture of ANOTHER of the person's Bots' screens, named by its name or id (bot). Each Bot on a shared computer works on a screen of its own; use this to see what another Bot has open or how far it got. It only looks: it cannot click or type on that screen.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Look at another Bot's screen",
+            "summary": "Shows the Bot a picture of another of your Bots' screens, without touching it."
+          },
+          {
+            "name": "start_computer",
+            "description": "Start THIS BOT'S OWN computer when it is stopped. Its files are kept.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Start computer",
+            "summary": "Starts the Bot's computer."
+          },
+          {
+            "name": "shutdown_computer",
+            "description": "Shut down THIS BOT'S OWN computer. Its files are kept, and it starts again on the next turn that needs it or when start_computer is called.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Shut down computer",
+            "summary": "Shuts the Bot's computer down, keeping its files."
+          },
+          {
+            "name": "restart_computer",
+            "description": "Restart THIS BOT'S OWN computer: shut it down and start it again. Its files are kept.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Restart computer",
+            "summary": "Restarts the Bot's computer."
+          },
+          {
+            "name": "reset_computer",
+            "description": "Reset THIS BOT'S OWN computer to a fresh one: everything on it is deleted for good. It always asks the person first.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Reset computer",
+            "summary": "Deletes everything on the Bot's computer for good."
+          },
+          {
+            "name": "update_computer",
+            "description": "Update THIS BOT'S OWN computer to the newest image, keeping its files; it is rebuilt and is unavailable meanwhile. It always asks the person first.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Update computer",
+            "summary": "Rebuilds the Bot's computer on the newest image."
+          },
+          {
+            "name": "set_network",
+            "description": "Set what THIS BOT'S OWN computer may reach through the person's network: always, ask each time, or never. It always asks the person first.",
+            "kind": "builtin",
+            "mode": "always",
+            "label": "Set network",
+            "summary": "Sets what the Bot's computer may reach on your network."
+          }
+        ],
+        "enabled": true,
+        "label": "Manage computer",
+        "summary": "Checks, starts, stops, restarts, resets and updates the Bot's own computer, and looks at your other Bots' screens."
       }
     ]
   }

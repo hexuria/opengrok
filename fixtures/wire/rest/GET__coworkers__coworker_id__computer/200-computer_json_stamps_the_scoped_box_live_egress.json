@@ -9,6 +9,9 @@
     "boxId": "bx_stub_0199bb4e000070008000000000000002",
     "update": null,
     "image": null,
+    "screen": "own",
+    "screenStatus": "starting-screen",
+    "screenStatusText": "Starting computer-egress's screen…",
     "isEgressTunnelAvailable": false,
     "egress_tunnel": {
       "enabled": true,

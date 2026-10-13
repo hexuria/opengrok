@@ -78,7 +78,7 @@
             "type": "TOOL_CALL_RESULT",
             "content": "ran",
             "timestamp": 100,
-            "durationMs": 153,
+            "durationMs": 157,
             "toolCallId": "mock-call-1"
           },
           {
@@ -120,8 +120,8 @@
                 "limit": 128000,
                 "left_out": 0,
                 "estimated": [
-                  7288,
-                  7320
+                  8085,
+                  8117
                 ]
               },
               "model_ms": [

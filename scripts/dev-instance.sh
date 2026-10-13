@@ -65,6 +65,9 @@ tag_of() { echo "grok-box-inst-$1:local"; }
 # The gpui-agent port that goes with a server port: 16000 + it, the convention the agents here
 # already used (1485 -> 17485).
 agent_port_of() { echo $((16000 + $1)); }
+# The SSH door to a Bot's screen that goes with it (opengrok-server#386): 20000 + it
+# (1460 -> 21460), so an instance's server never takes the owner's 2222.
+ssh_port_of() { echo $((20000 + $1)); }
 alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
 read_or_empty() { [ -f "$1" ] && cat "$1" || true; }
 # The port of the server an instance talks to: its own, or the baseline's for one attached there.
@@ -83,14 +86,15 @@ port_free() {
 }
 
 # A server port no listener and no other instance (running or stopped) holds, with its
-# gpui-agent port free too.
+# gpui-agent and SSH ports free too.
 pick_port() {
   local p taken
   for ((p = FIRST_PORT; p <= LAST_PORT; p++)); do
     [[ "$RESERVED_PORTS" == *" $p "* ]] && continue
     taken=$(cat "$ROOT"/*/port 2>/dev/null | grep -cx "$p" || true)
     [ "$taken" = 0 ] || continue
-    port_free "$p" && port_free "$(agent_port_of "$p")" && { echo "$p"; return; }
+    port_free "$p" && port_free "$(agent_port_of "$p")" && port_free "$(ssh_port_of "$p")" \
+      && { echo "$p"; return; }
   done
   die "no free port between $FIRST_PORT and $LAST_PORT"
 }
@@ -114,6 +118,8 @@ server_env() {
     echo "export OG_OAUTH_REDIRECT_URI=http://127.0.0.1:$port/connections/callback"
     # The egress tunnel is host-wide: a second server running it would fight the main one.
     echo "export OG_EGRESS_TUNNEL_ENABLED=0 SAND_EGRESS_TUNNEL_ENABLED=0"
+    # Its own SSH door to a Bot's screen, and its own host key in the instance's dir.
+    echo "export OG_SSH_PORT=$(ssh_port_of "$port") OG_SSH_HOST_KEY=$d/ssh_host_key"
     echo "export PATH=\"/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:/opt/homebrew/bin:\$HOME/.cargo/bin:\$PATH\""
     if [ -s "$d/image" ]; then
       echo "export OG_COMPUTER=docker OG_DOCKER_IMAGE=$(cat "$d/image")"
@@ -201,9 +207,8 @@ up() {
     port_free "$agent_port" || die "gpui-agent port $agent_port is taken"
     local server_port; server_port=$(server_port_of "$d")
     # GPUI_AGENT_BACKGROUND keeps the window from taking focus from whoever is at the keyboard.
-    # Its own gpui-agent discovery dir and connect id: the CLI saves its last `--connect` choice
-    # there, and in the shared per-user dir one agent's choice would steer another's commands
-    # (hexuria/gpui-agent#48). The app finds its themes and assets relative to where it starts,
+    # Its own gpui-agent discovery dir and connect id, so its records and the CLI's saved
+    # `--connect last` are its own (hexuria/gpui-agent#48). The app finds its themes and assets relative to where it starts,
     # so it starts in this repo.
     # One simple command goes into the background, so `$!` is the app itself: backgrounding a
     # `cd && …` list recorded the shell around it, which `down` would stop instead of the app.

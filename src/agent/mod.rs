@@ -234,7 +234,19 @@
 //! words as the pane shows them, value = the server's code for it, e.g. `provider_error`; a
 //! status that names a box has none, so `assert --exists false` is "a computer was given").
 //! Beside it, only then, `computer-get` (Get a computer: asks the server again; dead while an
-//! ask is with the server). The overview row is `computer-recipes`, `computer-plugins`,
+//! ask is with the server). `agent-screen-status` covers the pane's screen while it is not ready
+//! (label = the server's sentence, "Restarting Ada's computer…"; value = its word, `restarting`,
+//! #386), and `computer-window-status-<coworker id>` is the same for an open screen window (the
+//! server's word only; the window's own "Connecting…" until noVNC paints is not in the tree).
+//! `computer-screen-note` says why the Bot is not on the screen it would have (value = the
+//! server's `screen`, `own-pending` or `shared`), with `computer-screen-note-update` (Update
+//! computer, which asks first like `computer-update`) beside it for `own-pending`.
+//! `computer-ssh` asks for a code to the Bot's screen over SSH (#386, part 2); then
+//! `computer-ssh-panel` (label = the command, or the server's sentence with value `refused`)
+//! holds `computer-ssh-copy`, `computer-ssh-copy-password` and `computer-ssh-close`.
+//! `invoke agent.rename {"name": …}` renames the open Bot as its name field does; an open screen
+//! window takes the new name in its title. A copy
+//! button's click is the pane's own (it writes the clipboard), not a host command. The overview row is `computer-recipes`, `computer-plugins`,
 //! `computer-tools`, `route-traffic-this-computer`, `network-policy`, `computer-update`,
 //! `computer-reset`, in that order, for every computer whoever it is shared with (#175, R-A).
 //! `route-traffic-this-computer` (a switch: the host-wide reroute, `PUT /ag-ui/host-settings`, so it
@@ -666,30 +678,13 @@ pub use host::{Command, ComposePlan, NativeChatHost, ids};
 use std::time::Duration;
 
 use gpui_agent::security::from_env;
-use gpui_agent::server::spawn_mailbox;
+use gpui_agent::server::spawn_mailbox_named;
 
 fn auth_banner(token_set: bool) -> &'static str {
     if token_set {
         "auth: required (GPUI_AGENT_TOKEN set; clients must send the same token)"
     } else {
         "auth: none (GPUI_AGENT_INSECURE_NO_TOKEN=1 — any local process can drive this host)"
-    }
-}
-
-/// The discovery record `gpui-agent --connect <id>` finds this app by: its executable name, or
-/// `GPUI_AGENT_CONNECT_ID` when set (scripts/dev-instance.sh sets `nativechat-<name>`). gpui-agent
-/// writes one only for hosts served through `serve_host`, and this app serves a mailbox, so it
-/// writes its own (hexuria/gpui-agent#47). The guard sits in a static, which is never dropped, so
-/// the record outlives the process; the CLI skips a record whose process has exited and removes
-/// it then.
-fn publish_discovery_record(addr: std::net::SocketAddr) {
-    static PUBLISHED: std::sync::OnceLock<gpui_agent::discovery::PublishedHost> =
-        std::sync::OnceLock::new();
-    match gpui_agent::discovery::publish_current(addr, "nativechat") {
-        Ok(record) => {
-            let _ = PUBLISHED.set(record);
-        }
-        Err(err) => eprintln!("gpui-agent discovery record not written: {err}"),
     }
 }
 
@@ -707,14 +702,17 @@ pub fn maybe_start() -> Option<AgentMailbox> {
         Ok(Some(config)) => {
             let mailbox = AgentMailbox::new();
             let auth = auth_banner(config.token.is_some());
-            match spawn_mailbox(
+            // Listed under `nativechat` for `gpui-agent --connect`, and under its executable or
+            // `GPUI_AGENT_CONNECT_ID` (scripts/dev-instance.sh sets `nativechat-<name>`); the record
+            // is gpui-agent's to write since hexuria/gpui-agent#47.
+            match spawn_mailbox_named(
                 config.addr,
                 config.token,
                 mailbox.clone(),
                 Duration::from_secs(30),
+                "nativechat",
             ) {
                 Ok((addr, _)) => {
-                    publish_discovery_record(addr);
                     eprintln!("gpui-agent listening on {addr} (platform=desktop, app=nativechat)");
                     eprintln!("opt-in: GPUI_AGENT=1 · bind via from_env · protocol v2");
                     eprintln!("{auth}");

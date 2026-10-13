@@ -1,0 +1,9 @@
+{
+  "method": "POST",
+  "path": "/ag-ui/user-form/submit",
+  "status": 400,
+  "body": {
+    "error": "bad_request",
+    "message": "a saved login names the login it is"
+  }
+}

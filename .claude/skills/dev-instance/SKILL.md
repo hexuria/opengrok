@@ -97,6 +97,7 @@ It prints the instance. Everything lives in `~/.cache/nativechat-instances/<name
 |---|---|---|
 | Slot | first free in 1460–1499 | Your server's port, when you have one. 1447 and 1448 are never picked. |
 | gpui-agent port | 16000 + slot (1460 → 17460) | The owner's app holds 17426. |
+| SSH port | 20000 + slot (1460 → 21460) | A Bot's screen over SSH (`OG_SSH_PORT`); the owner's server holds 2222. |
 | Database | `og_inst_<name>` in `opengrok-postgres`, or the baseline's | The server migrates it on start. |
 | Binaries | copied to `opengrok-<name>`, `nativechat-<name>` | `cargo clean` or another rebuild can't pull them from under a running process, and `ps` says whose they are. |
 | App data | `app-data/` | Two apps on one sqlite break each other. |
@@ -151,10 +152,11 @@ screencapture -x -o -l "$(cat ~/.cache/nativechat-instances/<name>/window)" shot
   (`cargo install --git https://github.com/hexuria/gpui-agent gpui-agent-cli --force`). The app
   pins the same revision in `Cargo.toml`.
   - `--connect <id>` finds an app by its connect id, with no port to remember.
-  - The CLI remembers the last `--connect` in `session.json`, in its runtime dir. In the shared
-    per-user dir, one agent's choice would send another agent's bare `gpui-agent hello` to the
-    wrong app. So each instance has its own dir (`GPUI_AGENT_RUNTIME_DIR`, set by `env`), and in
-    shared shells you pass `--connect` or `--addr` every time.
+  - The CLI remembers the last `--connect` in `session.json`, but since hexuria/gpui-agent#48 only
+    `--connect last` reuses it: a bare command goes to the default address, never to the app
+    another agent picked, and every command routed by `--connect` names its app on stderr. Each
+    instance still has its own dir (`GPUI_AGENT_RUNTIME_DIR`, set by `env`), and in shared shells
+    you pass `--connect` or `--addr` every time.
 - **The window:** capture it with `screencapture -l <window id>` (the id is in `window`). Don't
   raise it over the owner's work.
 - **Hover:** gpui-agent has no hover. To see a hover-only state, make a throwaway build with that

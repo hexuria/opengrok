@@ -19,10 +19,10 @@
       },
       "lastRun": {
         "runId": "run_0199bb4e-0000-7000-8000-000000000003",
-        "status": "finished",
+        "status": "running",
         "startedAtMs": 1790000000000,
-        "finishedAtMs": 1790000001000,
-        "summary": "Routine Weekly ran: You said: write the weekly report. This is the mock door standing in for oag/cheap — no model was called.",
+        "finishedAtMs": null,
+        "summary": "Routine Weekly is running.",
         "cause": "manual",
         "by": null
       },

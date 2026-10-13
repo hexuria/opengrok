@@ -4,10 +4,9 @@
 //! agree. `fixtures/wire/` is the server's side of that, recorded by the server itself: every
 //! AG-UI frame and REST body its own tests drove, teed off its router by the recorder of
 //! opengrok-server#258 and written out by its `examples/wire_corpus.rs`. It is vendored whole from
-//! the server's `tests/fixtures/wire/` at opengrok-server #351 (recorded at 9a2b011, git tree
-//! a0ef80f): the account events stream (#348) on main 725e1b5, which carries #349, a Bot's routine
-//! tools seeing and acting on its own routines alone. Its `MANIFEST.json` names 85ce00c, the commit
-//! it was recorded on. The layout is opengrok-server#255's: `agui/<type>/<slug>.json`,
+//! the server's `tests/fixtures/wire/` on opengrok-server `gol/screen-ssh` (#386: a Bot's screen
+//! status, `computer.changed` and the SSH route; git tree e0c4fda), stacked on `gol/screen-status`
+//! and main 1b3d255. Its `MANIFEST.json` names 35664e6, the commit it was recorded on. The layout is opengrok-server#255's: `agui/<type>/<slug>.json`,
 //! a CUSTOM under `agui/custom/<name>/`, and `rest/<METHOD>_<route>/<status>-<slug>.json` holding
 //! `{method, path, status, body}`, one file per distinct shape, named after the first test that
 //! produced it; since the relay, the frames of its stream under `relay/<type>/<slug>.json`,
@@ -59,11 +58,11 @@ use super::client::{
     ConnectionAttempt, ConnectionKind, ConnectionOwner, ConnectionPin, ConnectionView, Connector,
     CoworkerCeiling, CoworkerComputer, CoworkerSkills, CoworkerUsage, DaemonEnrol, DaemonList,
     DaemonMachine, InstallSource, LocalExecMode, LocalExecPolicy, OpenGrokClient, PluginCatalog,
-    PluginDetail, PluginInstallation, QueuedApproval, RecipeDetail, RecipeList,
-    RecipeParameterKind, RecipeRunResult, RunBy, RunCause, RunReplay, SKIPPED_FIRING, ScheduleKind,
-    ScheduleRow, ScheduleRun, ScheduleRunStarted, ScheduleRunStatus, SkillDetail, SkillSummary,
-    SkillVersion, StopReply, ThreadReplay, ToolListing, host_egress_tunnel_available,
-    host_egress_tunnel_flag,
+    PluginDetail, PluginInstallation, PluginSkill, QueuedApproval, RecipeDetail, RecipeList,
+    RecipeParameterKind, RecipeRunResult, RunBy, RunCause, RunReplay, SKIPPED_FIRING,
+    SavedLoginCheck, ScheduleKind, ScheduleRow, ScheduleRun, ScheduleRunStarted, ScheduleRunStatus,
+    ScreenSshOffer, SkillDetail, SkillSummary, SkillVersion, StopReply, ThreadReplay, ToolListing,
+    host_egress_tunnel_available, host_egress_tunnel_flag,
 };
 use super::credential::{CREDENTIAL_OFFER_SAVE, SaveLoginSpec};
 use super::error::{Failure, Unreachable, reads_as_gateway_unreachable};
@@ -735,12 +734,7 @@ const MACHINE_TOKEN_ROUTES: &[&str] = &[
 /// written in the agreed shape. The day a recorded body of the route carries the key, the entry
 /// has gone stale and comes off this list, and
 /// [`every_key_asked_ahead_of_its_recording_is_read_and_not_recorded_yet`] fails until it does.
-const REST_FIELDS_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[(
-    "GET__plugins_installations",
-    "source",
-    "opengrok-server listing the plugins it loaded from its own folder beside the account's \
-     installs, `\"source\": \"server\"`: a recording of a server plugin in the list",
-)];
+const REST_FIELDS_NOT_RECORDED_YET: &[(&str, &str, &str)] = &[];
 
 // ---- the corpus ----
 
@@ -2508,6 +2502,27 @@ const REST_ROUTES: &[(&str, RestCheck)] = &[
     ("GET__connections__connector__authorize", sign_in_link),
     ("GET__coworkers__coworker_id__usage", coworker_usage),
     ("GET__coworkers__coworker_id__computer", computer),
+    // A Bot's screen over SSH (#386): the offer the pane shows, read as the client reads it.
+    (
+        "POST__coworkers__coworker_id__computer_ssh",
+        screen_ssh_offer,
+    ),
+    // Saved logins and a computer of a Bot's own: what the login card asks before Touch ID, the
+    // logins one Bot may use, and the switch, whose answer the client does not read.
+    (
+        "GET__coworkers__coworker_id__saved-login",
+        saved_login_check,
+    ),
+    ("GET__coworkers__coworker_id__site-logins", bot_logins),
+    ("PUT__coworkers__coworker_id__own-computer", read_as_done),
+    // A plugin's skills for one Bot, and one of them with its text.
+    ("GET__coworkers__coworker_id__plugin-skills", plugin_skills),
+    // A plugin skill's switch, whose answer the client does not read.
+    ("PUT__coworkers__coworker_id__plugin-skills", read_as_done),
+    (
+        "GET__coworkers__coworker_id__plugin-skills__plugin___skill_",
+        plugin_skill,
+    ),
     // Get a computer, Update and Reset (`ensure_coworker_computer`, `update_coworker_computer`,
     // `reset_coworker_computer`) each answer with the status a read gives.
     ("POST__coworkers__coworker_id__computer", computer),
@@ -3007,6 +3022,62 @@ fn tape_refused(status: u16, body: &Value) -> Check {
 /// A success this app reads only as done (`empty_or_error`, or its status alone): a pause, a
 /// delete, a rule kept, a sign-out. Nothing in the body is taken, so there is nothing in it to
 /// hold to anything.
+fn screen_ssh_offer(_: u16, body: &Value) -> Check {
+    let offer: ScreenSshOffer = parse(body)?;
+    must!(
+        offer.command.contains(&offer.user) && offer.command.contains(&offer.target),
+        "the command should carry the code and the screen it forwards: {body}"
+    );
+    must!(
+        offer.expires_at_ms > 0,
+        "an offer says when it ends: {body}"
+    );
+    Ok(())
+}
+
+fn saved_login_check(_: u16, body: &Value) -> Check {
+    let check: SavedLoginCheck = parse(body)?;
+    must!(
+        check.usable || check.reason.is_some(),
+        "a login that cannot be used says why: {body}"
+    );
+    Ok(())
+}
+
+/// The client reads `{logins}` as the ids of the logins one Bot may use.
+fn bot_logins(_: u16, body: &Value) -> Check {
+    #[derive(Deserialize)]
+    struct Logins {
+        #[allow(dead_code)]
+        logins: Vec<String>,
+    }
+    parse::<Logins>(body).map(|_| ())
+}
+
+fn plugin_skills(_: u16, body: &Value) -> Check {
+    #[derive(Deserialize)]
+    struct Listed {
+        skills: Vec<PluginSkill>,
+    }
+    let listed: Listed = parse(body)?;
+    for skill in &listed.skills {
+        must!(
+            !skill.plugin.is_empty() && !skill.skill.is_empty(),
+            "a plugin skill names its plugin and itself: {body}"
+        );
+    }
+    Ok(())
+}
+
+fn plugin_skill(_: u16, body: &Value) -> Check {
+    let skill: PluginSkill = parse(body)?;
+    must!(
+        skill.body.is_some(),
+        "the one-skill read carries the skill's text: {body}"
+    );
+    Ok(())
+}
+
 fn read_as_done(_: u16, _: &Value) -> Check {
     Ok(())
 }
@@ -6863,6 +6934,12 @@ fn account_event_frame(frame: &Value) -> Check {
             thread_id: text("threadId"),
             coworker_id: text("coworkerId"),
             run_id: Some(text("runId")),
+        },
+        // A Bot's computer changed what it is doing (#386): the window reads that Bot's computer
+        // again, and every open screen on the same box.
+        "computer.changed" => AccountEvent::ComputerChanged {
+            coworker_id: text("coworkerId"),
+            box_id: opt_str(data, "boxId").map(str::to_string),
         },
         "reset" => AccountEvent::Reset,
         other => {
