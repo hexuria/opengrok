@@ -2738,7 +2738,7 @@ pub struct Ask {
 <span class="r">✗</span> hexuria/opengrok#231        test      <span class="r">red</span>
 <span class="g">✓</span> form-mode fixtures          sha 9f2c… same in 3 repos
 <span class="y">…</span> live run on a Mac           evidence missing
-<span class="r">BLOCKED</span>: 2 of 5 open. Status "tier-gate" set to failure on 3 heads.</template></doc-mock>
+<span class="r">BLOCKED</span>: 2 of 5 open. Do not merge yet.</template></doc-mock>
 
   <doc-claim>
     <p>Each tier has at most one PR in each repo, on the tier below.</p>
@@ -2763,29 +2763,19 @@ opengrok/         base: main
   </doc-claim>
 
   <doc-claim>
-    <p>The gate sets one <code>tier-gate</code> status on every head in the train.</p>
-    <doc-code title=".github/workflows/tier-gate.yml · sketch" lang="yaml">
+    <p>The owner merges by hand after a read-only gate script says READY.</p>
+    <doc-code title="scripts/tier-gate.sh · sketch" lang="bash">
 <script type="text/plain">
-name: tier-gate
-on:
-  workflow_run: { workflows: [ci, pr], types: [completed] }   # this repo's CI finished
-  repository_dispatch: { types: [tier-gate] }                 # a sibling repo's CI finished
-  workflow_dispatch:
-jobs:
-  gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # The train is the head branch name, gol/form-mode-tN. A repo with no PR for that tier
-      # is fine. Needs: required checks green in each repo, the same form-mode fixture hash,
-      # and a live-run evidence link on the tracking issue. Then it posts the "tier-gate"
-      # commit status to EVERY head SHA in the train and dispatches to the other repos.
-      - run: scripts/tier-gate.sh "${{ github.event.workflow_run.head_branch || github.event.client_payload.train }}"
-        env:
-          GH_TOKEN: ${{ secrets.TIER_GATE_TOKEN }}   # statuses:write + contents:read on the 3 repos
+# Run locally with the owner's gh login. It reads only: no status, comment, approval or merge.
+for repo in hexuria/opengrok-server hexuria/buwiz-forms hexuria/opengrok; do
+  pr=$(gh pr list -R "$repo" --head "$1" --json number -q '.[0].number')
+  [ -z "$pr" ] && { echo "$repo: no PR"; continue; }
+  gh pr checks "$pr" -R "$repo" --required   # all green, or BLOCKED
+done
+# then: the same sha256 of the form-mode fixtures in each repo, and the Mac evidence link
 </script>
     </doc-code>
-    <doc-note tone="info"><strong>Approval</strong> One account opens every PR, so the gate cannot count an approval. It counts the evidence link instead.</doc-note>
+    <doc-note tone="ok"><strong>Decided</strong> No gate token and no gate workflow. Merge order stays server, then BIR, then app.</doc-note>
   </doc-claim>
 
   <doc-claim>
