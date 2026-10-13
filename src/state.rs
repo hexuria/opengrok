@@ -6111,6 +6111,9 @@ pub struct AppState {
     /// here on every change; the tree exposes it as `office-page-*` nodes the driver can
     /// click and assert.
     pub office_pager: HashMap<String, (u32, Option<u32>)>,
+    /// Each open document window's pending proposal ids, published beside its pager: the tree
+    /// gives each an `office-proposal-accept-*`/`-reject-*` the driver can click.
+    pub office_proposals: HashMap<String, Vec<String>>,
     /// The transcript cards' page images, keyed by doc and the card's version: a card shows
     /// the page the document was dealt at, so an edit's card and an export's card can hold
     /// different pages of the same file.
@@ -6748,6 +6751,7 @@ impl AppState {
             #[cfg(target_os = "macos")]
             office_windows: std::collections::HashMap::new(),
             office_pager: HashMap::new(),
+            office_proposals: HashMap::new(),
         }
     }
 
@@ -14102,6 +14106,30 @@ impl AppState {
         let _ = (page, cx);
     }
 
+    /// A driver's Accept or Reject on a pending proposal, at whichever open document window
+    /// lists it — the review list's button click, reached past the window.
+    #[cfg(feature = "agent")]
+    pub fn office_doc_answer_proposal(
+        &mut self,
+        proposal: String,
+        accept: bool,
+        cx: &mut Context<Self>,
+    ) {
+        #[cfg(target_os = "macos")]
+        if let Some(doc_id) = self
+            .office_proposals
+            .iter()
+            .find(|(_, pending)| pending.contains(&proposal))
+            .map(|(doc_id, _)| doc_id.clone())
+            && let Some(window) = self.office_windows.get(&doc_id)
+        {
+            let _ = window.update(cx, |view, _window, cx| {
+                view.answer_proposal(&proposal, accept, cx)
+            });
+        }
+        let _ = (proposal, accept, cx);
+    }
+
     /// The pick the combobox's Enter performs — a driver's reach for a row click.
     #[cfg(feature = "agent")]
     pub fn office_doc_version_pick(&mut self, version: u64, cx: &mut Context<Self>) {
@@ -14131,6 +14159,7 @@ impl AppState {
             // A handle that would not answer is a window that is gone: the pager it last
             // published goes with it, or the tree would keep offering dead chevrons.
             self.office_pager.remove(doc_id);
+            self.office_proposals.remove(doc_id);
             let title = self
                 .office_docs
                 .iter()

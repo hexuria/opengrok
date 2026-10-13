@@ -118,6 +118,13 @@ pub fn doc_version_row_id(version: u64) -> String {
 pub fn doc_version_latest_id() -> &'static str {
     "office-version-latest"
 }
+/// A pending proposal's Accept and Reject in the window's review list.
+pub fn doc_proposal_accept_id(proposal: &str) -> String {
+    format!("office-proposal-accept-{proposal}")
+}
+pub fn doc_proposal_reject_id(proposal: &str) -> String {
+    format!("office-proposal-reject-{proposal}")
+}
 
 /// The kind's colour, from the apps themselves: Word blue, Sheets green, Slides orange.
 /// Anything else — a kind a newer server writes — still gets a badge, in the theme's accent.
@@ -396,6 +403,13 @@ pub struct OfficeDocWindow {
     /// A page answer and the detail's `boxLive` disagree — the box died, or came back,
     /// since the detail was read — so the detail is fetched again.
     detail_refresh: bool,
+    /// The proposal whose Accept or Reject is on its way: both of its buttons wait, so a
+    /// second click cannot send a second answer to the same edit.
+    answering: Option<String>,
+    /// Why the last answer was refused, in the server's words — shown under the list, as an
+    /// accept the desk turned down (a target moved, a proposal already answered) is something
+    /// the person needs to read, not a silent no-op.
+    answer_failure: Option<String>,
 }
 
 impl OfficeDocWindow {
@@ -461,6 +475,8 @@ impl OfficeDocWindow {
             stand_ins: std::collections::BTreeMap::new(),
             stale_versions: std::collections::BTreeSet::new(),
             detail_refresh: false,
+            answering: None,
+            answer_failure: None,
         };
         // The first sync may land before observe's first spawn: open_window draws at once,
         // and the window's first answer to "which doc" should not wait for an event.
@@ -588,11 +604,64 @@ impl OfficeDocWindow {
         let app = self.app.clone();
         let owner = self.owner.clone();
         let page = self.page;
+        let pending = self.pending_proposal_ids();
         cx.defer(move |cx| {
             app.update(cx, |state, _| {
-                state.office_pager.insert(owner, (page, end));
+                state.office_pager.insert(owner.clone(), (page, end));
+                state.office_proposals.insert(owner, pending);
             });
         });
+    }
+
+    /// The proposals still waiting on an answer, by id — what the review list draws buttons
+    /// for and what the agent's tree mirrors.
+    fn pending_proposal_ids(&self) -> Vec<String> {
+        self.detail
+            .as_ref()
+            .map(|detail| {
+                detail
+                    .proposals
+                    .iter()
+                    .filter(|proposal| proposal.status == "pending")
+                    .map(|proposal| proposal.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The person's Accept or Reject on a staged edit. The server applies it with the same
+    /// desk verb the Bot's `office_accept` uses; no frame streams back for it (no turn
+    /// scopes it), so the window re-reads the detail itself, and an accept's new head
+    /// version brings its pages with it. `pub(crate)` for AppState's driver seam.
+    pub(crate) fn answer_proposal(&mut self, proposal: &str, accept: bool, cx: &mut Context<Self>) {
+        if self.answering.is_some() || !self.pending_proposal_ids().iter().any(|id| id == proposal)
+        {
+            return;
+        }
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        self.answering = Some(proposal.to_string());
+        self.answer_failure = None;
+        let (doc_id, proposal) = (self.owner.clone(), proposal.to_string());
+        cx.spawn(async move |this, cx| {
+            let answered = client
+                .office_proposal_verdict(&doc_id, &proposal, accept)
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.answering = None;
+                match answered {
+                    Ok(_) => this.detail_refresh = true,
+                    Err(error) => this.answer_failure = Some(error.message.clone()),
+                }
+                this.ensure_surfaces(cx);
+                cx.notify();
+                this.repaint(cx);
+            });
+        })
+        .detach();
+        cx.notify();
+        self.repaint(cx);
     }
 
     /// The doc the window is on: the pinned tab, else the live one, else the newest in the
@@ -685,7 +754,12 @@ impl OfficeDocWindow {
                         this.detail_fetching = None;
                     }
                     match fetched {
-                        Ok(detail) => this.detail = Some(detail),
+                        // Published again: the review list's ids live on the detail, and the
+                        // agent's tree mirrors them.
+                        Ok(detail) => {
+                            this.detail = Some(detail);
+                            this.publish_pager(cx);
+                        }
                         // A gone doc is a 404 the window reads as closed: the tab keeps the
                         // card's word on it, the detail area says nothing more. The window
                         // still gets told — the failure is painted, not swallowed — and the
@@ -1148,17 +1222,18 @@ impl OfficeDocWindow {
         list.into_any_element()
     }
 
-    /// The proposals the active doc is waiting on, one line each — read-only, because the
-    /// accept/reject gestures belong to the editor this window becomes, and inventing a
-    /// review door the server's tool gate never wrote would let the client decide.
-    fn proposals(&self, theme: &Theme) -> Option<AnyElement> {
+    /// The proposals the active doc is waiting on, one line each with its Accept and Reject:
+    /// the server's own review door (`POST …/proposals/{id}/accept|reject`) decides, the
+    /// buttons only ask. A refusal stays under the list in the server's words.
+    fn proposals(&self, theme: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
         let detail = self.detail.as_ref()?;
         let pending: Vec<_> = detail
             .proposals
             .iter()
             .filter(|proposal| proposal.status == "pending")
+            .cloned()
             .collect();
-        if pending.is_empty() {
+        if pending.is_empty() && self.answer_failure.is_none() {
             return None;
         }
         let mut list = v_flex()
@@ -1184,7 +1259,48 @@ impl OfficeDocWindow {
                     proposal.id, proposal.changes, proposal.note
                 )
             };
-            list = list.child(div().text_xs().text_color(theme.foreground).child(line));
+            let busy = self.answering.is_some();
+            let (accept_id, reject_id) = (proposal.id.clone(), proposal.id.clone());
+            list = list.child(
+                h_flex()
+                    .w_full()
+                    .gap(px(8.))
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .text_xs()
+                            .text_color(theme.foreground)
+                            .child(line),
+                    )
+                    .child(
+                        Button::new(SharedString::from(doc_proposal_reject_id(&proposal.id)))
+                            .label("Reject")
+                            .ghost()
+                            .small()
+                            .disabled(busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.answer_proposal(&reject_id, false, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new(SharedString::from(doc_proposal_accept_id(&proposal.id)))
+                            .label(if self.answering.as_deref() == Some(proposal.id.as_str()) {
+                                "Applying…"
+                            } else {
+                                "Accept"
+                            })
+                            .small()
+                            .disabled(busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.answer_proposal(&accept_id, true, cx);
+                            })),
+                    ),
+            );
+        }
+        if let Some(why) = &self.answer_failure {
+            list = list.child(div().text_xs().text_color(theme.danger).child(why.clone()));
         }
         Some(list.into_any_element())
     }
@@ -1410,7 +1526,7 @@ impl Render for OfficeDocWindow {
             )
             .child(self.tabs(&theme, cx))
             .child(page_area)
-            .children(self.proposals(&theme))
+            .children(self.proposals(&theme, cx))
             .child(footer)
     }
 }

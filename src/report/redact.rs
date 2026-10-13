@@ -98,6 +98,7 @@ const ROUTE_WORDS: &[&str] = &[
     "plugins",
     "policy",
     "profile",
+    "proposals",
     "recipes",
     "reconnect",
     "refresh",
