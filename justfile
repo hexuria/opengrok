@@ -6,7 +6,13 @@
 run port="1447":
     #!/usr/bin/env bash
     set -euo pipefail
-    pkill -x nativechat 2>/dev/null || true
+    # Only the app this checkout launched: `pkill -x nativechat` closed every agent's window on
+    # the Mac. Other worktrees' apps, and instances from scripts/dev-instance.sh, stay up.
+    for pid in $(pgrep -f 'target/debug/nativechat$' || true); do
+        if [ "$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$PWD" ]; then
+            kill "$pid"
+        fi
+    done
     export OPENGROK_BASE_URL="${OPENGROK_BASE_URL:-http://127.0.0.1:{{port}}}"
     export GPUI_AGENT="${GPUI_AGENT:-1}"
     export GPUI_AGENT_TOKEN="${GPUI_AGENT_TOKEN:-dev-secret}"

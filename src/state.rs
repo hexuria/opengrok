@@ -5551,6 +5551,8 @@ pub struct AppState {
     /// The open Bot's installed plugin skills with their own switches, read with a plugin's page
     /// (`GET /coworkers/{id}/plugin-skills`), and the one open on its read-only page.
     pub plugin_skills: Vec<crate::opengrok::PluginSkill>,
+    /// The Bot [`Self::plugin_skills`] were read for, so `/` never offers another Bot's.
+    pub plugin_skills_bot: Option<String>,
     pub plugin_skill_page: Option<crate::opengrok::PluginSkill>,
     /// Whether a saved login can be used for each Bot, asked before Touch ID: the person is
     /// never asked for a fingerprint only to be refused (8 Oct 2026).
@@ -5583,9 +5585,6 @@ pub struct AppState {
     pub login_bots: Option<(String, Option<HashSet<String>>)>,
     /// The Bot being given a computer of its own from a login card, while the server makes it.
     pub own_computer_changing: Option<String>,
-    /// The open Bot's screen is being switched (its own, or the shared one), while the server
-    /// answers.
-    pub own_screen_changing: bool,
     /// What the server said when it could not give a Bot its own computer.
     pub own_computer_refusal: Option<String>,
     /// The person's "share my logins with all my Bots" switch, as the server last said; None
@@ -6486,6 +6485,7 @@ impl AppState {
             account_menu: None,
             skill_bots: None,
             plugin_skills: Vec::new(),
+            plugin_skills_bot: None,
             plugin_skill_page: None,
             saved_login_checks: HashMap::new(),
             notices: Vec::new(),
@@ -6503,7 +6503,6 @@ impl AppState {
             site_login_shares: HashMap::new(),
             login_bots: None,
             own_computer_changing: None,
-            own_screen_changing: false,
             own_computer_refusal: None,
             logins_for_all_bots: None,
             logins_for_all_bots_changing: false,
@@ -13253,6 +13252,9 @@ impl AppState {
     /// left to land rather than joined by a second — two answers for one question can only
     /// disagree by being differently stale.
     pub fn refresh_your_skills(&mut self, cx: &mut Context<Self>) {
+        // The open Bot's plugin skills are listed under the person's own, so they are asked for
+        // with them.
+        self.read_plugin_skills(cx);
         // Politeness rather than correctness: `/` opened twice in a second does not need two
         // requests. Which answer wins is the epoch's business, not this line's.
         if self.your_skills_loading {
@@ -15646,19 +15648,48 @@ impl AppState {
         true
     }
 
+    /// The open Bot's plugin skills `/` offers: read for this Bot, switched on, from a plugin not
+    /// switched off for it, and carrying the id a turn names (a server from before sends none).
+    /// The server checks all of it again on the turn; this only keeps `/` from offering a pick it
+    /// would refuse.
+    pub fn slash_plugin_skills(&self) -> Vec<&crate::opengrok::PluginSkill> {
+        if self.active_coworker_id.is_none() || self.plugin_skills_bot != self.active_coworker_id {
+            return Vec::new();
+        }
+        let off: Vec<String> = crate::components::monitor_modal::plugin_switches(self)
+            .into_iter()
+            .filter(|switch| !switch.on)
+            .map(|switch| switch.name)
+            .collect();
+        self.plugin_skills
+            .iter()
+            .filter(|row| row.on && !row.id.is_empty() && !off.contains(&row.plugin))
+            .collect()
+    }
+
     /// The pick itself, apart from the redraw. `false` when the library holds no such id and
     /// the draft was left as it was.
     fn attach_skill(&mut self, id: &str) -> bool {
         // The list `/` was built from, which is not the Settings page's: the page shows one side
         // of a toggle, and a pick has to be findable in the rows it was picked out of.
-        let Some(skill) = self.your_skills.iter().find(|skill| skill.id == id) else {
+        let name = if let Some(skill) = self.your_skills.iter().find(|skill| skill.id == id) {
+            // The name the `/` row showed, so the chip in the message and anything that reports
+            // what is on the draft cannot come to call one skill two things.
+            crate::components::chat_input::sources::skill_name(skill)
+        } else if let Some(row) = self
+            .slash_plugin_skills()
+            .into_iter()
+            .find(|row| row.id == id)
+        {
+            // A plugin skill of the open Bot, picked by the id the server gave its row; the
+            // turn sends that id as it is.
+            crate::components::chat_input::sources::plugin_skill_name(row)
+        } else {
             return false;
         };
         self.active_skill = Some(ActiveSkill {
-            id: skill.id.clone(),
-            // The name the `/` row showed, so the chip in the message and anything that reports
-            // what is on the draft cannot come to call one skill two things.
-            name: crate::components::chat_input::sources::skill_name(skill),
+            id: id.to_string(),
+            name,
         });
         true
     }
@@ -16876,6 +16907,8 @@ impl AppState {
         // was open, so a card in a thread opened cold was painted from the last bot's facts.
         self.refresh_coworker_computer_quietly(cx);
         self.refresh_host_egress(cx);
+        // `/` lists this Bot's plugin skills, never the last one's.
+        self.read_plugin_skills(cx);
         // Routines are the server's schedules for this bot and nobody else's; the ones on
         // screen belong to whoever was open a moment ago.
         self.load_routines(cx);
@@ -21377,62 +21410,6 @@ impl AppState {
                 state.saved_login_checks.insert(bot, check);
                 if let Some((card_key, login_id)) = then {
                     state.pick_saved_login(card_key, login_id, cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// The open Bot's screen switch on its Computer pane: `Some(on its own screen)` when its
-    /// computer is shared by several Bots (the person's, or the org's), `None` when there is
-    /// nothing to switch: a computer of its own is its own screen already, a group's computer is
-    /// its members' shared desk, and a server before own screens does not say.
-    pub fn own_screen_offer(&self) -> Option<bool> {
-        let computer = self.coworker_computer.as_ref()?;
-        let shared = matches!(
-            computer.share_scope,
-            Some(crate::opengrok::BoxShareScope::User | crate::opengrok::BoxShareScope::Org)
-        );
-        let screen = computer.screen.as_deref()?;
-        shared.then_some(screen == "own")
-    }
-
-    /// Put the open Bot on a screen of its own on the computer it shares, or back on the shared
-    /// screen (#376). The computer is read again after, so its screen is the one shown.
-    pub fn set_own_screen(&mut self, own: bool, cx: &mut Context<Self>) {
-        let (Some(client), Some(bot)) = (self.opengrok.clone(), self.active_coworker_id.clone())
-        else {
-            return;
-        };
-        if self.own_screen_changing {
-            return;
-        }
-        self.own_screen_changing = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = client.set_own_screen(&bot, own).await;
-            let _ = this.update(cx, |state, cx| {
-                state.own_screen_changing = false;
-                match result {
-                    Ok(now_own) => {
-                        if state.active_coworker_id.as_deref() == Some(bot.as_str())
-                            && let Some(computer) = state.coworker_computer.as_mut()
-                        {
-                            computer.screen = Some(if now_own { "own" } else { "shared" }.into());
-                        }
-                        state.refresh_coworker_computer_quietly(cx);
-                    }
-                    Err(error) => {
-                        state.notify_error(
-                            Some(bot.clone()),
-                            "Computer",
-                            &error.message,
-                            None,
-                            None,
-                            cx,
-                        );
-                    }
                 }
                 cx.notify();
             });
@@ -27589,6 +27566,73 @@ mod tests {
             state.take_draft_skill().as_deref(),
             Some("skl_2"),
             "the skill on the draft survived a pick that named nothing"
+        );
+    }
+
+    /// The plugin skills `/` offers: the open Bot's plugin-skills rows, as `GET
+    /// /coworkers/{id}/plugin-skills` sends them, for `bot`.
+    fn with_plugin_skills(state: &mut AppState, bot: &str) {
+        state.plugin_skills = serde_json::from_value(serde_json::json!([
+            {
+                "id": format!("plugin/{bot}/bir/server/file-tax"), "plugin": "bir",
+                "source": "server", "skill": "file-tax", "description": "File a BIR return",
+                "on": true
+            },
+            {
+                "id": format!("plugin/{bot}/bir/server/amend"), "plugin": "bir",
+                "source": "server", "skill": "amend", "description": "Amend", "on": false
+            },
+            { "plugin": "old", "skill": "triage", "description": "No id", "on": true }
+        ]))
+        .unwrap();
+        state.plugin_skills_bot = Some(bot.to_string());
+    }
+
+    /// `/` offers the open Bot's plugin skills that are on and can be named, and never another
+    /// Bot's: rows read for the last Bot opened stay in the state until the next read lands.
+    #[test]
+    fn slash_offers_only_the_open_bots_plugin_skills() {
+        let mut state = AppState::new();
+        state.active_coworker_id = Some("cw_1".into());
+        with_plugin_skills(&mut state, "cw_1");
+        let offered: Vec<&str> = state
+            .slash_plugin_skills()
+            .into_iter()
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(offered, ["plugin/cw_1/bir/server/file-tax"]);
+
+        state.active_coworker_id = Some("cw_2".into());
+        assert!(
+            state.slash_plugin_skills().is_empty(),
+            "another Bot's rows are not this one's"
+        );
+        assert!(!state.attach_skill("plugin/cw_1/bir/server/file-tax"));
+        assert_eq!(state.active_skill, None);
+    }
+
+    /// Picking a plugin skill puts its id on the draft, named as its `/` row was, and the turn
+    /// takes that id as it is.
+    #[test]
+    fn a_picked_plugin_skill_goes_with_the_turn_as_its_id() {
+        let mut state = AppState::new();
+        state.active_coworker_id = Some("cw_1".into());
+        with_plugin_skills(&mut state, "cw_1");
+        assert!(state.attach_skill("plugin/cw_1/bir/server/file-tax"));
+        assert_eq!(
+            state.active_skill,
+            Some(super::ActiveSkill {
+                id: "plugin/cw_1/bir/server/file-tax".to_string(),
+                name: "file-tax".to_string(),
+            })
+        );
+        assert_eq!(
+            state.take_draft_skill().as_deref(),
+            Some("plugin/cw_1/bir/server/file-tax")
+        );
+        assert!(
+            !state.attach_skill("plugin/cw_1/bir/server/amend"),
+            "a plugin skill switched off is not a pick"
         );
     }
 
@@ -37192,48 +37236,6 @@ mod tests {
         assert_ne!(state.logins_for_all_bots_generation, asked);
     }
 
-    /// The screen switch is offered on a computer several Bots share, checked while the open Bot
-    /// is on its own screen; not on a computer of its own, a group's, or from a server that does
-    /// not say which screen a Bot is on.
-    #[test]
-    fn the_own_screen_switch_is_offered_on_a_shared_computer_only() {
-        let mut state = AppState::new();
-        let computer = |extra: serde_json::Value| {
-            let mut body = serde_json::json!({ "agentId": "cw_1", "state": "running" });
-            for (key, value) in extra.as_object().expect("an object") {
-                body[key] = value.clone();
-            }
-            serde_json::from_value::<crate::opengrok::CoworkerComputer>(body).expect("a computer")
-        };
-        assert_eq!(state.own_screen_offer(), None, "no computer read yet");
-        for (extra, offered) in [
-            (
-                serde_json::json!({ "shareScope": "user", "screen": "shared" }),
-                Some(false),
-            ),
-            (
-                serde_json::json!({ "shareScope": "user", "screen": "own" }),
-                Some(true),
-            ),
-            (
-                serde_json::json!({ "shareScope": "org", "screen": "own" }),
-                Some(true),
-            ),
-            (
-                serde_json::json!({ "shareScope": "dedicated", "screen": "shared" }),
-                None,
-            ),
-            (
-                serde_json::json!({ "shareScope": "group", "screen": "shared" }),
-                None,
-            ),
-            (serde_json::json!({ "shareScope": "user" }), None),
-        ] {
-            state.coworker_computer = Some(computer(extra.clone()));
-            assert_eq!(state.own_screen_offer(), offered, "{extra}");
-        }
-    }
-
     /// Only the newest read of `/models` lands. Several are asked in a row and need not answer
     /// in order: an older one landing last is dropped, and so is one that lands after a
     /// sign-out, which also forgets the plan's models and keeps the gateway's.
@@ -42647,6 +42649,127 @@ mod tests {
         );
     }
 
+    /// A plugin the server loaded from its own folder, as `GET /plugins/installations` lists it
+    /// beside the account's installs: `"source": "server"`, with no registry or pinned commit.
+    fn server_install() -> crate::opengrok::PluginInstallation {
+        serde_json::from_value(serde_json::json!({
+            "name": "bir",
+            "source": "server",
+            "bundle": {
+                "manifest": {"name": "bir", "description": "BIR forms"},
+                "parts": [
+                    {"kind": "mcp", "name": "bir-mcp", "supported": true, "reason": null},
+                    {"kind": "skill", "name": "file-tax", "supported": true, "reason": null}
+                ]
+            },
+            "connectors": [],
+            "accounts": []
+        }))
+        .unwrap()
+    }
+
+    /// An install that does not say where it came from is the account's, as every install was
+    /// before the server listed its own plugins.
+    #[test]
+    fn an_install_without_a_source_is_the_accounts() {
+        let installs = recorded_installs();
+        assert!(!installs.is_empty());
+        assert!(installs.iter().all(|install| !install.from_server()));
+        assert!(server_install().from_server());
+    }
+
+    /// A plugin the server loaded itself is on Installed with the account's installs, even when
+    /// the marketplace's catalog could not be read.
+    #[test]
+    fn a_server_plugin_is_listed_on_installed_without_the_catalog() {
+        use crate::components::marketplace::{self, RowAction};
+        use crate::components::monitor_modal::{
+            MarketPage, MonitorKind, MonitorModal, PluginSelection,
+        };
+        let mut state = signed_in_state();
+        state.plugin_market.catalog = Some(crate::state::Loaded::Failed("down".into()));
+        let mut installs = recorded_installs();
+        installs.push(server_install());
+        state.plugin_market.installations = Some(crate::state::Loaded::Ready(installs));
+        let mut modal = MonitorModal::new("cw_1".into(), MonitorKind::Plugins);
+        modal.page = MarketPage::Installed;
+        state.monitor_modal = Some(modal);
+        let rows = marketplace::visible_rows(&state);
+        let bir = rows
+            .iter()
+            .find(|row| row.selection == PluginSelection::Plugin("bir".into()))
+            .expect("the server plugin is on Installed");
+        assert_eq!(bir.action, RowAction::Added);
+        assert!(
+            rows.iter()
+                .any(|row| row.selection == PluginSelection::Plugin("demo".into()))
+        );
+    }
+
+    /// A server plugin's page has its tools with their choices and its skills like any install,
+    /// and no Uninstall: the server put it there, and only the server takes it away.
+    #[test]
+    fn a_server_plugins_page_has_no_uninstall() {
+        use crate::components::monitor_modal::{MonitorKind, MonitorModal, PluginSelection};
+        use crate::opengrok::{CoworkerTool, PluginSkill};
+        let mut state = signed_in_state();
+        state.active_coworker_id = Some("cw_1".into());
+        state.plugin_market.installations =
+            Some(crate::state::Loaded::Ready(vec![server_install()]));
+        state.coworker_tools = Some((
+            "cw_1".into(),
+            crate::state::ToolList::Listed(vec![CoworkerTool {
+                name: "bir_form_fill".into(),
+                kind: "plugin".into(),
+                plugin: Some("bir".into()),
+                qualified: Some("bir.bir-mcp.bir_form_fill".into()),
+                mode: Some("ask".into()),
+                ..Default::default()
+            }]),
+        ));
+        state.plugin_skills = vec![PluginSkill {
+            id: String::new(),
+            plugin: "bir".into(),
+            skill: "file-tax".into(),
+            description: "File a return".into(),
+            on: true,
+            body: None,
+        }];
+        let mut modal = MonitorModal::new("cw_1".into(), MonitorKind::Plugins);
+        modal.confirming = true;
+        state.monitor_modal = Some(modal);
+        let detail =
+            crate::components::marketplace::detail(&state, &PluginSelection::Plugin("bir".into()))
+                .expect("the server plugin has a page");
+        assert_eq!(detail.action, None, "no Uninstall on a server plugin");
+        assert_eq!(detail.question, None, "nothing asks to uninstall it");
+        assert_eq!(detail.subtitle.as_deref(), Some("Installed on this server"));
+        assert_eq!(detail.skills, ["file-tax"]);
+        assert_eq!(detail.tools.len(), 1);
+        assert_eq!(detail.tools[0].qualified, "bir.bir-mcp.bir_form_fill");
+        assert_eq!(detail.tools[0].mode, "ask");
+    }
+
+    /// Asking to uninstall a server plugin, by any path, asks nothing and sends nothing.
+    #[gpui_kit::test]
+    fn a_server_plugin_cannot_be_uninstalled(cx: &mut gpui_kit::TestAppContext) {
+        use crate::components::monitor_modal::{MonitorKind, MonitorModal, PluginSelection};
+        use gpui_kit::AppContext as _;
+        let app = cx.new(|_| signed_in_state());
+        app.update(cx, |state, cx| {
+            state.plugin_market.installations =
+                Some(crate::state::Loaded::Ready(vec![server_install()]));
+            let mut modal = MonitorModal::new("cw_1".into(), MonitorKind::Plugins);
+            modal.selected = Some(PluginSelection::Plugin("bir".into()));
+            state.monitor_modal = Some(modal);
+            state.ask_market_uninstall(true, cx);
+            assert!(!state.monitor_modal.as_ref().unwrap().confirming);
+            state.monitor_modal.as_mut().unwrap().confirming = true;
+            state.uninstall_market_plugin(cx);
+            assert_eq!(state.plugin_market.changing, None);
+        });
+    }
+
     /// "@demo:execute" and "@routines:create_routine" name one tool each, as the Bot's own
     /// listing names it, so the server can name it to the model (`preferTools`); a bare
     /// "@routines" names the whole group. A function the Bot does not have is a word.
@@ -42866,6 +42989,43 @@ mod tests {
             .filter(|request| request.url.path() == "/ag-ui")
             .map(|request| serde_json::from_slice(&request.body).expect("a JSON body"))
             .collect()
+    }
+
+    /// A plugin skill picked from `/` goes out as `forwardedProps.skill`, the id verbatim, which
+    /// the server quotes as the plugin's skill.
+    #[tokio::test]
+    async fn a_picked_plugin_skill_is_the_turns_forwarded_skill() {
+        let server = wiremock::MockServer::start().await;
+        let client = client_signed_in_to(&server).await;
+        let id = "plugin/cw_1/bir/server/file-tax";
+        let _ran = runs_for(&server, json!({ "skill": id }), &finished()).await;
+        let mut state = AppState::new();
+        state.active_coworker_id = Some("cw_1".into());
+        state.plugin_skills = serde_json::from_value(json!([{
+            "id": id, "plugin": "bir", "source": "server", "skill": "file-tax",
+            "description": "File a BIR return", "on": true
+        }]))
+        .unwrap();
+        state.plugin_skills_bot = Some("cw_1".into());
+        assert!(state.attach_skill(id));
+        let skill = state.take_draft_skill();
+        client
+            .run_turn(
+                "cw_1",
+                "cw_1",
+                "run_1",
+                &[],
+                None,
+                skill.as_deref(),
+                None,
+                None,
+                None,
+                |_, _| {},
+            )
+            .await
+            .expect("the turn runs");
+        let sent = turns_sent(&server).await;
+        assert_eq!(sent[0]["forwardedProps"]["skill"], json!(id));
     }
 
     /// Try again on the reply of a message that was queued names the reply's run as the one it
@@ -47821,6 +47981,11 @@ mod tests {
         wait_for(cx, "the Bot's plugin skills are read", |cx| {
             app.read_with(cx, |state, _| !state.plugin_skills.is_empty())
         });
+        assert_eq!(
+            app.read_with(cx, |state, _| state.plugin_skills_bot.clone()),
+            Some("cw_1".to_string()),
+            "the rows remember the Bot they were read for"
+        );
         drive(cx, Op::click("market-plugin-skill-row-bravo-review"));
         wait_for(cx, "the skill's text is read", |cx| {
             app.read_with(cx, |state, _| state.plugin_skill_page.is_some())

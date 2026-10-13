@@ -24,6 +24,8 @@ pub(crate) const DETAIL_ACTION: &str = "market-detail-action";
 pub(crate) const DETAIL_REFUSAL: &str = "market-detail-refusal";
 pub(crate) const UNINSTALL_YES: &str = "market-uninstall-confirm";
 pub(crate) const UNINSTALL_NO: &str = "market-uninstall-cancel";
+/// What a plugin the server loaded from its own folder says in place of Uninstall.
+pub(crate) const SERVER_INSTALLED: &str = "Installed on this server";
 pub(crate) const SOURCE: &str = "market-source";
 pub(crate) const TOOLS: &str = "market-tools";
 pub(crate) const TOKEN_FIELD: &str = "market-token-field";
@@ -1193,6 +1195,8 @@ pub(crate) fn detail(state: &AppState, selection: &PluginSelection) -> Option<Ma
                 }
             };
             let changing = market.changing.as_ref().filter(|(n, _)| n == name);
+            // The server loaded it from its own folder: nothing here adds or removes it.
+            let from_server = install.is_some_and(|i| i.from_server());
             let action = match (install, changing) {
                 (_, Some((_, true))) => DetailAction::Adding,
                 (_, Some((_, false))) => DetailAction::Uninstalling,
@@ -1309,6 +1313,7 @@ pub(crate) fn detail(state: &AppState, selection: &PluginSelection) -> Option<Ma
             info.push((
                 "Availability",
                 match entry {
+                    _ if from_server => SERVER_INSTALLED.into(),
                     None => "No longer listed in the marketplace".into(),
                     Some(e) if e.unavailable_reason.is_some() => {
                         "Not installable on this server".into()
@@ -1326,7 +1331,7 @@ pub(crate) fn detail(state: &AppState, selection: &PluginSelection) -> Option<Ma
             Some(MarketDetail {
                 header_switch: None,
                 choice: None,
-                subtitle: None,
+                subtitle: from_server.then(|| SERVER_INSTALLED.to_string()),
                 title: name.clone(),
                 description: entry
                     .map(|e| e.description.clone())
@@ -1334,15 +1339,27 @@ pub(crate) fn detail(state: &AppState, selection: &PluginSelection) -> Option<Ma
                     .or_else(|| install.and_then(|i| i.bundle.manifest.description.clone()))
                     .unwrap_or_default(),
                 source,
-                action: Some(action),
+                action: (!from_server).then_some(action),
                 refusal: market.refusals.get(name).cloned(),
                 accounts,
                 parts_status,
-                skills: parts
-                    .iter()
-                    .filter(|p| p.kind == "skill" && p.supported)
-                    .map(|p| p.name.clone())
-                    .collect(),
+                skills: {
+                    let mut skills: Vec<String> = parts
+                        .iter()
+                        .filter(|p| p.kind == "skill" && p.supported)
+                        .map(|p| p.name.clone())
+                        .collect();
+                    // A server plugin's bundle need not list its parts: its skills are the ones
+                    // the Bot's plugin skills name for it.
+                    if from_server {
+                        for row in state.plugin_skills.iter().filter(|r| &r.plugin == name) {
+                            if !skills.contains(&row.skill) {
+                                skills.push(row.skill.clone());
+                            }
+                        }
+                    }
+                    skills
+                },
                 servers: parts
                     .iter()
                     .filter(|p| p.kind == "mcp" && p.supported)
@@ -1373,7 +1390,7 @@ pub(crate) fn detail(state: &AppState, selection: &PluginSelection) -> Option<Ma
                 // A title and the line under it, split on the line break when drawn: what goes
                 // is every account of the plugin with its secrets in the vault, which is what the
                 // server's uninstall does (`installed::uninstall`).
-                question: question(Some(match accounts_bound {
+                question: question((!from_server).then(|| match accounts_bound {
                     0 => format!(
                         "Uninstall {name}?\nEvery Bot stops using it. Installing it again starts \
                          from the catalog."

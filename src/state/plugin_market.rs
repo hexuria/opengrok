@@ -693,14 +693,22 @@ impl AppState {
         if let PluginSelection::Plugin(name) = selection {
             self.read_sign_in_methods(&name, cx);
             self.read_plugin_skills(cx);
-            self.read_detail(name, cx);
+            // The marketplace has no page for a plugin the server loaded itself.
+            let from_server = self
+                .plugin_market
+                .installation(&name)
+                .is_some_and(|install| install.from_server());
+            if !from_server {
+                self.read_detail(name, cx);
+            }
         }
         self.record_window_nav();
         cx.notify();
     }
 
-    /// The open Bot's plugin skills and their switches, for a plugin's Skills rows. A failed read
-    /// leaves the rows without switches rather than guessing them on.
+    /// The open Bot's plugin skills and their switches, for a plugin's Skills rows and for `/`.
+    /// A failed read leaves the rows without switches rather than guessing them on. The rows
+    /// remember the Bot they were read for, so `/` never offers one Bot's on another.
     pub fn read_plugin_skills(&mut self, cx: &mut Context<Self>) {
         let (Some(client), Some(bot)) = (self.opengrok.clone(), self.active_coworker_id.clone())
         else {
@@ -710,6 +718,7 @@ impl AppState {
             let read = client.plugin_skills(&bot).await;
             let _ = this.update(cx, |state, cx| {
                 state.plugin_skills = read.unwrap_or_default();
+                state.plugin_skills_bot = Some(bot);
                 cx.notify();
             });
         })
@@ -895,7 +904,15 @@ impl AppState {
         let Some(modal) = self.monitor_modal.as_mut() else {
             return;
         };
-        if !matches!(modal.selected, Some(PluginSelection::Plugin(_))) || modal.removing {
+        let Some(PluginSelection::Plugin(name)) = &modal.selected else {
+            return;
+        };
+        // A plugin the server loaded itself is the server's to remove, never asked here.
+        let from_server = self
+            .plugin_market
+            .installation(name)
+            .is_some_and(|install| install.from_server());
+        if modal.removing || (confirm && from_server) {
             return;
         }
         modal.confirming = confirm;
@@ -915,7 +932,10 @@ impl AppState {
         };
         if !modal.confirming
             || self.plugin_market.changing.is_some()
-            || self.plugin_market.installation(&name).is_none()
+            || self
+                .plugin_market
+                .installation(&name)
+                .is_none_or(|install| install.from_server())
         {
             return;
         }

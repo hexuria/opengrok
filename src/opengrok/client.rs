@@ -2466,36 +2466,6 @@ impl OpenGrokClient {
     /// `PUT /coworkers/{id}/own-computer` `{on}`: this Bot gets a computer of its own while the
     /// account's others keep sharing (opengrok-server `put_own_computer`, `agui/ceiling.rs`).
     /// Making the computer can take a while, so it is given the computer's own patience.
-    /// `PUT /coworkers/{id}/computer/screen` `{own}`: this Bot works on a screen of its own on the
-    /// computer it shares, with its own browser, or goes back to the shared screen. Answers
-    /// whether it is on its own screen now (opengrok-server `put_own_screen` in
-    /// `crates/opengrok-server/src/agui/ceiling.rs`, gol/own-screen, #376). A Bot with a
-    /// computer of its own is refused, in the server's words.
-    pub async fn set_own_screen(
-        &self,
-        coworker_id: &str,
-        own: bool,
-    ) -> Result<bool, OpenGrokError> {
-        #[derive(Deserialize)]
-        struct Answered {
-            screen: String,
-        }
-        let path = format!("/coworkers/{}/computer/screen", path_segment(coworker_id));
-        let body = json!({ "own": own });
-        let response = self
-            .send_json_within(
-                reqwest::Method::PUT,
-                &path,
-                Some(&body),
-                Some(std::time::Duration::from_secs(60)),
-                None,
-            )
-            .await?;
-        Self::json_or_error::<Answered>(response)
-            .await
-            .map(|answered| answered.screen == "own")
-    }
-
     pub async fn set_own_computer(&self, coworker_id: &str, on: bool) -> Result<(), OpenGrokError> {
         let path = format!("/coworkers/{}/own-computer", path_segment(coworker_id));
         let body = json!({ "on": on });
@@ -4076,6 +4046,11 @@ pub struct SavedLoginCheck {
 /// from the one-skill read.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PluginSkill {
+    /// The id a turn names to pick this skill (`forwardedProps.skill`),
+    /// `plugin/<bot>/<plugin>/<revision>/<skill>`. A server from before sends none, and a row
+    /// without one cannot be picked.
+    #[serde(default)]
+    pub id: String,
     pub plugin: String,
     pub skill: String,
     #[serde(default)]
@@ -4327,15 +4302,29 @@ pub struct PluginDetail {
 /// `list` in `crates/opengrok-plugin-api/src/lib.rs` on gol/service-accounts, uncommitted). Only
 /// what the app shows is read of the bundle: its manifest and parts; the skill bodies and server
 /// configs stay the server's business.
+///
+/// Beside the account's installs the list carries the plugins the server loaded from its own
+/// folder, `"source": "server"`: listed like an install, never removed from here. Those need not
+/// name a registry, a pinned commit or when they were installed.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInstallation {
     pub name: String,
+    /// Whose install it is. Absent on the account's installs, and on every install from a server
+    /// that lists none of its own.
+    #[serde(default)]
+    pub source: InstallSource,
+    #[serde(default)]
     pub registry: String,
+    #[serde(default)]
     pub registry_revision: String,
+    #[serde(default)]
     pub repository: String,
+    #[serde(default)]
     pub revision: String,
+    #[serde(default)]
     pub installed_at_ms: i64,
+    #[serde(default)]
     pub bundle: InstalledBundle,
     #[serde(default)]
     pub connectors: Vec<String>,
@@ -4345,6 +4334,24 @@ pub struct PluginInstallation {
     pub accounts: Vec<InstalledAccount>,
 }
 
+impl PluginInstallation {
+    /// The server loaded it from its own folder: shown like an install, but not one to uninstall.
+    pub fn from_server(&self) -> bool {
+        self.source == InstallSource::Server
+    }
+}
+
+/// Where an install came from: the person's account installed it from the marketplace, or the
+/// server loaded it itself. A word this app does not know reads as the account's.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallSource {
+    Server,
+    #[default]
+    #[serde(other)]
+    Account,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledAccount {
@@ -4352,7 +4359,7 @@ pub struct InstalledAccount {
     pub connection_id: String,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct InstalledBundle {
     pub manifest: PluginManifest,
     #[serde(default)]
@@ -4360,7 +4367,7 @@ pub struct InstalledBundle {
 }
 
 /// `Manifest` in opengrok-server `crates/opengrok-plugins/src/lib.rs`, the fields a person reads.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct PluginManifest {
     pub name: String,
     #[serde(default)]
@@ -4708,12 +4715,6 @@ pub struct CoworkerComputer {
     /// said nothing. [`Self::why_no_computer`] is when the pane shows it.
     #[serde(rename = "computerError", default)]
     pub computer_error: Option<ComputerError>,
-    /// Which screen of the computer this Bot works on: `own` once it was told to use a screen of
-    /// its own on the computer it shares, else `shared` (opengrok-server `coworker_screen` in
-    /// `crates/opengrok-server/src/agui/provision.rs`, gol/own-screen, #376). `None` from a
-    /// server before own screens, which hides the switch.
-    #[serde(default)]
-    pub screen: Option<String>,
 }
 
 /// Why the server could not give a Bot a computer: a stable code, the sentence a person reads,
@@ -13780,34 +13781,6 @@ mod tests {
         client.set_own_computer("cw_1", true).await.unwrap();
     }
 
-    /// A Bot is put on a screen of its own, and back, with one PUT each; the computer's status says
-    /// which screen it is on, and a server before own screens says nothing.
-    #[tokio::test]
-    async fn a_bot_is_put_on_its_own_screen_and_back() {
-        let server = MockServer::start().await;
-        for (own, word) in [(true, "own"), (false, "shared")] {
-            Mock::given(method("PUT"))
-                .and(path("/coworkers/cw_1/computer/screen"))
-                .and(body_json(json!({ "own": own })))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "screen": word })))
-                .expect(1)
-                .mount(&server)
-                .await;
-        }
-        let client = OpenGrokClient::new(&server.uri()).unwrap();
-        assert!(client.set_own_screen("cw_1", true).await.unwrap());
-        assert!(!client.set_own_screen("cw_1", false).await.unwrap());
-
-        let status: CoworkerComputer = serde_json::from_value(
-            json!({ "agentId": "cw_1", "state": "running", "screen": "own" }),
-        )
-        .unwrap();
-        assert_eq!(status.screen.as_deref(), Some("own"));
-        let older: CoworkerComputer =
-            serde_json::from_value(json!({ "agentId": "cw_1", "state": "running" })).unwrap();
-        assert_eq!(older.screen, None);
-    }
-
     /// One plugin skill is switched by plugin and name, and its page reads the text the list
     /// leaves out.
     #[tokio::test]
@@ -13816,7 +13789,9 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/coworkers/cw_1/plugin-skills"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "skills": [
-                { "plugin": "demo", "skill": "triage", "description": "Triage safely", "on": false }
+                { "plugin": "demo", "skill": "triage", "description": "Triage safely", "on": false },
+                { "id": "plugin/cw_1/bir/server/file-tax", "plugin": "bir", "source": "server",
+                  "skill": "file-tax", "description": "File a BIR return", "on": true }
             ]})))
             .mount(&server)
             .await;
@@ -13839,6 +13814,8 @@ mod tests {
         let client = OpenGrokClient::new(&server.uri()).unwrap();
         let listed = client.plugin_skills("cw_1").await.unwrap();
         assert_eq!(listed[0].skill, "triage");
+        assert_eq!(listed[0].id, "", "a server from before names no id");
+        assert_eq!(listed[1].id, "plugin/cw_1/bir/server/file-tax");
         assert!(!listed[0].on);
         assert_eq!(listed[0].body, None);
         let page = client.plugin_skill("cw_1", "demo", "triage").await.unwrap();
