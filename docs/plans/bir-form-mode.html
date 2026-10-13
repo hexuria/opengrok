@@ -1871,7 +1871,24 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 })();
 
 </script>
-<style>.mk-frame:not(.terminal){background:var(--card)!important;color:var(--ink)!important}</style>
+<style>
+/* The runtime inverts some pills with var(--ink), which turns white in dark mode. These
+   rules give them a theme-safe pair instead, and make the decisions easy to find. */
+:root{--inv-bg:var(--sunk);--inv-fg:var(--ink)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--inv-bg:#45443f;--inv-fg:#faf9f5}}
+:root[data-theme="dark"]{--inv-bg:#45443f;--inv-fg:#faf9f5}
+html,body{background:var(--paper)!important;color:var(--ink)}
+.mk-frame:not(.terminal){background:var(--card)!important;color:var(--ink)!important}
+doc-quote .q-via,doc-quote[via="github"] .q-via,doc-quote[via="pr"] .q-via,.sc-ent h5,.cl-kind,.nw-btn.primary,.nw-toast,.mc-say,.nw-pin-dot.nw-cmark{background:var(--inv-bg)!important;color:var(--inv-fg)!important;border-color:var(--inv-bg)!important}
+.nw-bar .nw-respond{background:var(--accent)!important;color:#1a1915!important}
+.nw-bar button:not(.nw-respond)[class*="todo"],.nw-bar .nw-next,.nw-bar .nw-todo{color:#1a1915!important}
+doc-ask{border:2px solid var(--ink-3)!important;background:var(--card)!important}
+doc-ask.todo{border-color:var(--accent)!important}
+doc-ask::before{font-size:13px!important;font-weight:700!important;color:var(--ink-2)!important;text-transform:uppercase;letter-spacing:.06em}
+doc-ask.todo::before{color:var(--accent)!important}
+doc-ask label{border:1px solid var(--line)!important;padding:12px 14px!important}
+doc-ask label:has(input:checked){border:2px solid var(--accent)!important;background:var(--accent-soft)!important}
+</style>
 <style data-mock-shared>
   .ui { font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
   .ui .hd { padding: 10px 14px; border-bottom: 1px solid var(--line-2); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -1933,7 +1950,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   <div class="fb">→ Line 14 · Amount of Remittance</div>
 </div></template>
     <doc-pin ref="err" anchor="br" title="One error, in its own line">Every box keeps an empty line, so the card does not move.</doc-pin>
-    <doc-pin ref="saved" anchor="r" title="Saves when you leave a box">There is no Save button.</doc-pin>
+    <doc-pin ref="saved" anchor="tr" offset="-8,0" title="Saves when you leave a box">There is no Save button.</doc-pin>
     <doc-pin ref="eye" anchor="tr" title="View form">Opens the filled sheet.</doc-pin>
     <doc-pin ref="mode" anchor="tl" title="The chat box drives the form">✕ dismisses the form.</doc-pin>
   </doc-mock>
@@ -2215,18 +2232,15 @@ impl SaveRefusal {
   </doc-claim>
 
   <doc-claim>
-    <p>Dismiss keeps the draft. Resume opens the same box again.</p>
+    <p>A submitted form stays in the chat. The person can read it, not change it.</p>
     <doc-mock frame="none" w="440"><template>
 <div class="ui">
-  <div class="rc">💾 <b>0619-E draft saved</b> · stopped at Line 14 &nbsp; <span class="btn pri">Resume</span></div>
-  <div class="comp"><span class="chip off">💬 Chat</span><span class="cin off">Message the Bot…</span></div>
+  <div class="hd"><span><b>Form 0619-E · Submitted</b><br><small>queued 14:06 · read only</small></span><small>‹ Page 1 of 1 ›</small></div>
+  <div class="f"><label><i>Line 4</i>Any Taxes Withheld?</label><div class="in ro">Yes</div><div class="el"></div></div>
+  <div class="f"><label><i>Line 14</i>Amount of Remittance</label><div class="in ro r">12,500.00</div><div class="el"></div></div>
+  <div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="dim">No Submit: this return is in BIR's queue</span></div>
 </div></template></doc-mock>
-    <doc-ask id="history">
-      <p>After form mode ends, what does the chat keep?</p>
-      <label><input type="radio" name="history" value="line" checked> One line <small>“Filled 3 boxes on 0619-E”</small></label>
-      <label><input type="radio" name="history" value="none"> Nothing</label>
-    </doc-ask>
-    <doc-note tone="ok"><strong>Decided: one line</strong> The commands stay out of the chat. One line keeps a record of what the form changed.</doc-note>
+    <doc-note tone="ok"><strong>Decided</strong> A dismissed form waits with Resume. A submitted form becomes this read-only view.</doc-note>
     <doc-claim>
       <p>Resume opens the card again in the app. The Bot is not asked.</p>
       <doc-code title="state.rs · sketch" lang="rust">
@@ -2247,49 +2261,42 @@ pub fn resume_form(&mut self, form: &FormKey, cx: &mut Context<Self>) {
 <!-- ═════ 2 · TIER 1 SUBMIT ═════ -->
 <doc-claim>
   <p>Tier 1: the draft saves itself, and Submit sends only a clean draft.</p>
-  <doc-machine name="card" caption="Each state shows its screen. Dashed arrows hang on decision 2.">
+  <doc-machine name="card" caption="One press sends. A queued return can be cancelled until BIR's sender takes it.">
 <script type="text/plain">
 machine card initial editing
 state editing      # The person types. Each blur saves the draft.
-state checking     # Submit pressed. BIR validates the draft.
+state checking     # Submit pressed. BIR validates inside submit.
 state showerror    # The first error shows under its box.
-state confirm      # Clean. The card asks one more time.
-state sending      # BIR validates again and queues the return.
-state submitted final  # A receipt replaces the card.
+state queued       # In BIR's queue. Cancel or Send now.
+state sent      final  # Sent to BIR. The card is read only.
 state dismissed final  # Saved. Resume opens it again.
 
-| editing   | checking | confirm | sending | submitted |
-| dismissed | showerror| .       | .       | .         |
+| editing   | checking  | queued | sent |
+| dismissed | showerror | .      | .    |
 
 editing   -submit->  checking  : Submit
 checking  -errors->  showerror : errors
-showerror -fix->     editing   : blur
-+ checking -clean->  confirm   : clean
-+ confirm -send->    sending   : 2nd press
-confirm   -cancel->  editing   : Not yet
-sending   -queued->  submitted : queued
-sending   -refused-> showerror : changed
+showerror -fix->     editing   : fixed
+checking  -clean->   queued    : clean
++ queued  -cancel->  editing   : Cancel
+queued    -go->      sent      : hold ends
++ queued  -now->     sent      : Send now
 editing   -dismiss-> dismissed : ✕
 </script>
-    <div data-state="showerror"><doc-mock frame="none" w="420"><template>
-<div class="ui"><div class="f here"><label><i>Line 1</i>For the Month of (MM/YYYY)</label><div class="in bad">10/2026</div><div class="el">⚠ Invalid month on Item 1. Month should not be a current Date.</div></div>
-<div class="f"><label><i>Line 3</i>Amended Form?</label><div class="in"></div><div class="el"></div></div>
-<div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="btn pri">Submit</span></div></div></template></doc-mock></div>
-    <div data-state="confirm"><doc-mock frame="none" w="420"><template>
-<div class="ui"><div class="x">✓ No errors</div><div class="band">TEST DATABASE · 0619-E · 09/2026 · ₱12,500.00</div>
-<div class="ft"><span class="btn">Not yet</span><span class="sp"></span><span class="btn red">Send ₱12,500.00 to BIR</span></div></div></template></doc-mock></div>
-    <div data-state="submitted"><doc-mock frame="none" w="420"><template>
-<div class="ui"><div class="rc"><b>✓ Submitted · queued 14:06</b><br>0619-E · 09/2026 · ₱12,500.00<br><span class="dim">Waiting for the confirmation email from BIR. Not paid yet.</span></div></div></template></doc-mock></div>
     <div data-state="editing"><doc-mock frame="none" w="420"><template>
 <div class="ui"><div class="f here"><label><i>Line 14</i>Amount of Remittance</label><div class="in r">12,500.00</div><div class="el"></div></div><div class="x">✓ Draft saved 14:02:11</div>
 <div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="btn pri">Submit</span></div></div></template></doc-mock></div>
+    <div data-state="showerror"><doc-mock frame="none" w="420"><template>
+<div class="ui"><div class="f here"><label><i>Line 1</i>For the Month of (MM/YYYY)</label><div class="in bad">10/2026</div><div class="el">⚠ Invalid month on Item 1. Month should not be a current Date.</div></div>
+<div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="btn pri">Submit</span></div></div></template></doc-mock></div>
+    <div data-state="queued"><doc-mock frame="none" w="420"><template>
+<div class="ui"><div class="rc"><b>✓ Queued 14:06</b> · sends at 14:11<br>0619-E · 09/2026 · ₱12,500.00</div>
+<div class="ft"><span class="btn">Cancel submission</span><span class="sp"></span><span class="btn pri">Send now</span></div></div></template></doc-mock></div>
+    <div data-state="sent"><doc-mock frame="none" w="420"><template>
+<div class="ui"><div class="rc"><b>✓ Sent to BIR 14:11</b><br><span class="dim">Waiting for the confirmation email from BIR. Not paid yet.</span></div>
+<div class="ft"><span class="eye">👁</span><span class="sp"></span><span class="dim">read only</span></div></div></template></doc-mock></div>
   </doc-machine>
-    <doc-ask id="confirm">
-      <p>After a clean check, does Submit ask once more?</p>
-      <label><input type="radio" name="confirm" value="yes" checked> Yes, a second press <small>shows TEST or REAL, form, period, amount</small></label>
-      <label><input type="radio" name="confirm" value="no"> No, one press sends <small>the confirm state goes from the machine</small></label>
-    </doc-ask>
-    <doc-note tone="ok"><strong>Decided: yes</strong> A sent return cannot come back. The second press shows TEST or REAL and the amount.</doc-note>
+    <doc-note tone="ok"><strong>Decided: one press sends</strong> The safety is the queue. The person can cancel until the hold ends.</doc-note>
 
   <doc-claim>
     <p>Card actions go to BIR's tools through the server, without a Bot turn.</p>
@@ -2522,6 +2529,116 @@ pub fn coworker_lock(coworker: &CoworkerId) -> Arc<tokio::sync::Mutex<()>> {
   </doc-claim>
 </doc-claim>
 
+<!-- ═════ 3 · QUEUE ═════ -->
+<doc-claim>
+  <p>The person lists, cancels or sends queued returns from the chat.</p>
+  <doc-mock frame="none" w="440"><template>
+<div class="ui">
+  <div class="hd"><span><b>Queued for BIR</b></span><small>2 returns</small></div>
+  <div class="f"><label><i>0619-E</i>JUAN DELA CRUZ · 09/2026 · ₱12,500.00</label><div class="dim">queued 14:06 · sends 14:11</div><div class="ft" style="padding:4px 0 8px"><span class="btn">Cancel submission</span><span class="sp"></span><span class="btn pri">Send now</span></div></div>
+  <div class="f"><label><i>1601C</i>ACME TRADING · 09/2026 · ₱4,210.00</label><div class="dim">queued 13:58 · sends 14:03 · sending…</div><div class="el"></div></div>
+  <div class="comp"><span class="cin off">list queued forms</span></div>
+</div></template></doc-mock>
+
+  <doc-claim>
+    <p>Three new BIR tools wrap queue code that exists today.</p>
+    <doc-calls title="Queue commands" caption="These commands work without a form open. They are not form-mode commands.">
+<script type="text/plain">
++ **bir_queue_list** → jobs and queued returns        @ buwiz-forms/crates/bir-core/src/db/drafts.rs:2899
++ **bir_queue_cancel** {form, tin, period}            @ buwiz-forms/crates/bir-core/src/db/queueable.rs:429
++   cancel only while the return is still queued; the sender's claim wins a race
++ **bir_queue_send_now** {form, tin, period}          @ buwiz-forms/crates/bir-core/src/background_cron.rs:34
++   ends the hold for that return, then wake()
+</script>
+    
+<script type="text/plain" data-excerpt="buwiz-forms/crates/bir-core/src/db/drafts.rs:2899" data-start="2893">
+            .optional()?;
+        Ok(row.and_then(|(form_code, data_json)| {
+            crate::forms::calendar_status::amount_payable_from_json(&form_code, &data_json)
+        }))
+    }
+
+    pub fn list_all_queued_submissions(&self) -> Result<Vec<FormDraftSummary>, DbError> {
+        self.list_form_drafts_with_status(&["Queued", "Submitted"])
+    }
+
+    /// Every return that has left Draft: Queued, Submitted, Confirmed, Paid.
+    ///
+    /// `list_all_queued_submissions` stops at Submitted because the cron and
+</script>
+<script type="text/plain" data-excerpt="buwiz-forms/crates/bir-core/src/db/queueable.rs:429" data-start="423">
+        tx.commit()?;
+        let _ = self.request_google_calendar_sync();
+        Ok(true)
+    }
+
+    /// Cancel one exact, still-unclaimed queue generation back to Draft.
+    pub fn cancel_queued_queueable<F: QueueableForm>(&self, queued: &F) -> Result<F, DbError> {
+        if !matches!(queued.lifecycle().status, FilingStatus::Queued)
+            || !queued.lifecycle().is_unclaimed()
+        {
+            return Err(DbError::Other(format!(
+                "Only an unclaimed queued {} snapshot can be canceled",
+                F::FORM_CODE
+</script>
+<script type="text/plain" data-excerpt="buwiz-forms/crates/bir-core/src/background_cron.rs:34" data-start="28">
+pub fn get_active_jobs() -> Arc<Mutex<HashSet<String>>> {
+    ACTIVE_JOBS
+        .get_or_init(|| Arc::new(Mutex::new(HashSet::new())))
+        .clone()
+}
+
+pub fn wake() {
+    match wake_with_status() {
+        WakeDispatchStatus::Delivered | WakeDispatchStatus::AlreadyPending => {}
+        WakeDispatchStatus::WorkerNotRunning => {
+            warn!("Background cron wake was deferred because the worker is not running yet");
+        }
+        WakeDispatchStatus::WorkerClosed => {
+</script></doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A queued return waits a short hold before the sender takes it.</p>
+    <doc-code src="buwiz-forms/crates/bir-core/src/background_cron.rs" lines="57-70" hl="66" file="buwiz-forms/crates/bir-core/src/background_cron.rs" start="57"><script type="text/plain">
+pub async fn start_cron_jobs(db: Arc<Mutex<Database>>) {
+    info!("Background cron engine started");
+
+    let (tx, mut rx) = mpsc::channel(1);
+    let _ = WAKE_TX.set(tx);
+
+    loop {
+        // We run a tick, then wait for either 60 seconds or a wake signal.
+        run_queue_tick(db.clone()).await;
+
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+            _ = rx.recv() => {</script>
+      <doc-pin line="66" tone="warn" title="Today: every tick sends all">A tick runs every 60 seconds. Without a hold, Cancel has less than a minute.</doc-pin>
+    </doc-code>
+    <doc-ask id="hold">
+      <p>How long does a queued return wait before it goes to BIR?</p>
+      <div class="opts-row">
+        <label><input type="radio" name="hold" value="5" checked> 5 minutes</label>
+        <label><input type="radio" name="hold" value="15"> 15 minutes</label>
+        <label><input type="radio" name="hold" value="0"> No hold <small>next tick</small></label>
+      </div>
+    </doc-ask>
+    <doc-note tone="warn"><strong>Deadline</strong> Near a due date, Send now skips the hold. The hold never makes a return late if the person presses it.</doc-note>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Send now needs the person's yes. Cancel and list do not.</p>
+    <doc-code title="opengrok-policy · grant for the bir plugin · sketch" lang="rust">
+<script type="text/plain">
+// Sending is the act that cannot come back, so it asks. Cancelling only stops a send,
+// and listing only reads, so they run without a card.
+needs_approval: ToolSet::of(["bir.bir-mcp.bir_form_submit", "bir.bir-mcp.bir_queue_send_now"]),
+</script>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
 <!-- ═════ 3 · TIERS 2–4 ═════ -->
 <doc-claim>
   <p>Tiers 2 to 4 add Jev, voice and a live Bot. Each falls back.</p>
@@ -2583,7 +2700,7 @@ pub struct Ask {
   </doc-claim>
 
   <doc-claim>
-    <p>Tier 3: speech becomes text in the chat box while the person speaks.</p>
+    <p>Tier 3: speech becomes text. The Mac does it unless a model is set.</p>
     <doc-code title="opengrok/src/state.rs:24969 · as it is today" lang="rust" start="24969" hl="24974">
 <script type="text/plain">
     pub fn start_voice_mode(&mut self, cx: &mut Context<Self>) {
@@ -2606,12 +2723,7 @@ pub struct Ask {
 </script>
       <doc-pin line="24974" title="The mic opens today">It gives only a sound level. Nothing makes text from it.</doc-pin>
     </doc-code>
-    <doc-ask id="stt">
-      <p>Where does speech become text?</p>
-      <label><input type="radio" name="stt" value="mac" checked> On the Mac <small>Apple Speech, on the device, works offline</small></label>
-      <label><input type="radio" name="stt" value="server"> On the server <small>through the gateway, never a direct key</small></label>
-    </doc-ask>
-    <doc-note tone="ok"><strong>Decided: on the Mac</strong> Spoken TINs and amounts stay on the device. The gateway has no speech route today.</doc-note>
+    <doc-note tone="ok"><strong>Decided</strong> The Mac's built-in speech is the default. In OpenGrok settings the person can pick a model for transcription or live voice chat. If none is set, the Mac's default answers.</doc-note>
   </doc-claim>
 
   <doc-claim>
