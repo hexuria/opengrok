@@ -20,6 +20,7 @@ version = "0.1.0"
 edition = "2024"
 # `cargo bundle` will not build the .app without it.
 description = "Chat with bots that work on their own computers."
+license = "MIT"
 # An app, not a library: nothing here is meant for crates.io.
 publish = false
 
