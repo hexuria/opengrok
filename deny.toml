@@ -42,7 +42,7 @@ confidence-threshold = 0.8
 exceptions = []
 
 [licenses.private]
-# nativechat itself is publish = false and carries no licence field.
+# nativechat itself is publish = false (its own licence is MIT, see LICENSE); skip it here.
 ignore = true
 
 [bans]
