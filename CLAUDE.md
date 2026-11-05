@@ -10,7 +10,7 @@ NativeChat is a macOS GPUI (`gpui-kit`) desktop client for **opengrok-server**. 
 NativeChat → opengrok-server (:1447, POST /ag-ui etc.) → open-ai-gateway (:29080) → models
 ```
 
-Sibling checkouts live in `/Volumes/goldcoders/OSS`: `opengrok-server` (the source of truth for every wire shape), `open-ai-gateway`, and `opengrok` (the reconstructed Electron "Grok Bot" client, used as the UX reference only; do not copy its 123-command wire).
+Sibling checkouts live in `/Volumes/goldcoders/hexuria`: `opengrok-server` (the source of truth for every wire shape), `open-ai-gateway`, and `opengrok` (the reconstructed Electron "Grok Bot" client, used as the UX reference only; do not copy its 123-command wire).
 
 ## Commands
 
