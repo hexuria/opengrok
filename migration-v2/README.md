@@ -8,9 +8,9 @@ Logic and phases only. No implementation in this folder.
 
 | Repo | Path | Role |
 |------|------|------|
-| opengrok-server | `/Volumes/goldcoders/OSS/opengrok-server` | Product: account, coworker, run, policy |
-| open-ai-gateway | `/Volumes/goldcoders/OSS/open-ai-gateway` | Model door: routes, keys, spend |
-| opengrok (Electron) | `/Volumes/goldcoders/OSS/opengrok` | Desktop look/feel; 123-command wire we do **not** copy |
+| opengrok-server | `/Volumes/goldcoders/hexuria/opengrok-server` | Product: account, coworker, run, policy |
+| open-ai-gateway | `/Volumes/goldcoders/hexuria/open-ai-gateway` | Model door: routes, keys, spend |
+| opengrok (Electron) | `/Volumes/goldcoders/hexuria/opengrok` | Desktop look/feel; 123-command wire we do **not** copy |
 | NativeChat | this repo | GPUI shell, local sqlite sessions, Gemini `LlmProvider` |
 
 **Live stack (dev):** `opengrok` `http://127.0.0.1:1447`, `oag` `http://127.0.0.1:29080`. NativeChat never talks to `:29080`.
